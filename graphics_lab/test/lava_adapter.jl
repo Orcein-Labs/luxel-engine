@@ -591,3 +591,5 @@ end
     bad = merge(payload, (mips=((bytes=fill(UInt8(1), 3),),),))
     @test_throws LavaAdapter.AdapterError LavaAdapter._texture_levels(bad)
 end
+
+include("camera_continuity.jl")

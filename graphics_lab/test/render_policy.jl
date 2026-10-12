@@ -65,15 +65,21 @@ end
     @test low.vignette[1] ≈ 0.22f0 atol = 1.0f-6
     @test low.dither[1] ≈ 1.0f0 atol = 1.0f-6   # milli_lsb 1000 -> 1.0 LSB
 
-    shadow_low = LavaAdapter._shadow_uniform(styled)
+    light_frame = LavaAdapter.CameraFrame(
+        Vec4f(0, 10, 0, 0), Vec4f(1, 0, 0, 0), Vec4f(0, 0, -1, 0),
+        Vec4f(0, -1, 0, 0), Vec4f(10, 10, 0.1, 100), 0f0, 64f0, 64f0,
+    )
+    shadow_low = LavaAdapter._shadow_uniform(styled, light_frame)
     @test shadow_low[1] ≈ 0.96f0 atol = 1.0f-6
     @test shadow_low[2] ≈ 2.4f0 atol = 1.0f-6   # milli 2400 -> 2.4 texels
 
     # Default lowering must be EXACTLY the historical arithmetic, not merely
     # close: 1.0f0 - 7500/10000 == 0.25f0 and 1000/1000 == 1.0f0.
-    default_shadow = LavaAdapter._shadow_uniform(LuxelGraphics.RenderPolicy())
+    default_shadow = LavaAdapter._shadow_uniform(LuxelGraphics.RenderPolicy(), light_frame)
     @test default_shadow[1] === 0.75f0
     @test default_shadow[2] === 1.0f0
+    @test default_shadow[3] === 0.0f0
+    @test default_shadow[4] === 0.0f0
 end
 
 @testset "dither breaks the banding it exists to break" begin
