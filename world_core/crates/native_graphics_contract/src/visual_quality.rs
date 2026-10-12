@@ -1178,7 +1178,10 @@ fn non_terrain_geometry_mask(
         // The N-3 backdrop is landform, not a prop. Its tiles also project
         // across the valley floor sunk under the world, and with no depth in
         // the capture they would erase the terrain they sit beneath.
-        if instance.instance_id.starts_with(crate::backdrop::BACKDROP_INSTANCE_PREFIX) {
+        if instance
+            .instance_id
+            .starts_with(crate::backdrop::BACKDROP_INSTANCE_PREFIX)
+        {
             continue;
         }
         let Some(mesh) = packet

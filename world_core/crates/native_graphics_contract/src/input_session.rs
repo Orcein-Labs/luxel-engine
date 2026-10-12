@@ -87,9 +87,7 @@ impl InputSample {
         }
         for value in self.gamepad_axes.iter().copied() {
             if !value.is_finite() {
-                return Err(GraphicsWorkerError::protocol(
-                    "gamepad axes must be finite",
-                ));
+                return Err(GraphicsWorkerError::protocol("gamepad axes must be finite"));
             }
         }
         if let Some(cursor) = self.cursor {
@@ -330,7 +328,11 @@ fn velocity_for(frame: &InputFrame, yaw_rad: f32) -> [f64; 2] {
     let world_x = right[0] * frame.move_x as f64 + forward[0] * frame.move_y as f64;
     let world_z = right[1] * frame.move_x as f64 + forward[1] * frame.move_y as f64;
     let length = (world_x * world_x + world_z * world_z).sqrt() as f32;
-    let scale = if length > 1.0 { scalar / length } else { scalar };
+    let scale = if length > 1.0 {
+        scalar / length
+    } else {
+        scalar
+    };
     [world_x * scale as f64, world_z * scale as f64]
 }
 
@@ -347,9 +349,8 @@ pub fn camera_intent(
     let pitch = pitch_rad.clamp(-1.2, 1.2) as f64;
     let eye = [
         position[0] - forward[0] * CAMERA_DISTANCE_M as f64 + right[0] * CAMERA_SHOULDER_M as f64,
-        (position[1] + 2.0 + (pitch.sin() * CAMERA_DISTANCE_M as f64)).max(
-            position[1] + CAMERA_MIN_HEIGHT_M as f64,
-        ),
+        (position[1] + 2.0 + (pitch.sin() * CAMERA_DISTANCE_M as f64))
+            .max(position[1] + CAMERA_MIN_HEIGHT_M as f64),
         position[2] - forward[1] * CAMERA_DISTANCE_M as f64 + right[1] * CAMERA_SHOULDER_M as f64,
     ];
     // Look direction from eye toward a point above the body origin.
@@ -388,9 +389,7 @@ pub fn trace_digest(steps: &[TraceStep]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(INPUT_TRACE_DIGEST_DOMAIN);
     for step in steps {
-        hasher.update(
-            serde_json::to_vec(step).expect("trace step serialization cannot fail"),
-        );
+        hasher.update(serde_json::to_vec(step).expect("trace step serialization cannot fail"));
     }
     format!("sha256:{}", hex(&hasher.finalize()))
 }
@@ -427,11 +426,12 @@ impl<'world> InputDrivenSession<'world> {
         world: &'world luxel_reference_runtime::WorldArtifact,
     ) -> Result<Self, GraphicsWorkerError> {
         session.validate_bound_world(world)?;
-        let physics_world = PhysicsWorld::new(world)
-            .map_err(|error| GraphicsWorkerError::provenance(format!("physics binding failed: {error}")))?;
-        let player = physics_world
-            .initialize_player()
-            .map_err(|error| GraphicsWorkerError::provenance(format!("player spawn failed: {error}")))?;
+        let physics_world = PhysicsWorld::new(world).map_err(|error| {
+            GraphicsWorkerError::provenance(format!("physics binding failed: {error}"))
+        })?;
+        let player = physics_world.initialize_player().map_err(|error| {
+            GraphicsWorkerError::provenance(format!("player spawn failed: {error}"))
+        })?;
         Ok(Self {
             session,
             physics: physics_world,
@@ -486,12 +486,9 @@ impl<'world> InputDrivenSession<'world> {
             expected_tick: frame.expected_tick,
             velocity_xz_mps: velocity,
         };
-        let receipt = self
-            .physics
-            .step(&self.player, input)
-            .map_err(|error| {
-                GraphicsWorkerError::provenance(format!("kinematic step rejected: {error}"))
-            })?;
+        let receipt = self.physics.step(&self.player, input).map_err(|error| {
+            GraphicsWorkerError::provenance(format!("kinematic step rejected: {error}"))
+        })?;
         self.player = receipt.body.next_state.clone();
         let disposition = match receipt.body.disposition {
             luxel_reference_runtime::KinematicStepDisposition::Advanced => "advanced",
@@ -528,11 +525,7 @@ impl<'world> InputDrivenSession<'world> {
         let mut applied = 0usize;
         for index in 0..ticks {
             let expected_tick = self.player.body.tick + 1;
-            let frame = frame_from_sample(
-                expected_tick,
-                sample,
-                INPUT_SIM_TICK_DT_MS as f32,
-            )?;
+            let frame = frame_from_sample(expected_tick, sample, INPUT_SIM_TICK_DT_MS as f32)?;
             self.apply_frame(frame)?;
             applied += 1;
             let _ = index;
@@ -688,7 +681,7 @@ mod tests {
             disposition: "advanced".into(),
             position_after_xyz_m: [0.0, 0.0, 0.5],
         };
-        let digest_a = trace_digest(&[step.clone()]);
+        let digest_a = trace_digest(std::slice::from_ref(&step));
         let digest_b = trace_digest(&[step]);
         assert_eq!(digest_a, digest_b, "digest is deterministic");
         let mut other = InputFrame::new(1);

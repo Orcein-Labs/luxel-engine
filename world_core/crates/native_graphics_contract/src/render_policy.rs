@@ -133,22 +133,11 @@ impl Default for VignettePolicy {
 /// dither only — a hash-based or temporal dither would make the certified
 /// frame depend on a noise sequence, which is exactly the determinism this
 /// engine is built on.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct DitherPolicy {
     /// Peak amplitude in thousandths of a quantisation step. Range [0, 2000].
     pub amplitude_milli_lsb: i32,
-}
-
-impl Default for DitherPolicy {
-    fn default() -> Self {
-        // Default OFF, not on. The baseline captures are frozen and must stay
-        // byte-identical until a candidate deliberately changes them; a default
-        // that silently alters every frame is a default that lies in a receipt.
-        Self {
-            amplitude_milli_lsb: 0,
-        }
-    }
 }
 
 /// Terrain surface policy: the channel that ends whole-world 0..1 UVs.
@@ -257,17 +246,11 @@ impl Default for SamplerPolicy {
 /// carried one texture across ~24.5 m of circumference, a ~150:1 smear — audit
 /// MD-4). Metric UVs fix that, but metric UVs exceed 1.0 and therefore REQUIRE
 /// a repeat wrap; with clamp they would smear the border texel instead.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct MeshSurfacePolicy {
     /// `true` samples mesh materials with REPEAT, `false` with the baseline clamp.
     pub wrap_repeat: bool,
-}
-
-impl Default for MeshSurfacePolicy {
-    fn default() -> Self {
-        Self { wrap_repeat: false }
-    }
 }
 
 /// View-relative shadow frustum fit.
@@ -516,12 +499,7 @@ impl Default for ResolvedRenderPolicy {
     }
 }
 
-fn bounded_i32(
-    value: i32,
-    low: i32,
-    high: i32,
-    label: &str,
-) -> Result<(), GraphicsContractError> {
+fn bounded_i32(value: i32, low: i32, high: i32, label: &str) -> Result<(), GraphicsContractError> {
     if value < low || value > high {
         return Err(GraphicsContractError::malformed(format!(
             "render policy {label} is {value}, outside [{low}, {high}]"
@@ -533,13 +511,13 @@ fn bounded_i32(
 /// Validate a policy. Every bound is stated, not implied: a policy a renderer
 /// silently clamps is a policy whose receipt lies about what was rendered.
 pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContractError> {
-    if let Some(coverage) = &policy.foliage_coverage {
-        if ![2, 4, 8].contains(&coverage.samples) {
-            return Err(GraphicsContractError::malformed(format!(
-                "render policy foliage_coverage.samples is {}, expected 2, 4 or 8",
-                coverage.samples
-            )));
-        }
+    if let Some(coverage) = &policy.foliage_coverage
+        && ![2, 4, 8].contains(&coverage.samples)
+    {
+        return Err(GraphicsContractError::malformed(format!(
+            "render policy foliage_coverage.samples is {}, expected 2, 4 or 8",
+            coverage.samples
+        )));
     }
     if let Some(grade) = &policy.grade {
         bounded_i32(grade.lift_r_bp, -1000, 1000, "grade.lift_r_bp")?;
@@ -552,7 +530,12 @@ pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContr
         bounded_i32(grade.saturation_bp, 0, 20000, "grade.saturation_bp")?;
     }
     if let Some(bloom) = &policy.bloom {
-        bounded_i32(bloom.threshold_bp, 0, POLICY_SCALE as i32, "bloom.threshold_bp")?;
+        bounded_i32(
+            bloom.threshold_bp,
+            0,
+            POLICY_SCALE as i32,
+            "bloom.threshold_bp",
+        )?;
         bounded_i32(bloom.intensity_bp, 0, 8000, "bloom.intensity_bp")?;
     }
     if let Some(vignette) = &policy.vignette {
@@ -580,7 +563,12 @@ pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContr
             32000,
             "terrain_surface.uv_repeat_scale_milli",
         )?;
-        bounded_i32(terrain.macro_variation_bp, 0, 5000, "terrain_surface.macro_variation_bp")?;
+        bounded_i32(
+            terrain.macro_variation_bp,
+            0,
+            5000,
+            "terrain_surface.macro_variation_bp",
+        )?;
         bounded_i32(
             terrain.macro_frequency_milli,
             1,
@@ -599,16 +587,21 @@ pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContr
             )));
         }
     }
-    if let Some(sampler) = &policy.sampler {
-        if sampler.anisotropy == 0 || sampler.anisotropy > 16 {
-            return Err(GraphicsContractError::malformed(format!(
-                "render policy sampler.anisotropy is {}, outside [1, 16]",
-                sampler.anisotropy
-            )));
-        }
+    if let Some(sampler) = &policy.sampler
+        && (sampler.anisotropy == 0 || sampler.anisotropy > 16)
+    {
+        return Err(GraphicsContractError::malformed(format!(
+            "render policy sampler.anisotropy is {}, outside [1, 16]",
+            sampler.anisotropy
+        )));
     }
     if let Some(shadow) = &policy.shadow {
-        bounded_i32(shadow.darkness_bp, 0, POLICY_SCALE as i32, "shadow.darkness_bp")?;
+        bounded_i32(
+            shadow.darkness_bp,
+            0,
+            POLICY_SCALE as i32,
+            "shadow.darkness_bp",
+        )?;
         bounded_i32(
             shadow.filter_radius_milli,
             100,
@@ -640,7 +633,12 @@ pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContr
         }
     }
     if let Some(debug) = &policy.debug {
-        bounded_i32(debug.albedo_override_bp, 0, POLICY_SCALE as i32, "debug.albedo_override_bp")?;
+        bounded_i32(
+            debug.albedo_override_bp,
+            0,
+            POLICY_SCALE as i32,
+            "debug.albedo_override_bp",
+        )?;
     }
     if let Some(atmosphere) = &policy.atmosphere {
         bounded_i32(
@@ -649,8 +647,18 @@ pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContr
             1000,
             "atmosphere.height_falloff_milli_per_m",
         )?;
-        bounded_i32(atmosphere.density_at_ground_bp, 0, 1000, "atmosphere.density_at_ground_bp")?;
-        bounded_i32(atmosphere.sun_scatter_gain_bp, 0, 20000, "atmosphere.sun_scatter_gain_bp")?;
+        bounded_i32(
+            atmosphere.density_at_ground_bp,
+            0,
+            1000,
+            "atmosphere.density_at_ground_bp",
+        )?;
+        bounded_i32(
+            atmosphere.sun_scatter_gain_bp,
+            0,
+            20000,
+            "atmosphere.sun_scatter_gain_bp",
+        )?;
         // The haze fades distance into the sky actually behind it, which needs
         // a per-pixel sky to fade into; the screen-space sky has no view ray.
         if policy.sky.is_none() {
@@ -674,7 +682,9 @@ pub fn validate_packet_render_policy(
         // Macro variation samples the layer set's macro noise texture; on a
         // single-material terrain there is nothing to sample, so the axis
         // would be decorative. Refuse rather than ignore.
-        if policy.terrain_surface.is_some_and(|terrain| terrain.macro_variation_bp > 0)
+        if policy
+            .terrain_surface
+            .is_some_and(|terrain| terrain.macro_variation_bp > 0)
             && body.terrain.layers.is_none()
         {
             return Err(GraphicsContractError::malformed(

@@ -8,23 +8,26 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use luxel_asset_contract::{AssetPreparationReceipt, RenderAssetPackage};
+use luxel_project_ledger::{
+    SceneArtifact, validate_scene_against_asset_receipts_and_render_assets,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use luxel_asset_contract::{AssetPreparationReceipt, RenderAssetPackage};
-use luxel_project_ledger::{SceneArtifact, validate_scene_against_asset_receipts_and_render_assets};
 
 use crate::{
-    ADAPTER_REVISION, Campaign2View, CaptureFormat, FRAME_RECEIPT_SCHEMA, FrameStatus,
+    ADAPTER_REVISION, CalibrationRig, Campaign2Inputs, Campaign2LoweringInputs,
+    Campaign2OutputResolution, Campaign2View, CaptureFormat, FRAME_RECEIPT_SCHEMA, FrameStatus,
     GraphicsAssetProjection, GraphicsCamera, GraphicsContractError, GraphicsFrameMeasurements,
     GraphicsFrameReceipt, GraphicsFrameReceiptBody, GraphicsReady, GraphicsRendererAttestation,
     GraphicsRendererAttestationBody, GraphicsScenePacket, GraphicsTelemetry, LAVA_BACKEND_ID,
-    LAVA_REVISION, MAX_DENSE_BENCHMARK_INSTANCES, canonical_json, compose_bound_scene_with_view, CalibrationRig,
-    lower_campaign2_packet, lower_campaign2_packet_inputs, lower_dense_benchmark_packet, Campaign2Inputs,
-    ParityContent, ParityPolicyCandidate, TerrainLayerSet, lower_objective_close_packet,
-    lower_reference_world, lower_showcase_packet, lower_world_showcase_packet,
-    measure_frame_capture, seal_frame_receipt_with_capture, seal_renderer_attestation,
-    seal_scene_packet, sha256_prefixed, validate_native_visual_gate, validate_ready,
-    validate_scene_packet, validate_texture_residency_telemetry,
+    LAVA_REVISION, MAX_DENSE_BENCHMARK_INSTANCES, ParityContent, ParityPolicyCandidate,
+    TerrainLayerSet, canonical_json, compose_bound_scene_with_view, lower_campaign2_packet,
+    lower_campaign2_packet_with_resolution_inputs, lower_dense_benchmark_packet,
+    lower_objective_close_packet, lower_reference_world, lower_showcase_packet,
+    lower_world_showcase_packet, measure_frame_capture, seal_frame_receipt_with_capture,
+    seal_renderer_attestation, seal_scene_packet, sha256_prefixed, validate_native_visual_gate,
+    validate_ready, validate_scene_packet, validate_texture_residency_telemetry,
 };
 use luxel_reference_runtime::{WorldArtifact, validate_world_artifact};
 
@@ -337,7 +340,13 @@ impl GraphicsWorkerSupervisor {
         self.render_and_promote_campaign2(
             packet,
             world,
-            &Campaign2Inputs { candidate, content, terrain_layers: Some(terrain_layers), kit: None, backdrop: None },
+            &Campaign2Inputs {
+                candidate,
+                content,
+                terrain_layers: Some(terrain_layers),
+                kit: None,
+                backdrop: None,
+            },
         )
     }
 
@@ -351,9 +360,28 @@ impl GraphicsWorkerSupervisor {
         world: &WorldArtifact,
         inputs: &Campaign2Inputs<'_>,
     ) -> Result<PromotedFrame, GraphicsWorkerError> {
+        self.render_and_promote_campaign2_with_resolution(
+            packet,
+            world,
+            &Campaign2LoweringInputs {
+                campaign: inputs,
+                output_resolution: Campaign2OutputResolution::Native,
+            },
+        )
+    }
+
+    /// Render a Campaign 2 packet with the explicit R-2 resolution choice.
+    /// The supervisor re-derives the exact authorized packet using the same
+    /// typed choice before sending it to the worker.
+    pub fn render_and_promote_campaign2_with_resolution(
+        &mut self,
+        packet: &GraphicsScenePacket,
+        world: &WorldArtifact,
+        inputs: &Campaign2LoweringInputs<'_>,
+    ) -> Result<PromotedFrame, GraphicsWorkerError> {
         validate_scene_packet(packet).map_err(GraphicsWorkerError::contract)?;
         validate_world_artifact_binding(packet, world)?;
-        validate_authorized_world_projection(packet, world, Some(inputs))?;
+        validate_authorized_world_projection(packet, world, Some(*inputs))?;
         self.render_validated_and_promote(packet)
     }
 
@@ -787,12 +815,12 @@ impl GraphicsWorkerSupervisor {
 fn validate_authorized_world_projection(
     packet: &GraphicsScenePacket,
     world: &WorldArtifact,
-    campaign2_inputs: Option<&Campaign2Inputs<'_>>,
+    campaign2_inputs: Option<Campaign2LoweringInputs<'_>>,
 ) -> Result<(), GraphicsWorkerError> {
     let reference = lower_reference_world(world).map_err(GraphicsWorkerError::contract)?;
     let campaign2 = |view| match campaign2_inputs {
         None => lower_campaign2_packet(&reference, view),
-        Some(inputs) => lower_campaign2_packet_inputs(&reference, view, inputs),
+        Some(inputs) => lower_campaign2_packet_with_resolution_inputs(&reference, view, &inputs),
     };
     let mut authorized = vec![
         reference.clone(),
@@ -815,7 +843,11 @@ fn validate_authorized_world_projection(
     .map(|(view, _)| view);
     let views: Vec<Campaign2View> = match named_view {
         Some(view) => vec![view],
-        None => vec![Campaign2View::Close, Campaign2View::Medium, Campaign2View::Wide],
+        None => vec![
+            Campaign2View::Close,
+            Campaign2View::Medium,
+            Campaign2View::Wide,
+        ],
     };
     for view in views {
         authorized.push(campaign2(view).map_err(GraphicsWorkerError::contract)?);

@@ -196,8 +196,10 @@ fn supervised_offscreen_capture_is_bound_into_the_live_session() {
     let graphics_lab = workspace_root.join("graphics_lab");
     let terrain_lab = workspace_root.join("terrain_lab");
     let worker = graphics_lab.join("bin/luxel_graphics_worker.jl");
-    let output_dir =
-        std::env::temp_dir().join(format!("luxel-live-graphics-contract-{}", std::process::id()));
+    let output_dir = std::env::temp_dir().join(format!(
+        "luxel-live-graphics-contract-{}",
+        std::process::id()
+    ));
     fs::create_dir_all(&output_dir).expect("test output directory is writable");
     let input = output_dir.join("riverwatch.layout.json");
     fs::copy(&layout, &input).expect("layout copies into temp fixture directory");

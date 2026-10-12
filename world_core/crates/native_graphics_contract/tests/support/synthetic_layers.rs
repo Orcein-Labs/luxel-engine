@@ -3,20 +3,30 @@
 //! depend on the network, so they exercise the same builder with generated art.
 
 use luxel_native_graphics_contract::{
-    LayerCoverage, LayerSource, LayerTextureSizes, MacroRamp, SquareRgba8, TerrainLayerSet, build_terrain_layer_set,
+    LayerCoverage, LayerSource, LayerTextureSizes, MacroRamp, SquareRgba8, TerrainLayerSet,
+    build_terrain_layer_set,
 };
 
 pub fn checker(side: u32, a: [u8; 4], b: [u8; 4]) -> SquareRgba8 {
     let mut bytes = Vec::with_capacity((side * side * 4) as usize);
     for row in 0..side {
         for column in 0..side {
-            bytes.extend(if (row / 4 + column / 4) % 2 == 0 { a } else { b });
+            bytes.extend(if (row / 4 + column / 4) % 2 == 0 {
+                a
+            } else {
+                b
+            });
         }
     }
     SquareRgba8 { side, bytes }
 }
 
-pub fn source(layer_id: &str, tint: [u8; 4], metres_mm: u32, coverage: Option<LayerCoverage>) -> LayerSource {
+pub fn source(
+    layer_id: &str,
+    tint: [u8; 4],
+    metres_mm: u32,
+    coverage: Option<LayerCoverage>,
+) -> LayerSource {
     LayerSource {
         layer_id: layer_id.into(),
         source: format!("synthetic-{layer_id}"),

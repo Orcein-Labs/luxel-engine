@@ -561,13 +561,23 @@ fn backdrop_instances_are_landform_not_props() {
     let base_packet = packet(false);
     let pixels = structured_terrain();
     let profile = VisualQualityProfile::terrain_reference_v1(IMAGE_SIDE as u32, IMAGE_SIDE as u32);
-    let base = assess_visual_quality(&base_packet, &receipt(&base_packet, &pixels), &pixels, &profile);
+    let base = assess_visual_quality(
+        &base_packet,
+        &receipt(&base_packet, &pixels),
+        &pixels,
+        &profile,
+    );
     let mut body = base_packet.body;
     body.packet_id = "quality-backdrop-packet".into();
     body.capture.capture_id = "quality-backdrop-capture".into();
     body.meshes.push(MeshPacket {
         mesh_id: "quality-backdrop-tile".into(),
-        positions_m: vec![[-6.0, -3.0, -6.0], [6.0, -3.0, -6.0], [6.0, -3.0, 6.0], [-6.0, -3.0, 6.0]],
+        positions_m: vec![
+            [-6.0, -3.0, -6.0],
+            [6.0, -3.0, -6.0],
+            [6.0, -3.0, 6.0],
+            [-6.0, -3.0, 6.0],
+        ],
         normals: vec![[0.0, 1.0, 0.0]; 4],
         uv0: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
         indices: vec![0, 1, 2, 0, 2, 3],
@@ -587,11 +597,18 @@ fn backdrop_instances_are_landform_not_props() {
         variation: None,
     });
     let backdrop_packet = seal_scene_packet(body).expect("backdrop fixture reseals");
-    let backdrop =
-        assess_visual_quality(&backdrop_packet, &receipt(&backdrop_packet, &pixels), &pixels, &profile);
+    let backdrop = assess_visual_quality(
+        &backdrop_packet,
+        &receipt(&backdrop_packet, &pixels),
+        &pixels,
+        &profile,
+    );
     let base = base.body.measurements.expect("base measurements");
     let with_backdrop = backdrop.body.measurements.expect("backdrop measurements");
-    assert_eq!(with_backdrop.terrain_region_pixels, base.terrain_region_pixels);
+    assert_eq!(
+        with_backdrop.terrain_region_pixels,
+        base.terrain_region_pixels
+    );
     assert_eq!(with_backdrop.authored_geometry_pixels, 0);
     assert_eq!(with_backdrop.region_coverage_bp, base.region_coverage_bp);
 }

@@ -4102,7 +4102,8 @@ function _record_scene_with_reflection!(
     reflection_framebuffer = _framebuffer!(state, scene_framebuffer.width, scene_framebuffer.height, true, :reflection)
     _record_scene_passes!(state, packet, _mirrored_frame(camera_frame, water.surface_y_m), lighting,
                           environment_lighting, material, texture_enabled, reflection_framebuffer,
-                          OffscreenTarget(reflection_framebuffer); reflection_pass=true)
+                          OffscreenTarget(reflection_framebuffer); reflection_pass=true,
+                          shadow_camera_frame=camera_frame)
     reflection = _framebuffer_texture(reflection_framebuffer, state)
     return _record_scene_passes!(state, packet, camera_frame, lighting, environment_lighting, material,
                                  texture_enabled, scene_framebuffer, scene_target; reflection_texture=reflection)
@@ -4305,7 +4306,16 @@ function _view_fitted_shadow_frame(
     up::Vec4f,
     view_distance::Float32,
 )::CameraFrame
-    camera = _camera_frame(view_camera)
+    return _view_fitted_shadow_frame(_camera_frame(view_camera), light_direction, right, up, view_distance)
+end
+
+function _view_fitted_shadow_frame(
+    camera::CameraFrame,
+    light_direction::Vec4f,
+    right::Vec4f,
+    up::Vec4f,
+    view_distance::Float32,
+)::CameraFrame
     near = camera.projection[3]
     far = min(camera.projection[4], view_distance)
     far > near || throw(AdapterError(
@@ -4360,6 +4370,7 @@ end
 function _shadow_frame(
     packet::LuxelGraphics.GraphicsScenePacket,
     lighting::DirectionalLighting,
+    view::CameraFrame=_camera_frame(packet.camera),
 )::CameraFrame
     raw_light_direction = lighting.direction
     up_hint = _shadow_up_hint(raw_light_direction)
@@ -4371,7 +4382,7 @@ function _shadow_frame(
 
     fit = packet.render_policy.shadow_fit
     if fit !== nothing
-        return _view_fitted_shadow_frame(packet.camera, light_direction, right, up, Float32(fit.view_distance_m))
+        return _view_fitted_shadow_frame(view, light_direction, right, up, Float32(fit.view_distance_m))
     end
 
     minimum_height = minimum(packet.terrain.heights_m)
@@ -5470,17 +5481,22 @@ function _shadow_resources!(
     state::LavaBackend,
     packet::LuxelGraphics.GraphicsScenePacket,
     lighting::DirectionalLighting,
+    view::CameraFrame=_camera_frame(packet.camera),
 )::ShadowResources
     current = state.shadow_resources
-    current !== nothing && current.cache_key == packet.content_sha256 && return current
-    light_frame = _shadow_frame(packet, lighting)
+    reusable = current !== nothing && current.cache_key == packet.content_sha256
+    # Whole-world shadows do not depend on the preview camera. Fitted shadows
+    # must follow the actual view, including a presented camera override.
+    reusable && packet.render_policy.shadow_fit === nothing && return current
+    light_frame = _shadow_frame(packet, lighting, view)
+    reusable && current.light_frame == light_frame && return current
     size = _shadow_map_size(packet.render_policy)
-    framebuffer = _framebuffer!(state, size, size, true, :shadow)
-    texture = _framebuffer_texture(framebuffer, state)
+    framebuffer = reusable ? current.framebuffer : _framebuffer!(state, size, size, true, :shadow)
+    texture = reusable ? current.texture : _framebuffer_texture(framebuffer, state)
     # Linear depth filtering softens the bounded PCF taps without changing
     # the typed shadow contract. Nearest filtering made hero-scale shadows
     # visibly stair-stepped in the native showcase.
-    sampler = Lava.LavaSampler(ctx=state.context, filter=:linear, wrap=:clamp)
+    sampler = reusable ? current.sampler : Lava.LavaSampler(ctx=state.context, filter=:linear, wrap=:clamp)
     created = ShadowResources(packet.content_sha256, framebuffer, texture, sampler, light_frame)
     terrain = _terrain_resources!(state, packet)
     visibility = _mesh_visibility(packet, light_frame)
@@ -5745,11 +5761,12 @@ function _record_scene_passes!(
     scene_target::Lava.OffscreenTarget;
     reflection_pass::Bool=false,
     reflection_texture=nothing,
+    shadow_camera_frame::CameraFrame=camera_frame,
 )
     prepare_started_ns = time_ns()
     prepare_gpu_timing_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.prepare)
     resources = _terrain_resources!(state, packet)
-    shadow_resources = _shadow_resources!(state, packet, lighting)
+    shadow_resources = _shadow_resources!(state, packet, lighting, shadow_camera_frame)
     # Refuse an unhonourable policy axis before any GPU work, so the failure is
     # a clean typed error rather than a frame that quietly ignored its policy.
     _assert_render_policy_supported(

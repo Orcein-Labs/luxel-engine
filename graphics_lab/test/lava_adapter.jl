@@ -593,3 +593,4 @@ end
 end
 
 include("camera_continuity.jl")
+include("shadow_consistency.jl")

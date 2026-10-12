@@ -8,10 +8,11 @@
 //! JSON, but re-sealing a committed packet can.
 
 use luxel_native_graphics_contract::{
-    BloomPolicy, DitherPolicy, GradePolicy, MeshSurfacePolicy, RenderPolicy, SamplerPolicy,
-    ShadowFitPolicy, ShadowPolicy, SkyModel, SkyPolicy, AtmospherePolicy, DebugPolicy, FoliageCoveragePolicy, IblPolicy, TerrainSurfacePolicy, VignettePolicy, canonical_json, seal_scene_packet, validate_render_policy,
-    validate_scene_packet, GraphicsContractError, GraphicsScenePacketBody, POLICY_SCALE,
-    SCENE_PACKET_SCHEMA,
+    AtmospherePolicy, BloomPolicy, DebugPolicy, DitherPolicy, FoliageCoveragePolicy, GradePolicy,
+    GraphicsContractError, GraphicsScenePacketBody, IblPolicy, MeshSurfacePolicy, POLICY_SCALE,
+    RenderPolicy, SCENE_PACKET_SCHEMA, SamplerPolicy, ShadowFitPolicy, ShadowPolicy, SkyModel,
+    SkyPolicy, TerrainSurfacePolicy, VignettePolicy, canonical_json, seal_scene_packet,
+    validate_render_policy, validate_scene_packet,
 };
 
 const SOURCE_SHA: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -61,7 +62,10 @@ fn committed_packet_reseals_identically_with_render_policy_module_present() {
     let raw = std::fs::read_to_string(&path).expect("committed packet reads");
     let value: serde_json::Value = serde_json::from_str(&raw).expect("committed packet parses");
     let committed = value["packet_sha256"].as_str().expect("digest").to_owned();
-    assert_eq!(value["body"]["schema_version"], "luxel.graphics-scene-packet/v6");
+    assert_eq!(
+        value["body"]["schema_version"],
+        "luxel.graphics-scene-packet/v6"
+    );
 
     let body: GraphicsScenePacketBody =
         serde_json::from_value(value["body"].clone()).expect("body deserializes");
@@ -110,7 +114,10 @@ fn presence_actually_changes_the_digest() {
     );
     validate_scene_packet(&a).expect("policy packet validates");
     let json = String::from_utf8(canonical_json(&a.body).expect("json")).expect("utf8");
-    assert!(json.contains("render_policy"), "present policy omitted its key");
+    assert!(
+        json.contains("render_policy"),
+        "present policy omitted its key"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -140,7 +147,10 @@ fn default_policy_reproduces_the_frozen_baseline_renderer_behaviour() {
         resolved.bloom.intensity_bp, 0,
         "default bloom must be off; the baseline post chain was a tonemap only"
     );
-    assert_eq!(resolved.vignette.strength_bp, 0, "default vignette must be off");
+    assert_eq!(
+        resolved.vignette.strength_bp, 0,
+        "default vignette must be off"
+    );
     assert_eq!(
         resolved.shadow.darkness_bp, 7500,
         "default shadow darkness must be 0.75, i.e. the historical \
@@ -165,7 +175,11 @@ fn default_policy_reproduces_the_frozen_baseline_renderer_behaviour() {
     ] {
         assert_eq!(
             actual,
-            if label.starts_with("lift") { 0 } else { POLICY_SCALE as i32 },
+            if label.starts_with("lift") {
+                0
+            } else {
+                POLICY_SCALE as i32
+            },
             "default grade {label} must be identity"
         );
     }
@@ -180,7 +194,7 @@ fn default_policy_reproduces_the_frozen_baseline_renderer_behaviour() {
 /// branches on the field name in the detail, not on a proliferation of codes),
 /// so asserting on `code` here would assert twelve copies of "malformed".
 fn code(result: Result<(), GraphicsContractError>) -> String {
-    result.err().expect("expected rejection").message
+    result.expect_err("expected rejection").message
 }
 
 #[test]
@@ -420,7 +434,13 @@ fn terrain_wrap_repeat_survives_serde_as_a_real_boolean() {
         "wrap_repeat did not serialize as a JSON boolean"
     );
     let back: GraphicsScenePacketBody = serde_json::from_value(value).expect("deserialize");
-    assert!(back.render_policy.unwrap().terrain_surface.unwrap().wrap_repeat);
+    assert!(
+        back.render_policy
+            .unwrap()
+            .terrain_surface
+            .unwrap()
+            .wrap_repeat
+    );
 }
 
 #[test]
@@ -495,19 +515,26 @@ fn a_full_policy_survives_serde_round_trip_and_revalidates() {
             filter_radius_milli: 2400,
         }),
         mesh_surface: Some(MeshSurfacePolicy { wrap_repeat: true }),
-        shadow_fit: Some(ShadowFitPolicy { view_distance_m: 60, map_size_px: None }),
+        shadow_fit: Some(ShadowFitPolicy {
+            view_distance_m: 60,
+            map_size_px: None,
+        }),
         sky: Some(SkyPolicy {
             sun_disc_radius_milli_deg: 650,
             sun_disc_gain_bp: 120_000,
             sun_glow_gain_bp: 2_400,
-            model: Some(SkyModel::Analytic { turbidity_milli: 3000 }),
+            model: Some(SkyModel::Analytic {
+                turbidity_milli: 3000,
+            }),
         }),
         atmosphere: Some(AtmospherePolicy {
             height_falloff_milli_per_m: 15,
             density_at_ground_bp: 50,
             sun_scatter_gain_bp: 300,
         }),
-        debug: Some(DebugPolicy { albedo_override_bp: 5000 }),
+        debug: Some(DebugPolicy {
+            albedo_override_bp: 5000,
+        }),
         // Disabled: an enabled axis needs the baked textures (tests/ibl.rs).
         ibl: Some(IblPolicy { enabled: false }),
         foliage_coverage: Some(FoliageCoveragePolicy { samples: 4 }),
@@ -515,7 +542,13 @@ fn a_full_policy_survives_serde_round_trip_and_revalidates() {
     b.schema_version = SCENE_PACKET_SCHEMA.into();
     validate_render_policy(b.render_policy.as_ref().unwrap()).expect("full policy validates");
     let mut decorative = b.clone();
-    if let Some(terrain) = decorative.render_policy.as_mut().unwrap().terrain_surface.as_mut() {
+    if let Some(terrain) = decorative
+        .render_policy
+        .as_mut()
+        .unwrap()
+        .terrain_surface
+        .as_mut()
+    {
         terrain.macro_variation_bp = 900;
     }
     assert!(
@@ -559,11 +592,17 @@ fn source_digest_is_bound_to_the_policy() {
 #[test]
 fn foliage_coverage_takes_two_four_or_eight_samples() {
     for samples in [2u8, 4, 8] {
-        let policy = RenderPolicy { foliage_coverage: Some(FoliageCoveragePolicy { samples }), ..RenderPolicy::default() };
+        let policy = RenderPolicy {
+            foliage_coverage: Some(FoliageCoveragePolicy { samples }),
+            ..RenderPolicy::default()
+        };
         validate_render_policy(&policy).expect("valid sample count");
     }
     for samples in [0u8, 1, 3, 16] {
-        let policy = RenderPolicy { foliage_coverage: Some(FoliageCoveragePolicy { samples }), ..RenderPolicy::default() };
+        let policy = RenderPolicy {
+            foliage_coverage: Some(FoliageCoveragePolicy { samples }),
+            ..RenderPolicy::default()
+        };
         let error = validate_render_policy(&policy).expect_err("refused");
         assert!(error.to_string().contains("foliage_coverage"), "{error}");
     }
