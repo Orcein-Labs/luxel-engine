@@ -2,6 +2,20 @@
 
 2026-10-06 · Matt · the layered maturation path. Each layer stands on the one above it.
 
+Product direction reaffirmed 2026-10-12: Luxel is a creative engine for worlds,
+characters, avatars, cinematography, lightweight interactive wallpapers and
+other applications. Games are one consumer. Blender and Gaea are its intended
+external authoring tools; compatibility adapters do not make their target
+engines required dependencies. A UE5-class photorealistic cinematic mode is
+a future Luxel quality tier. Multiple art styles remain a requirement across
+these applications, with explicit quality and runtime budgets for each.
+
+The [October 12 development recovery](world/converge/2026-10-12-development-recovery.md)
+reconstructs Claude's checkpoint and the later experiments. The current
+bounded continuation is [moving-camera resource correctness](world/converge/2026-10-12-camera-continuity.md),
+before resuming shadow consistency/cascades, crispness, contact grounding and
+the redwood forest settlement.
+
 ```text
 WORLD          terrain → atmosphere → materials → lighting → vegetation → architecture
 CHARACTERS     import → skeleton → weights → skinning → animation → equipment sockets

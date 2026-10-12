@@ -1,6 +1,8 @@
 # Luxel Engine docs
 
-Start with [roadmap.md](roadmap.md). The engine's name and the internal `luxel` prefix: [adr/0001-luxel-engine-name.md](adr/0001-luxel-engine-name.md). Docs are filed by roadmap layer; closed
+Start with [roadmap.md](roadmap.md). For the October 12 continuation, read the
+[development recovery](world/converge/2026-10-12-development-recovery.md) and
+[camera continuity contract](world/converge/2026-10-12-camera-continuity.md). The engine's name and the internal `luxel` prefix: [adr/0001-luxel-engine-name.md](adr/0001-luxel-engine-name.md). Docs are filed by roadmap layer; closed
 handoffs and reports live in `archive/`, bundled by month and topic, each with
 a `SUMMARY.md`.
 

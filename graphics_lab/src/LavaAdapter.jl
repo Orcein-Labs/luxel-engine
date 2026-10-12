@@ -38,15 +38,10 @@ struct TerrainResources
     resolution::Int32
 end
 
-struct OverlayResources
-    cache_key::String
-    positions::Lava.LavaArray{Vec4f,1}
-    colors::Lava.LavaArray{Vec4f,1}
-    vertex_count::Int
-end
-
 struct MeshBatchResources
+    mesh_id::String
     material_id::String
+    instance_ids::Vector{String}
     positions::Lava.LavaArray{Vec4f,1}
     normals::Lava.LavaArray{Vec4f,1}
     uvs::Lava.LavaArray{Vec2f,1}
@@ -60,15 +55,6 @@ struct MeshBatchResources
     emissive_parameters::Lava.LavaArray{Vec4f,1}
     vertex_count::Int
     instance_count::Int
-end
-
-struct MeshResources
-    cache_key::String
-    batches::Vector{MeshBatchResources}
-    instance_count::Int
-    visible_instance_count::Int
-    culled_instance_count::Int
-    vertex_count::Int
 end
 
 struct MeshVisibility
@@ -181,6 +167,25 @@ struct CameraFrame
     mode::Float32
     width_px::Float32
     height_px::Float32
+end
+
+struct MeshResources
+    cache_key::String
+    frame::CameraFrame
+    visible_instance_ids::Vector{String}
+    batches::Vector{MeshBatchResources}
+    instance_count::Int
+    visible_instance_count::Int
+    culled_instance_count::Int
+    vertex_count::Int
+end
+
+struct OverlayResources
+    cache_key::String
+    frame::CameraFrame
+    positions::Lava.LavaArray{Vec4f,1}
+    colors::Lava.LavaArray{Vec4f,1}
+    vertex_count::Int
 end
 
 struct ShadowResources
@@ -5119,6 +5124,17 @@ end
 `BACKDROP_INSTANCE_PREFIX` in `world_core/crates/native_graphics_contract/src/backdrop.rs`."""
 const BACKDROP_INSTANCE_PREFIX = "backdrop-"
 
+function _store_mesh_resources!(state::LavaBackend, cache::Symbol, resources::MeshResources)
+    if cache === :shadow
+        state.shadow_mesh_resources = resources
+    elseif cache === :reflection
+        state.reflection_mesh_resources = resources
+    else
+        state.mesh_resources = resources
+    end
+    return resources
+end
+
 function _mesh_resources!(
     state::LavaBackend,
     packet::LuxelGraphics.GraphicsScenePacket,
@@ -5130,7 +5146,9 @@ function _mesh_resources!(
 )::Union{Nothing,MeshResources}
     current = cache === :shadow ? state.shadow_mesh_resources :
               cache === :reflection ? state.reflection_mesh_resources : state.mesh_resources
-    current !== nothing && current.cache_key == packet.content_sha256 && return current
+    reusable = current !== nothing && current.cache_key == packet.content_sha256
+    reusable && current.frame == frame && return current
+    visible_instance_ids = String[]
     groups = Dict{Tuple{String,String},Vector{LuxelGraphics.InstancePacket}}()
     for instance in packet.instances
         _instance_visible(frame, packet, instance) || continue
@@ -5139,11 +5157,20 @@ function _mesh_resources!(
         # the pool; a puddle's mirrored rays from the authored cameras rise
         # 10-14 degrees, which is sky, so the backdrop is simply not reflected.
         cache === :reflection && startswith(instance.instance_id, BACKDROP_INSTANCE_PREFIX) && continue
+        push!(visible_instance_ids, instance.instance_id)
         key = (instance.mesh_id, instance.material_id)
         instances = get!(groups, key) do
             LuxelGraphics.InstancePacket[]
         end
         push!(instances, instance)
+    end
+    if reusable && current.visible_instance_ids == visible_instance_ids
+        # Only metadata changes when a pan retains the same draw membership.
+        return _store_mesh_resources!(state, cache, MeshResources(
+            packet.content_sha256, frame, visible_instance_ids, current.batches,
+            visibility.instance_count, visibility.visible_instance_count,
+            visibility.culled_instance_count, current.vertex_count,
+        ))
     end
     isempty(groups) && return nothing
 
@@ -5154,33 +5181,48 @@ function _mesh_resources!(
         mesh_index === nothing && throw(AdapterError("provenance", "instance references an absent mesh"))
         mesh_packet = packet.meshes[mesh_index]
         material = _material(packet, material_id)
+        batch_instances = groups[(mesh_id, material_id)]
+        instance_ids = [instance.instance_id for instance in batch_instances]
+        prior_index = reusable ? findfirst(batch -> batch.mesh_id == mesh_id &&
+            batch.material_id == material_id && batch.instance_ids == instance_ids, current.batches) : nothing
+        if prior_index !== nothing
+            prior = current.batches[prior_index]
+            push!(batches, prior)
+            total_vertices += prior.vertex_count
+            continue
+        end
+        # Geometry is packet-owned; a camera changes instance membership, not
+        # mesh streams. Retain the old mesh buffers even when membership changes.
+        geometry_index = reusable ? findfirst(batch -> batch.mesh_id == mesh_id, current.batches) : nothing
+        geometry = geometry_index === nothing ? nothing : current.batches[geometry_index]
         positions = Vec4f[]
         normals = Vec4f[]
         uvs = Vec2f[]
         tangents = Vec4f[]
-        for triangle_start in 1:3:length(mesh_packet.indices)
-            first_index = Int(mesh_packet.indices[triangle_start]) + 1
-            second_index = Int(mesh_packet.indices[triangle_start + 1]) + 1
-            third_index = Int(mesh_packet.indices[triangle_start + 2]) + 1
-            triangle_tangent = _mesh_triangle_tangent(
-                mesh_packet,
-                first_index,
-                second_index,
-                third_index,
-            )
-            for vertex in (first_index, second_index, third_index)
-                push!(positions, Vec4f(mesh_packet.positions_m[vertex]..., 0.0f0))
-                push!(normals, Vec4f(mesh_packet.normals[vertex]..., 0.0f0))
-                push!(uvs, Vec2f(mesh_packet.uv0[vertex]...))
-                push!(
-                    tangents,
-                    isempty(mesh_packet.tangents) ?
-                    triangle_tangent :
-                    Vec4f(mesh_packet.tangents[vertex]...),
+        if geometry === nothing
+            for triangle_start in 1:3:length(mesh_packet.indices)
+                first_index = Int(mesh_packet.indices[triangle_start]) + 1
+                second_index = Int(mesh_packet.indices[triangle_start + 1]) + 1
+                third_index = Int(mesh_packet.indices[triangle_start + 2]) + 1
+                triangle_tangent = _mesh_triangle_tangent(
+                    mesh_packet,
+                    first_index,
+                    second_index,
+                    third_index,
                 )
+                for vertex in (first_index, second_index, third_index)
+                    push!(positions, Vec4f(mesh_packet.positions_m[vertex]..., 0.0f0))
+                    push!(normals, Vec4f(mesh_packet.normals[vertex]..., 0.0f0))
+                    push!(uvs, Vec2f(mesh_packet.uv0[vertex]...))
+                    push!(
+                        tangents,
+                        isempty(mesh_packet.tangents) ?
+                        triangle_tangent :
+                        Vec4f(mesh_packet.tangents[vertex]...),
+                    )
+                end
             end
         end
-        batch_instances = groups[(mesh_id, material_id)]
         translations = Vec4f[
             Vec4f(instance.transform.translation_xyz_m..., 0.0f0) for instance in batch_instances
         ]
@@ -5212,10 +5254,10 @@ function _mesh_resources!(
             # texture's BLUE channel (glTF packing), 1 = factor only.
             Vec4f(material.emissive_factor_rgb..., material.metallic_from_texture ? 2.0f0 : 1.0f0) for _ in batch_instances
         ]
-        gpu_positions = Lava.LavaArray{Vec4f,1}(positions; bq=state.queue)
-        gpu_normals = Lava.LavaArray{Vec4f,1}(normals; bq=state.queue)
-        gpu_uvs = Lava.LavaArray{Vec2f,1}(uvs; bq=state.queue)
-        gpu_tangents = Lava.LavaArray{Vec4f,1}(tangents; bq=state.queue)
+        gpu_positions = geometry === nothing ? Lava.LavaArray{Vec4f,1}(positions; bq=state.queue) : geometry.positions
+        gpu_normals = geometry === nothing ? Lava.LavaArray{Vec4f,1}(normals; bq=state.queue) : geometry.normals
+        gpu_uvs = geometry === nothing ? Lava.LavaArray{Vec2f,1}(uvs; bq=state.queue) : geometry.uvs
+        gpu_tangents = geometry === nothing ? Lava.LavaArray{Vec4f,1}(tangents; bq=state.queue) : geometry.tangents
         gpu_translations = Lava.LavaArray{Vec4f,1}(translations; bq=state.queue)
         gpu_rotations = Lava.LavaArray{Vec4f,1}(rotations; bq=state.queue)
         gpu_scales = Lava.LavaArray{Vec4f,1}(scales; bq=state.queue)
@@ -5225,16 +5267,19 @@ function _mesh_resources!(
         gpu_emissive_parameters = Lava.LavaArray{Vec4f,1}(emissive_parameters; bq=state.queue)
         state.upload_bytes += UInt64(
             sizeof(Vec4f) *
-                (length(positions) + length(normals) + length(tangents) + length(translations) +
+                ((geometry === nothing ? length(positions) + length(normals) + length(tangents) : 0) + length(translations) +
                 length(rotations) + length(scales) + length(colors) +
                 length(material_parameters) + length(surface_parameters) +
                 length(emissive_parameters)),
         )
-        state.upload_bytes += UInt64(sizeof(Vec2f) * length(uvs))
+        state.upload_bytes += UInt64(sizeof(Vec2f) * (geometry === nothing ? length(uvs) : 0))
+        vertex_count = geometry === nothing ? length(positions) : geometry.vertex_count
         push!(
             batches,
             MeshBatchResources(
+                mesh_id,
                 material.material_id,
+                instance_ids,
                 gpu_positions,
                 gpu_normals,
                 gpu_uvs,
@@ -5246,28 +5291,23 @@ function _mesh_resources!(
                 gpu_material_parameters,
                 gpu_surface_parameters,
                 gpu_emissive_parameters,
-                length(positions),
+                vertex_count,
                 length(batch_instances),
             ),
         )
-        total_vertices += length(positions)
+        total_vertices += vertex_count
     end
     created = MeshResources(
         packet.content_sha256,
+        frame,
+        visible_instance_ids,
         batches,
         visibility.instance_count,
         visibility.visible_instance_count,
         visibility.culled_instance_count,
         total_vertices,
     )
-    if cache === :shadow
-        state.shadow_mesh_resources = created
-    elseif cache === :reflection
-        state.reflection_mesh_resources = created
-    else
-        state.mesh_resources = created
-    end
-    return created
+    return _store_mesh_resources!(state, cache, created)
 end
 
 const SHADOW_MAP_SIZE = 512
@@ -5456,7 +5496,8 @@ function _overlay_resources!(
     frame::CameraFrame,
 )
     current = state.overlay_resources
-    current !== nothing && current.cache_key == packet.content_sha256 && return current
+    current !== nothing && current.cache_key == packet.content_sha256 &&
+        current.frame == frame && return current
     positions = Vec4f[]
     colors = Vec4f[]
     for overlay in packet.overlays
@@ -5466,7 +5507,7 @@ function _overlay_resources!(
     gpu_positions = Lava.LavaArray{Vec4f,1}(positions; bq=state.queue)
     gpu_colors = Lava.LavaArray{Vec4f,1}(colors; bq=state.queue)
     state.upload_bytes += UInt64(sizeof(Vec4f) * (length(positions) + length(colors)))
-    created = OverlayResources(packet.content_sha256, gpu_positions, gpu_colors, length(positions))
+    created = OverlayResources(packet.content_sha256, frame, gpu_positions, gpu_colors, length(positions))
     state.overlay_resources = created
     return created
 end
@@ -6356,7 +6397,8 @@ end
 
 """Render `frame_count` presented frames of the packet scene through the open
 window session. `camera_override` re-aims the Rust-owned camera for every frame
-without changing the packet identity or invalidating GPU resource caches.
+without changing packet identity. Camera-dependent mesh membership and overlay
+projection are refreshed; unchanged geometry, terrain and textures remain resident.
 Presented frames carry no capture: Tier-A evidence is independently promoted
 from the offscreen path over the same packet, so the presented loop never
 carries un-promoted evidence and never reads back mid-batch."""
