@@ -32,9 +32,9 @@
 //! Roughness and occlusion are `Data` (they are linear scalars). Getting this
 //! wrong is the classic reason a correct asset renders muddy.
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 
-use crate::{procedural_texture, TextureColorSpace, TexturePayload, TextureReference};
+use crate::{TextureColorSpace, TexturePayload, TextureReference, procedural_texture};
 
 /// One coherent material: albedo plus the three maps that must agree with it.
 pub struct MaterialMapSet {
@@ -86,8 +86,7 @@ impl MaterialKind {
 /// first thing to disagree about a surface, so nothing here touches floating
 /// point transcendentals or hasher-dependent byte orders.
 fn hash2(x: i32, y: i32, seed: u32) -> f32 {
-    let mut h = (x as u32)
-        .wrapping_mul(0x27d4_eb2d)
+    let mut h = (x as u32).wrapping_mul(0x27d4_eb2d)
         ^ (y as u32).wrapping_mul(0x1656_67b1)
         ^ seed.wrapping_mul(0x9e37_79b9);
     h ^= h >> 15;
@@ -141,17 +140,13 @@ pub(crate) fn tileable_fbm(u: f32, v: f32, base_period: i32, octaves: u32, seed:
         // debug build panics; a release build wraps silently and the seed
         // derivation differs between profiles, which is a determinism bug
         // dressed as an optimisation.
-        let octave_seed = seed ^ (octave as u32).wrapping_mul(0x9e37_79b9);
+        let octave_seed = seed ^ octave.wrapping_mul(0x9e37_79b9);
         total += tileable_value_noise(u, v, period, octave_seed) * amplitude;
         norm += amplitude;
         amplitude *= 0.5;
         period *= 2;
     }
-    if norm > 0.0 {
-        total / norm
-    } else {
-        0.0
-    }
+    if norm > 0.0 { total / norm } else { 0.0 }
 }
 
 // ---------------------------------------------------------------------------
@@ -214,9 +209,8 @@ fn material_height(kind: MaterialKind, u: f32, v: f32) -> f32 {
             // 1.91 turns and genuinely did not tile — a defect caught by
             // `every_generated_map_tiles`, not by looking at a screenshot.
             let cycles = 2.0f32;
-            let ripple =
-                ((u * core::f32::consts::TAU * cycles).sin() * 0.5 + 0.5) *
-                tileable_value_noise(u, v, 6, 0x27d4_eb2d);
+            let ripple = ((u * core::f32::consts::TAU * cycles).sin() * 0.5 + 0.5)
+                * tileable_value_noise(u, v, 6, 0x27d4_eb2d);
             (broad * 0.70 + ripple * 0.30).clamp(0.0, 1.0)
         }
     }
@@ -233,23 +227,31 @@ fn material_height(kind: MaterialKind, u: f32, v: f32) -> f32 {
 /// between a tint and a material.
 fn material_albedo(kind: MaterialKind, u: f32, v: f32, height: f32) -> [u8; 3] {
     let (dark, mid, light): ([f32; 3], [f32; 3], [f32; 3]) = match kind {
-        MaterialKind::Terrain => (
-            [36.0, 52.0, 26.0],
-            [78.0, 96.0, 44.0],
-            [148.0, 150.0, 86.0],
-        ),
+        MaterialKind::Terrain => ([36.0, 52.0, 26.0], [78.0, 96.0, 44.0], [148.0, 150.0, 86.0]),
         MaterialKind::Stone => (
             [48.0, 51.0, 56.0],
             [116.0, 118.0, 120.0],
             [186.0, 186.0, 182.0],
         ),
         MaterialKind::Bark => ([30.0, 20.0, 14.0], [82.0, 58.0, 36.0], [136.0, 106.0, 70.0]),
-        MaterialKind::Foliage => ([20.0, 48.0, 14.0], [64.0, 116.0, 32.0], [148.0, 186.0, 62.0]),
+        MaterialKind::Foliage => (
+            [20.0, 48.0, 14.0],
+            [64.0, 116.0, 32.0],
+            [148.0, 186.0, 62.0],
+        ),
         // Metal is kept genuinely bright: it is the frame's specular anchor,
         // and desaturating it to a grey ramp is what cost the first version its
         // highlights.
-        MaterialKind::Metal => ([74.0, 78.0, 88.0], [166.0, 172.0, 182.0], [244.0, 246.0, 250.0]),
-        MaterialKind::Wet => ([22.0, 28.0, 32.0], [64.0, 80.0, 88.0], [124.0, 142.0, 150.0]),
+        MaterialKind::Metal => (
+            [74.0, 78.0, 88.0],
+            [166.0, 172.0, 182.0],
+            [244.0, 246.0, 250.0],
+        ),
+        MaterialKind::Wet => (
+            [22.0, 28.0, 32.0],
+            [64.0, 80.0, 88.0],
+            [124.0, 142.0, 150.0],
+        ),
     };
     let mix = height.clamp(0.0, 1.0);
     // Blend through the middle stop: below the midpoint dark->mid, above it
@@ -293,7 +295,10 @@ fn material_roughness(kind: MaterialKind, height: f32) -> f32 {
 /// `size` must be a positive power of two; the mip chain is derived from it by
 /// the adapter, and a non-power-of-two would break that assumption.
 pub fn build_material_maps(kind: MaterialKind, size: usize, revision: &str) -> MaterialMapSet {
-    assert!(size.is_power_of_two() && size >= 16, "material size must be a power of two");
+    assert!(
+        size.is_power_of_two() && size >= 16,
+        "material size must be a power of two"
+    );
     let n = size;
     let mut heights = vec![0.0f32; size * size];
     let mut albedo = Vec::with_capacity(size * size * 4);
@@ -309,7 +314,9 @@ pub fn build_material_maps(kind: MaterialKind, size: usize, revision: &str) -> M
             heights[row * size + column] = h;
             let [r, g, b] = material_albedo(kind, u, v, h);
             albedo.extend([r, g, b, 255]);
-            let rough = (material_roughness(kind, h) * 255.0).round().clamp(0.0, 255.0) as u8;
+            let rough = (material_roughness(kind, h) * 255.0)
+                .round()
+                .clamp(0.0, 255.0) as u8;
             roughness.extend([rough, rough, rough, 255]);
             occlusion.extend([255, 255, 255, 255]); // filled in below
         }
@@ -367,9 +374,15 @@ pub fn build_material_maps(kind: MaterialKind, size: usize, revision: &str) -> M
             let dy = (down - up) * strength;
             let length = (dx * dx + dy * dy + 1.0).sqrt();
             normal.extend([
-                (((dx / length) * 0.5 + 0.5) * 255.0).round().clamp(0.0, 255.0) as u8,
-                (((dy / length) * 0.5 + 0.5) * 255.0).round().clamp(0.0, 255.0) as u8,
-                (((1.0 / length) * 0.5 + 0.5) * 255.0).round().clamp(0.0, 255.0) as u8,
+                (((dx / length) * 0.5 + 0.5) * 255.0)
+                    .round()
+                    .clamp(0.0, 255.0) as u8,
+                (((dy / length) * 0.5 + 0.5) * 255.0)
+                    .round()
+                    .clamp(0.0, 255.0) as u8,
+                (((1.0 / length) * 0.5 + 0.5) * 255.0)
+                    .round()
+                    .clamp(0.0, 255.0) as u8,
                 255,
             ]);
         }
@@ -428,8 +441,9 @@ pub const HERO_TEXTURE_SIZE: usize = 256;
 fn kind_for_material(material_id: &str) -> Option<MaterialKind> {
     match material_id {
         "terrain-default" => Some(MaterialKind::Terrain),
-        "obstacle-default" | "campaign2-hero-stone" | "campaign2-rock"
-        | "objective-beacon" => Some(MaterialKind::Stone),
+        "obstacle-default" | "campaign2-hero-stone" | "campaign2-rock" | "objective-beacon" => {
+            Some(MaterialKind::Stone)
+        }
         "campaign2-bark" => Some(MaterialKind::Bark),
         "foliage-default" | "campaign2-foliage" => Some(MaterialKind::Foliage),
         "campaign2-hero-metal" => Some(MaterialKind::Metal),
@@ -493,7 +507,11 @@ pub fn apply_hero_material_set(body: &mut crate::GraphicsScenePacketBody) -> usi
             material
                 .texture_ids
                 .first()
-                .and_then(|id| previous_textures.iter().find(|texture| &texture.texture_id == id))
+                .and_then(|id| {
+                    previous_textures
+                        .iter()
+                        .find(|texture| &texture.texture_id == id)
+                })
                 .and_then(mean_linear_rgb),
             mean_linear_rgb(&set.albedo),
         ) {
@@ -523,7 +541,11 @@ pub fn mean_linear_rgb(texture: &TextureReference) -> Option<[f32; 3]> {
     let decode = |value: u8| {
         let c = f32::from(value) / 255.0;
         if texture.color_space == TextureColorSpace::Srgb {
-            if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
         } else {
             c
         }
@@ -546,11 +568,19 @@ pub fn mean_linear_rgb(texture: &TextureReference) -> Option<[f32; 3]> {
 /// gives up brightness. That shortfall is a property of the generated map (a
 /// dark grey metal ramp cannot carry bright copper), not something to clamp
 /// per channel — per-channel clamping would shift the hue.
-pub fn preserved_base_color(old_factor: [f32; 4], old_mean: [f32; 3], new_mean: [f32; 3]) -> [f32; 4] {
+pub fn preserved_base_color(
+    old_factor: [f32; 4],
+    old_mean: [f32; 3],
+    new_mean: [f32; 3],
+) -> [f32; 4] {
     let mut rgb = [0.0f32; 3];
     for channel in 0..3 {
         let target = old_factor[channel] * old_mean[channel];
-        rgb[channel] = if new_mean[channel] > 1e-6 { target / new_mean[channel] } else { 0.0 };
+        rgb[channel] = if new_mean[channel] > 1e-6 {
+            target / new_mean[channel]
+        } else {
+            0.0
+        };
     }
     let peak = rgb.iter().copied().fold(0.0f32, f32::max);
     if peak > 1.0 {
@@ -611,7 +641,10 @@ mod tests {
                 max_x = max_x.max(raw[i]);
             }
             let spread = max_x as f32 - min_x as f32;
-            assert!(spread > 4.0, "{kind:?} normal map is flat (spread {spread})");
+            assert!(
+                spread > 4.0,
+                "{kind:?} normal map is flat (spread {spread})"
+            );
             if kind == MaterialKind::Metal {
                 metal_spread = spread;
             } else {
@@ -647,7 +680,9 @@ mod tests {
             spread(&stone_raw) > 8.0,
             "stone roughness is effectively constant"
         );
-        let mean = |raw: &[u8]| raw.iter().step_by(4).map(|v| *v as f32).sum::<f32>() / (raw.len() / 4) as f32;
+        let mean = |raw: &[u8]| {
+            raw.iter().step_by(4).map(|v| *v as f32).sum::<f32>() / (raw.len() / 4) as f32
+        };
         assert!(
             mean(&wet_raw) < mean(&stone_raw),
             "wet stone should be smoother than dry stone ({} vs {})",
@@ -707,7 +742,10 @@ mod tests {
             let Some(kind) = kind_for_material(&material.material_id) else {
                 continue;
             };
-            let normal = material.normal_texture_id.clone().expect("mapped has a normal");
+            let normal = material
+                .normal_texture_id
+                .clone()
+                .expect("mapped has a normal");
             assert!(
                 normal.starts_with("luxel-hero-"),
                 "material {} points at {normal}",

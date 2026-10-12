@@ -341,13 +341,8 @@ impl PresentedGraphicsSession {
         supervisor: &mut GraphicsWorkerSupervisor,
         frame_count: u32,
         collect_input: bool,
-    ) -> Result<
-        (
-            WindowFrameReport,
-            Vec<crate::input_session::InputSample>,
-        ),
-        GraphicsWorkerError,
-    > {
+    ) -> Result<(WindowFrameReport, Vec<crate::input_session::InputSample>), GraphicsWorkerError>
+    {
         if !self.window_open {
             return Err(GraphicsWorkerError::protocol(
                 "presented window is not open; open it before presenting frames",

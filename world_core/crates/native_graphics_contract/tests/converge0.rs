@@ -8,15 +8,19 @@ use std::path::PathBuf;
 
 use luxel_native_graphics_contract::material_maps::mean_linear_rgb;
 use luxel_native_graphics_contract::{
-    BufferPayload, Campaign2View, GraphicsScenePacket, ParityContent, ParityPolicyCandidate,
-    RenderPolicy, ShadowFitPolicy, SkyPolicy, TerrainLayerSet, lower_campaign2_packet_with,
-    validate_render_policy, world_void_fraction_bp, CONVERGE0_TERRAIN_SCALE,
+    BufferPayload, CONVERGE0_TERRAIN_SCALE, Campaign2View, GraphicsScenePacket, ParityContent,
+    ParityPolicyCandidate, RenderPolicy, ShadowFitPolicy, SkyPolicy, TerrainLayerSet,
+    lower_campaign2_packet_with, validate_render_policy, world_void_fraction_bp,
 };
 
 #[path = "support/synthetic_layers.rs"]
 mod synthetic_layers;
 
-const VIEWS: [Campaign2View; 3] = [Campaign2View::Close, Campaign2View::Medium, Campaign2View::Wide];
+const VIEWS: [Campaign2View; 3] = [
+    Campaign2View::Close,
+    Campaign2View::Medium,
+    Campaign2View::Wide,
+];
 
 fn reference() -> GraphicsScenePacket {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -27,14 +31,22 @@ fn reference() -> GraphicsScenePacket {
 }
 
 fn content(hero_materials: bool, converge0: bool) -> ParityContent {
-    ParityContent { hero_materials, converge0 }
+    ParityContent {
+        hero_materials,
+        converge0,
+    }
 }
 
-fn lower(view: Campaign2View, candidate: ParityPolicyCandidate, flags: ParityContent) -> GraphicsScenePacket {
+fn lower(
+    view: Campaign2View,
+    candidate: ParityPolicyCandidate,
+    flags: ParityContent,
+) -> GraphicsScenePacket {
     // converge0 is surfaced by a layer set (N-4); the synthetic one keeps these
     // gates offline and independent of the fetched scans.
     let set: Option<TerrainLayerSet> = flags.converge0.then(synthetic_layers::synthetic_set);
-    lower_campaign2_packet_with(&reference(), view, candidate, flags, set.as_ref()).expect("campaign2 lowers")
+    lower_campaign2_packet_with(&reference(), view, candidate, flags, set.as_ref())
+        .expect("campaign2 lowers")
 }
 
 fn converge0(view: Campaign2View) -> GraphicsScenePacket {
@@ -48,7 +60,10 @@ fn null(view: Campaign2View) -> GraphicsScenePacket {
 #[test]
 fn content_flags_parse_and_fail_closed() {
     use ParityPolicyCandidate as P;
-    assert_eq!(ParityContent::parse("", P::Null).unwrap(), ParityContent::default());
+    assert_eq!(
+        ParityContent::parse("", P::Null).unwrap(),
+        ParityContent::default()
+    );
     assert_eq!(
         ParityContent::parse("hero-materials", P::Full).unwrap(),
         content(true, false),
@@ -59,18 +74,31 @@ fn content_flags_parse_and_fail_closed() {
         content(true, false),
         "the legacy RENDER_POLICY=hero-materials spelling must still reproduce ab-hero3"
     );
-    assert_eq!(ParityContent::parse("", P::Converge0).unwrap(), content(false, true));
+    assert_eq!(
+        ParityContent::parse("", P::Converge0).unwrap(),
+        content(false, true)
+    );
     assert_eq!(
         ParityContent::parse(" hero-materials , converge0 ", P::Converge0).unwrap(),
         content(true, true)
     );
-    assert!(ParityContent::parse("hero-material", P::Full).is_err(), "typos must not render the baseline");
+    assert!(
+        ParityContent::parse("hero-material", P::Full).is_err(),
+        "typos must not render the baseline"
+    );
     assert!(
         ParityContent::parse("converge0", P::Full).is_err(),
         "converge0 content without its policy would sample metric UVs through a clamp sampler"
     );
     assert!(
-        lower_campaign2_packet_with(&reference(), Campaign2View::Close, P::Full, content(false, true), None).is_err(),
+        lower_campaign2_packet_with(
+            &reference(),
+            Campaign2View::Close,
+            P::Full,
+            content(false, true),
+            None
+        )
+        .is_err(),
         "the env-free entry point must enforce the same coupling"
     );
 }
@@ -88,20 +116,40 @@ fn converge0_policy_carries_its_axes_and_full_json_is_unchanged() {
     // Absent axes must not serialise: `full` packets keep their digests.
     let full_json = serde_json::to_string(&full).unwrap();
     for key in ["mesh_surface", "shadow_fit", "sky"] {
-        assert!(!full_json.contains(key), "`full` policy JSON gained `{key}`: {full_json}");
+        assert!(
+            !full_json.contains(key),
+            "`full` policy JSON gained `{key}`: {full_json}"
+        );
     }
 }
 
 #[test]
 fn new_policy_axes_are_bounded() {
-    let mut fit = RenderPolicy { shadow_fit: Some(ShadowFitPolicy { view_distance_m: 7, map_size_px: None }), ..RenderPolicy::default() };
+    let mut fit = RenderPolicy {
+        shadow_fit: Some(ShadowFitPolicy {
+            view_distance_m: 7,
+            map_size_px: None,
+        }),
+        ..RenderPolicy::default()
+    };
     assert!(validate_render_policy(&fit).is_err());
-    fit.shadow_fit = Some(ShadowFitPolicy { view_distance_m: 2001, map_size_px: None });
+    fit.shadow_fit = Some(ShadowFitPolicy {
+        view_distance_m: 2001,
+        map_size_px: None,
+    });
     assert!(validate_render_policy(&fit).is_err());
-    fit.shadow_fit = Some(ShadowFitPolicy { view_distance_m: 60, map_size_px: None });
+    fit.shadow_fit = Some(ShadowFitPolicy {
+        view_distance_m: 60,
+        map_size_px: None,
+    });
     assert!(validate_render_policy(&fit).is_ok());
     let sky = |radius, disc, glow| RenderPolicy {
-        sky: Some(SkyPolicy { sun_disc_radius_milli_deg: radius, sun_disc_gain_bp: disc, sun_glow_gain_bp: glow, model: None }),
+        sky: Some(SkyPolicy {
+            sun_disc_radius_milli_deg: radius,
+            sun_disc_gain_bp: disc,
+            sun_glow_gain_bp: glow,
+            model: None,
+        }),
         ..RenderPolicy::default()
     };
     assert!(validate_render_policy(&sky(650, 120_000, 2400)).is_ok());
@@ -120,7 +168,8 @@ fn converge0_terrain_embeds_the_source_exactly() {
     assert_eq!(ext.resolution, (src.resolution - 1) * k + 1);
     assert_eq!(ext.width_m, src.width_m * k as f32);
     assert_eq!(ext.length_m, src.length_m * k as f32);
-    let (BufferPayload::F32(src_h), BufferPayload::F32(ext_h)) = (&src.heights_m.payload, &ext.heights_m.payload)
+    let (BufferPayload::F32(src_h), BufferPayload::F32(ext_h)) =
+        (&src.heights_m.payload, &ext.heights_m.payload)
     else {
         panic!("f32 heights");
     };
@@ -140,7 +189,11 @@ fn converge0_terrain_embeds_the_source_exactly() {
     for column in 0..n {
         let edge = src_h[column];
         let outside = ext_h[(offset - 1) * ext.resolution + column + offset];
-        assert!((outside - edge).abs() < 1.5, "seam step {} at column {column}", outside - edge);
+        assert!(
+            (outside - edge).abs() < 1.5,
+            "seam step {} at column {column}",
+            outside - edge
+        );
     }
     // The null arm must keep the source terrain verbatim.
     assert_eq!(null(Campaign2View::Close).body.terrain, source.body.terrain);
@@ -154,21 +207,35 @@ fn converge0_shows_no_void_below_the_horizon_and_null_does() {
         eprintln!("{view:?}: void fraction null={control} bp, converge0={fixed} bp");
         if view != Campaign2View::Close {
             // The audit observed the slab edge and void in medium and wide.
-            assert!(control > 100, "{view:?}: control shows no void ({control} bp); the measure is blind");
+            assert!(
+                control > 100,
+                "{view:?}: control shows no void ({control} bp); the measure is blind"
+            );
         }
-        assert_eq!(fixed, 0, "{view:?}: converge0 still shows {fixed} bp of void");
+        assert_eq!(
+            fixed, 0,
+            "{view:?}: converge0 still shows {fixed} bp of void"
+        );
     }
 }
 
 /// Area-weighted p90 of per-triangle texel anisotropy (ratio of the singular
 /// values of dP/dUV) for every instance of `material_ids`, in world metres.
-fn anisotropy_p90_by_mesh(packet: &GraphicsScenePacket, material_ids: &[&str]) -> Vec<(String, f32)> {
+fn anisotropy_p90_by_mesh(
+    packet: &GraphicsScenePacket,
+    material_ids: &[&str],
+) -> Vec<(String, f32)> {
     let mut out = Vec::new();
     for instance in &packet.body.instances {
         if !material_ids.contains(&instance.material_id.as_str()) {
             continue;
         }
-        let mesh = packet.body.meshes.iter().find(|mesh| mesh.mesh_id == instance.mesh_id).unwrap();
+        let mesh = packet
+            .body
+            .meshes
+            .iter()
+            .find(|mesh| mesh.mesh_id == instance.mesh_id)
+            .unwrap();
         let scale = instance.transform.scale_xyz;
         let world = |index: u32| {
             let p = mesh.positions_m[index as usize];
@@ -177,7 +244,8 @@ fn anisotropy_p90_by_mesh(packet: &GraphicsScenePacket, material_ids: &[&str]) -
         let mut samples: Vec<(f32, f32)> = Vec::new();
         for triangle in mesh.indices.chunks_exact(3) {
             let [p0, p1, p2] = [world(triangle[0]), world(triangle[1]), world(triangle[2])];
-            let [t0, t1, t2] = [triangle[0], triangle[1], triangle[2]].map(|i| mesh.uv0[i as usize]);
+            let [t0, t1, t2] =
+                [triangle[0], triangle[1], triangle[2]].map(|i| mesh.uv0[i as usize]);
             let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
             let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
             let cross = [
@@ -185,8 +253,12 @@ fn anisotropy_p90_by_mesh(packet: &GraphicsScenePacket, material_ids: &[&str]) -
                 e1[2] * e2[0] - e1[0] * e2[2],
                 e1[0] * e2[1] - e1[1] * e2[0],
             ];
-            let area = 0.5 * (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
-            let (d1, d2) = ([t1[0] - t0[0], t1[1] - t0[1]], [t2[0] - t0[0], t2[1] - t0[1]]);
+            let area =
+                0.5 * (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
+            let (d1, d2) = (
+                [t1[0] - t0[0], t1[1] - t0[1]],
+                [t2[0] - t0[0], t2[1] - t0[1]],
+            );
             let det = d1[0] * d2[1] - d2[0] * d1[1];
             if area < 1e-7 || det.abs() < 1e-9 {
                 continue;
@@ -211,7 +283,10 @@ fn anisotropy_p90_by_mesh(packet: &GraphicsScenePacket, material_ids: &[&str]) -
                 break;
             }
         }
-        out.push((format!("{} [{}]", instance.instance_id, instance.mesh_id), p90));
+        out.push((
+            format!("{} [{}]", instance.instance_id, instance.mesh_id),
+            p90,
+        ));
     }
     out
 }
@@ -228,26 +303,46 @@ const SURFACE_MATERIALS: [&str; 6] = [
 #[test]
 fn converge0_surface_meshes_have_metric_texel_density() {
     let control = anisotropy_p90_by_mesh(&null(Campaign2View::Close), &["campaign2-hero-stone"]);
-    let pedestal = control.iter().find(|(id, _)| id.contains("pedestal")).expect("pedestal").1;
+    let pedestal = control
+        .iter()
+        .find(|(id, _)| id.contains("pedestal"))
+        .expect("pedestal")
+        .1;
     eprintln!("control: parametric pedestal p90 anisotropy = {pedestal:.1}");
-    assert!(pedestal > 10.0, "control pedestal p90 {pedestal}: the measure cannot see the MD-4 smear");
+    assert!(
+        pedestal > 10.0,
+        "control pedestal p90 {pedestal}: the measure cannot see the MD-4 smear"
+    );
 
     let measured = anisotropy_p90_by_mesh(&converge0(Campaign2View::Close), &SURFACE_MATERIALS);
-    assert!(measured.len() >= 10, "expected the hero and foliage instances, got {}", measured.len());
+    assert!(
+        measured.len() >= 10,
+        "expected the hero and foliage instances, got {}",
+        measured.len()
+    );
     for (id, p90) in &measured {
         // Lat-long ellipsoids pinch at the poles: analytic p90 for a sphere is
         // 2.29. Documented in `ellipsoid_mesh_metric`; every other surface
         // mesh must meet the audit's 2:1.
-        let limit = if id.contains("crown") || id.contains("lobe") { 2.5 } else { 2.0 };
+        let limit = if id.contains("crown") || id.contains("lobe") {
+            2.5
+        } else {
+            2.0
+        };
         eprintln!("converge0 {id}: p90 anisotropy {p90:.2} (limit {limit})");
-        assert!(*p90 <= limit, "{id}: p90 texel anisotropy {p90:.2} exceeds {limit}");
+        assert!(
+            *p90 <= limit,
+            "{id}: p90 texel anisotropy {p90:.2} exceeds {limit}"
+        );
     }
 }
 
 #[test]
 fn converge0_metallic_is_physical() {
     for material in &converge0(Campaign2View::Close).body.materials {
-        if !material.material_id.starts_with("campaign2-") && material.material_id != "objective-beacon" {
+        if !material.material_id.starts_with("campaign2-")
+            && material.material_id != "objective-beacon"
+        {
             continue;
         }
         assert!(
@@ -261,12 +356,28 @@ fn converge0_metallic_is_physical() {
 
 #[test]
 fn hero_materials_compose_with_full_and_preserve_declared_colour() {
-    let plain = lower(Campaign2View::Close, ParityPolicyCandidate::Full, ParityContent::default());
-    let hero = lower(Campaign2View::Close, ParityPolicyCandidate::Full, content(true, false));
-    assert_eq!(hero.body.render_policy, plain.body.render_policy, "MD-5: hero content left the full policy intact");
+    let plain = lower(
+        Campaign2View::Close,
+        ParityPolicyCandidate::Full,
+        ParityContent::default(),
+    );
+    let hero = lower(
+        Campaign2View::Close,
+        ParityPolicyCandidate::Full,
+        content(true, false),
+    );
+    assert_eq!(
+        hero.body.render_policy, plain.body.render_policy,
+        "MD-5: hero content left the full policy intact"
+    );
 
     let chroma = |packet: &GraphicsScenePacket, id: &str| {
-        let material = packet.body.materials.iter().find(|m| m.material_id == id).unwrap();
+        let material = packet
+            .body
+            .materials
+            .iter()
+            .find(|m| m.material_id == id)
+            .unwrap();
         let texture = packet
             .body
             .textures
@@ -276,7 +387,11 @@ fn hero_materials_compose_with_full_and_preserve_declared_colour() {
         let mean = mean_linear_rgb(texture).unwrap();
         let rgb: [f32; 3] = std::array::from_fn(|c| material.base_color_rgba[c] * mean[c]);
         let sum = rgb.iter().sum::<f32>();
-        (rgb.map(|value| value / sum), 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2], material.roughness)
+        (
+            rgb.map(|value| value / sum),
+            0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2],
+            material.roughness,
+        )
     };
     for id in [
         "campaign2-hero-metal",
@@ -291,7 +406,10 @@ fn hero_materials_compose_with_full_and_preserve_declared_colour() {
         eprintln!(
             "{id}: chromaticity {before:.3?} -> {after:.3?}, luminance {before_luma:.3} -> {after_luma:.3}"
         );
-        assert_eq!(roughness, 1.0, "MD-1: {id} still multiplies an absolute roughness map by a factor");
+        assert_eq!(
+            roughness, 1.0,
+            "MD-1: {id} still multiplies an absolute roughness map by a factor"
+        );
         for channel in 0..3 {
             assert!(
                 (before[channel] - after[channel]).abs() < 0.01,
@@ -300,5 +418,8 @@ fn hero_materials_compose_with_full_and_preserve_declared_colour() {
         }
     }
     let (metal, _, _) = chroma(&hero, "campaign2-hero-metal");
-    assert!(metal[0] > metal[1] && metal[1] > metal[2], "hero metal is no longer copper-ordered: {metal:?}");
+    assert!(
+        metal[0] > metal[1] && metal[1] > metal[2],
+        "hero metal is no longer copper-ordered: {metal:?}"
+    );
 }

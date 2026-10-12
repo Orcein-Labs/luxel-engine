@@ -8,10 +8,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use luxel_reference_runtime::{ReferenceCamera, WorldArtifact, validate_world_artifact};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use luxel_reference_runtime::{ReferenceCamera, WorldArtifact, validate_world_artifact};
 
 pub const SCENE_PACKET_SCHEMA: &str = "luxel.graphics-scene-packet/v6";
 pub const READY_SCHEMA: &str = "luxel.graphics-ready/v1";
@@ -47,44 +47,44 @@ pub mod backdrop;
 pub mod calibration;
 pub mod deformation;
 pub mod ibl;
-pub mod kit;
 pub mod input_session;
+pub mod kit;
 pub mod live;
 pub mod material_maps;
 pub mod render_policy;
-pub mod scene_composition;
 pub mod scatter;
+pub mod scene_composition;
 pub mod session;
 pub mod still_water;
-pub mod terrain_layers;
 pub mod supervisor;
+pub mod terrain_layers;
 pub mod visual_quality;
 pub mod window;
 
 pub use deformation::{
-    deformation_error, deformation_v7_enabled, validate_deformation,
-    validate_deformation_receipt, validate_schema_deformation, DeformationFamily, DeformationField,
-    DeformationIntent, DeformationRejection, DeformationTelemetry, DEFORMATION_V7_ENV,
-    SCENE_PACKET_SCHEMA_V7,
+    DEFORMATION_V7_ENV, DeformationFamily, DeformationField, DeformationIntent,
+    DeformationRejection, DeformationTelemetry, SCENE_PACKET_SCHEMA_V7, deformation_error,
+    deformation_v7_enabled, validate_deformation, validate_deformation_receipt,
+    validate_schema_deformation,
 };
 
 pub use render_policy::{
-    validate_packet_render_policy, validate_render_policy, AtmospherePolicy, BloomPolicy,
-    DebugPolicy, DitherPolicy, FoliageCoveragePolicy, IblPolicy, GradePolicy, MeshSurfacePolicy, RenderPolicy, ResolvedRenderPolicy,
-    SamplerPolicy, ShadowFitPolicy, ShadowPolicy, SkyModel, SkyPolicy, TerrainSurfacePolicy,
-    VignettePolicy,
-    POLICY_SCALE,
+    AtmospherePolicy, BloomPolicy, DebugPolicy, DitherPolicy, FoliageCoveragePolicy, GradePolicy,
+    IblPolicy, MeshSurfacePolicy, POLICY_SCALE, RenderPolicy, ResolvedRenderPolicy, SamplerPolicy,
+    ShadowFitPolicy, ShadowPolicy, SkyModel, SkyPolicy, TerrainSurfacePolicy, VignettePolicy,
+    validate_packet_render_policy, validate_render_policy,
 };
-
 
 pub use asset_projection::{
     GRAPHICS_ASSET_PROJECTION_SCHEMA, GraphicsAssetMesh, GraphicsAssetProjection,
     GraphicsAssetTexture, project_render_asset, validate_graphics_asset_projection,
 };
-pub use scene_composition::{compose_bound_scene, compose_bound_scene_with_camera, compose_bound_scene_with_view};
-pub use calibration::{CalibrationPlacement, CalibrationRig, CalibrationView};
 pub use backdrop::{BackdropSet, load_backdrop_set};
+pub use calibration::{CalibrationPlacement, CalibrationRig, CalibrationView};
 pub use kit::{KitSet, load_kit_set};
+pub use scene_composition::{
+    compose_bound_scene, compose_bound_scene_with_camera, compose_bound_scene_with_view,
+};
 pub use still_water::TerrainSurface;
 pub use terrain_layers::{
     LayerCoverage, LayerSource, LayerTextureSizes, MacroRamp, SquareRgba8, TerrainLayer,
@@ -94,8 +94,8 @@ pub use terrain_layers::{
 
 pub use input_session::{
     INPUT_FRAME_SCHEMA, INPUT_SAMPLE_SCHEMA, INPUT_SIM_TICK_DT_MS, INPUT_TRACE_SCHEMA,
-    InputDrivenSession, InputFrame, InputSample, TraceStep, camera_intent,
-    ds3_map, frame_from_gamepad, frame_from_keyboard, frame_from_sample, trace_digest,
+    InputDrivenSession, InputFrame, InputSample, TraceStep, camera_intent, ds3_map,
+    frame_from_gamepad, frame_from_keyboard, frame_from_sample, trace_digest,
 };
 
 pub use live::{
@@ -974,7 +974,11 @@ pub fn validate_scene_packet(packet: &GraphicsScenePacket) -> Result<(), Graphic
     valid_sha(&packet.body.spatial_fields_sha256, "spatial_fields_sha256")?;
     validate_coordinate_system(&packet.body.coordinate_system)?;
     validate_camera(&packet.body.camera)?;
-    validate_terrain(&packet.body.terrain, &packet.body.materials, &packet.body.textures)?;
+    validate_terrain(
+        &packet.body.terrain,
+        &packet.body.materials,
+        &packet.body.textures,
+    )?;
 
     let mut material_ids = BTreeSet::new();
     for material in &packet.body.materials {
@@ -1059,7 +1063,10 @@ pub fn validate_scene_packet(packet: &GraphicsScenePacket) -> Result<(), Graphic
         }
         validate_transform(&instance.transform)?;
         if let Some(variation) = &instance.variation
-            && !variation.tint_rgb.iter().all(|t| t.is_finite() && (0.5..=1.5).contains(t))
+            && !variation
+                .tint_rgb
+                .iter()
+                .all(|t| t.is_finite() && (0.5..=1.5).contains(t))
         {
             return Err(GraphicsContractError::malformed(format!(
                 "instance {} variation tint must be finite and in [0.5, 1.5]",
@@ -1511,7 +1518,7 @@ pub fn world_void_fraction_bp(packet: &GraphicsScenePacket, stride_px: u32) -> u
             }
         }
     }
-    if sampled == 0 { 0 } else { (void * 10_000 / sampled) as u32 }
+    (void * 10_000).checked_div(sampled).unwrap_or(0) as u32
 }
 
 fn camera_basis(camera: &GraphicsCamera) -> ([f32; 3], [f32; 3], [f32; 3]) {
@@ -2153,7 +2160,11 @@ fn torus_mesh_metric(
 /// into WORLD metres first: a unit block stretched to 0.30 x 1.75 x 0.62 m must
 /// not carry a 5.8:1 texel stretch just because its UVs were authored in
 /// object space.
-fn with_planar_metric_uv(mut mesh: MeshPacket, scale_xyz: [f32; 3], metres_per_repeat: f32) -> MeshPacket {
+fn with_planar_metric_uv(
+    mut mesh: MeshPacket,
+    scale_xyz: [f32; 3],
+    metres_per_repeat: f32,
+) -> MeshPacket {
     mesh.uv0 = mesh
         .positions_m
         .iter()
@@ -2191,7 +2202,13 @@ fn ellipsoid_mesh_metric(
     latitude_segments: usize,
     metres_per_repeat: f32,
 ) -> MeshPacket {
-    let mut mesh = ellipsoid_mesh(mesh_id, material_id, radii, longitude_segments, latitude_segments);
+    let mut mesh = ellipsoid_mesh(
+        mesh_id,
+        material_id,
+        radii,
+        longitude_segments,
+        latitude_segments,
+    );
     let equator = std::f32::consts::TAU * 0.5 * (radii[0] + radii[2]);
     // Meridian length of an ellipse with semi-axes (horizontal, vertical),
     // Ramanujan's approximation halved (pole to pole).
@@ -2200,7 +2217,10 @@ fn ellipsoid_mesh_metric(
     let half_perimeter =
         0.5 * std::f32::consts::PI * (a + b) * (1.0 + 3.0 * h / (10.0 + (4.0 - 3.0 * h).sqrt()));
     for uv in &mut mesh.uv0 {
-        *uv = [uv[0] * equator / metres_per_repeat, uv[1] * half_perimeter / metres_per_repeat];
+        *uv = [
+            uv[0] * equator / metres_per_repeat,
+            uv[1] * half_perimeter / metres_per_repeat,
+        ];
     }
     mesh
 }
@@ -4096,7 +4116,11 @@ impl ParityContent {
 
     pub fn parse(raw: &str, policy: ParityPolicyCandidate) -> Result<Self, GraphicsContractError> {
         let mut content = Self::default();
-        for token in raw.split(',').map(str::trim).filter(|token| !token.is_empty()) {
+        for token in raw
+            .split(',')
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+        {
             match token {
                 "hero-materials" => content.hero_materials = true,
                 "converge0" => content.converge0 = true,
@@ -4167,7 +4191,9 @@ pub const CONVERGE1_SKY: SkyPolicy = SkyPolicy {
     sun_disc_radius_milli_deg: 650,
     sun_disc_gain_bp: 120_000,
     sun_glow_gain_bp: 2_400,
-    model: Some(SkyModel::Analytic { turbidity_milli: 3000 }),
+    model: Some(SkyModel::Analytic {
+        turbidity_milli: 3000,
+    }),
 };
 
 /// CONVERGE-1 atmosphere (values are tuned by measurement; see
@@ -4195,8 +4221,10 @@ pub const CONVERGE4_ATMOSPHERE: AtmospherePolicy = AtmospherePolicy {
 /// trees cast shadows, which read as shadows inconsistent with the sun
 /// (review 2026-10-06). 4096 texels over the ~490 m span of a 250 m slice is
 /// ~8.4 texels/m against ~4.4 before.
-pub const CONVERGE4_SHADOW_FIT: ShadowFitPolicy =
-    ShadowFitPolicy { view_distance_m: 250, map_size_px: Some(4096) };
+pub const CONVERGE4_SHADOW_FIT: ShadowFitPolicy = ShadowFitPolicy {
+    view_distance_m: 250,
+    map_size_px: Some(4096),
+};
 
 /// Shadow distance for the converge0 view-relative fit. 60 m covers every
 /// authored object in the wide view while keeping the 512² map at ~4 texels/m.
@@ -4206,7 +4234,10 @@ impl ParityPolicyCandidate {
     /// Arms that render the converge0 world (extended terrain, metric UVs,
     /// layered scanned ground). Their content and policy are only valid together.
     pub fn uses_converge0_content(self) -> bool {
-        matches!(self, Self::Converge0 | Self::Converge1 | Self::Converge2 | Self::Converge3 | Self::Converge4)
+        matches!(
+            self,
+            Self::Converge0 | Self::Converge1 | Self::Converge2 | Self::Converge3 | Self::Converge4
+        )
     }
 
     /// Arms whose content includes the imported hero kit (N-5).
@@ -4323,7 +4354,9 @@ impl ParityPolicyCandidate {
                 })
             }
             Self::Converge1 => {
-                let converge0 = Self::Converge0.policy().expect("Converge0 always carries a policy");
+                let converge0 = Self::Converge0
+                    .policy()
+                    .expect("Converge0 always carries a policy");
                 Some(RenderPolicy {
                     sky: Some(CONVERGE1_SKY),
                     atmosphere: Some(CONVERGE1_ATMOSPHERE),
@@ -4333,7 +4366,9 @@ impl ParityPolicyCandidate {
             Self::Converge2 => Self::Converge1.policy(),
             // L-2a: converge1's policy plus 4x MSAA with alpha-to-coverage.
             Self::Converge3 => {
-                let converge1 = Self::Converge1.policy().expect("Converge1 always carries a policy");
+                let converge1 = Self::Converge1
+                    .policy()
+                    .expect("Converge1 always carries a policy");
                 Some(RenderPolicy {
                     foliage_coverage: Some(FoliageCoveragePolicy { samples: 4 }),
                     ..converge1
@@ -4342,7 +4377,9 @@ impl ParityPolicyCandidate {
             // N-3: converge3's policy with an atmosphere for a km-scale world;
             // L-1a: a larger, longer shadow fit.
             Self::Converge4 => {
-                let converge3 = Self::Converge3.policy().expect("Converge3 always carries a policy");
+                let converge3 = Self::Converge3
+                    .policy()
+                    .expect("Converge3 always carries a policy");
                 Some(RenderPolicy {
                     atmosphere: Some(CONVERGE4_ATMOSPHERE),
                     shadow_fit: Some(CONVERGE4_SHADOW_FIT),
@@ -4380,7 +4417,9 @@ impl ParityPolicyCandidate {
 ///    long shadows and side light), and fog whose colour IS the horizon colour
 ///    so distance fades into the sky instead of into a different grey;
 ///  * metallic is 0 or 1 (audit MD-6): water and stone are dielectrics.
-fn apply_converge0_content(body: &mut GraphicsScenePacketBody) -> Result<(), GraphicsContractError> {
+fn apply_converge0_content(
+    body: &mut GraphicsScenePacketBody,
+) -> Result<(), GraphicsContractError> {
     extend_terrain_with_backdrop(&mut body.terrain)?;
     // The backdrop ridge sits up to ~300 m from the wide camera; 256 m clipped it.
     body.camera.far_plane_m = 1500.0;
@@ -4406,8 +4445,12 @@ fn apply_converge0_content(body: &mut GraphicsScenePacketBody) -> Result<(), Gra
     for material in &mut body.materials {
         let metallic = match material.material_id.as_str() {
             "campaign2-hero-metal" => 1.0,
-            "campaign2-wet" | "campaign2-hero-glow" | "objective-beacon" | "obstacle-default"
-            | "campaign2-hero-stone" | "campaign2-rock" => 0.0,
+            "campaign2-wet"
+            | "campaign2-hero-glow"
+            | "objective-beacon"
+            | "obstacle-default"
+            | "campaign2-hero-stone"
+            | "campaign2-rock" => 0.0,
             _ => continue,
         };
         material.metallic = metallic;
@@ -4500,7 +4543,8 @@ fn extend_terrain_with_backdrop(terrain: &mut TerrainPacket) -> Result<(), Graph
             }
             let clamped_row = row.clamp(offset, offset + n - 1);
             let clamped_column = column.clamp(offset, offset + n - 1);
-            let edge_height = source_heights[(clamped_row - offset) * n + (clamped_column - offset)];
+            let edge_height =
+                source_heights[(clamped_row - offset) * n + (clamped_column - offset)];
             let out_x = (column as f32 - clamped_column as f32) * dx;
             let out_z = (row as f32 - clamped_row as f32) * dz;
             let distance = (out_x * out_x + out_z * out_z).sqrt();
@@ -4509,8 +4553,8 @@ fn extend_terrain_with_backdrop(terrain: &mut TerrainPacket) -> Result<(), Graph
             let world_z = (0.5 - row as f32 / (extended - 1) as f32) * length_m;
             let hills = (backdrop_noise(world_x, world_z, 70.0, 0x51ed_2701) - 0.5) * 9.0
                 + (backdrop_noise(world_x, world_z, 31.0, 0x1b87_3f2d) - 0.5) * 3.5;
-            let ridge_shape = 1.0
-                - (backdrop_noise(world_x, world_z, 95.0, 0x2f8b_1c77) * 2.0 - 1.0).abs();
+            let ridge_shape =
+                1.0 - (backdrop_noise(world_x, world_z, 95.0, 0x2f8b_1c77) * 2.0 - 1.0).abs();
             // 26 m: the lowest ridge that still stands above every campaign2
             // camera (eye heights 5-11 m above the hero ground) at the 0.6
             // noise floor. 55 m (first pass) filled the upper half of the wide
@@ -4556,7 +4600,8 @@ fn extend_terrain_with_backdrop(terrain: &mut TerrainPacket) -> Result<(), Graph
 
 /// Campaign 2 camera positions relative to the hero anchor: close, medium,
 /// wide. Shared by the view table and N-7's sightline corridors.
-const CAMPAIGN2_CAMERA_OFFSETS: [[f32; 3]; 3] = [[8.0, 5.2, 11.0], [14.0, 8.0, 18.0], [19.0, 11.0, 24.0]];
+const CAMPAIGN2_CAMERA_OFFSETS: [[f32; 3]; 3] =
+    [[8.0, 5.2, 11.0], [14.0, 8.0, 18.0], [19.0, 11.0, 24.0]];
 
 /// Instance scale of both hero fins. Named because the converge0 metric fin
 /// mesh folds this scale into its UVs; the two must never drift apart.
@@ -4585,21 +4630,60 @@ pub struct Campaign2Inputs<'a> {
     pub backdrop: Option<&'a BackdropSet>,
 }
 
+/// Bounded output-resolution selection for R-2. The choice is applied only
+/// while lowering the existing camera and capture dimensions; it is not a
+/// serialized packet policy.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Campaign2OutputResolution {
+    #[default]
+    Native,
+    Scale2,
+}
+
+impl Campaign2OutputResolution {
+    /// Parse the bounded CLI scale selector. Absence is handled by the caller
+    /// as the native default; only the literal scales `1` and `2` are valid.
+    pub fn parse_capture_scale(value: &str) -> Result<Self, String> {
+        match value {
+            "1" => Ok(Self::Native),
+            "2" => Ok(Self::Scale2),
+            _ => Err(format!(
+                "LUXEL_CAPTURE_SCALE must be exactly 1 or 2, got `{value}`"
+            )),
+        }
+    }
+}
+
+/// Explicit Campaign 2 lowering inputs, including the R-2 output size.
+#[derive(Clone, Copy, Debug)]
+pub struct Campaign2LoweringInputs<'a> {
+    pub campaign: &'a Campaign2Inputs<'a>,
+    pub output_resolution: Campaign2OutputResolution,
+}
+
 /// `lower_campaign2_packet` with every input explicit (see `Campaign2Inputs`).
 pub fn lower_campaign2_packet_inputs(
     packet: &GraphicsScenePacket,
     view: Campaign2View,
     inputs: &Campaign2Inputs<'_>,
 ) -> Result<GraphicsScenePacket, GraphicsContractError> {
-    lower_campaign2_packet_impl(
+    lower_campaign2_packet_with_resolution_inputs(
         packet,
         view,
-        inputs.candidate,
-        inputs.content,
-        inputs.terrain_layers,
-        inputs.kit,
-        inputs.backdrop,
+        &Campaign2LoweringInputs {
+            campaign: inputs,
+            output_resolution: Campaign2OutputResolution::Native,
+        },
     )
+}
+
+/// Lower a Campaign 2 packet with a typed R-2 output-resolution selection.
+pub fn lower_campaign2_packet_with_resolution_inputs(
+    packet: &GraphicsScenePacket,
+    view: Campaign2View,
+    inputs: &Campaign2LoweringInputs<'_>,
+) -> Result<GraphicsScenePacket, GraphicsContractError> {
+    lower_campaign2_packet_impl(packet, view, inputs)
 }
 
 /// `lower_campaign2_packet` with the parity arm passed explicitly instead of
@@ -4612,18 +4696,34 @@ pub fn lower_campaign2_packet_with(
     parity_content: ParityContent,
     terrain_layers: Option<&TerrainLayerSet>,
 ) -> Result<GraphicsScenePacket, GraphicsContractError> {
-    lower_campaign2_packet_impl(packet, view, parity_candidate, parity_content, terrain_layers, None, None)
+    let campaign = Campaign2Inputs {
+        candidate: parity_candidate,
+        content: parity_content,
+        terrain_layers,
+        kit: None,
+        backdrop: None,
+    };
+    lower_campaign2_packet_impl(
+        packet,
+        view,
+        &Campaign2LoweringInputs {
+            campaign: &campaign,
+            output_resolution: Campaign2OutputResolution::Native,
+        },
+    )
 }
 
 fn lower_campaign2_packet_impl(
     packet: &GraphicsScenePacket,
     view: Campaign2View,
-    parity_candidate: ParityPolicyCandidate,
-    parity_content: ParityContent,
-    terrain_layers: Option<&TerrainLayerSet>,
-    kit: Option<&KitSet>,
-    backdrop: Option<&BackdropSet>,
+    inputs: &Campaign2LoweringInputs<'_>,
 ) -> Result<GraphicsScenePacket, GraphicsContractError> {
+    let parity_candidate = inputs.campaign.candidate;
+    let parity_content = inputs.campaign.content;
+    let terrain_layers = inputs.campaign.terrain_layers;
+    let kit = inputs.campaign.kit;
+    let backdrop = inputs.campaign.backdrop;
+    let output_resolution = inputs.output_resolution;
     validate_scene_packet(packet)?;
     // N-5: the kit is content of the kit arms (converge2 onward) only.
     if kit.is_some() != parity_candidate.uses_kit() {
@@ -4644,7 +4744,11 @@ fn lower_campaign2_packet_impl(
     // Each kit arm renders exactly one kit set, so a run cannot be mislabelled:
     // converge2 is N-5's kit1, converge3 and converge4 are R-1's damaged kit2.
     if let Some(kit) = kit {
-        let expected = if parity_candidate.uses_converge3_content() { "kit2" } else { "kit1" };
+        let expected = if parity_candidate.uses_converge3_content() {
+            "kit2"
+        } else {
+            "kit1"
+        };
         if kit.set_id != expected {
             return Err(GraphicsContractError::provenance(format!(
                 "the {parity_candidate:?} arm renders kit set `{expected}`, not `{}`",
@@ -4661,11 +4765,13 @@ fn lower_campaign2_packet_impl(
     // explicitly (never read from disk here) so the packet stays a pure
     // function of its inputs and the supervisor can re-derive it.
     if parity_content.converge0 != terrain_layers.is_some() {
-        return Err(GraphicsContractError::provenance(if parity_content.converge0 {
-            "converge0 content requires a terrain layer set (tools/terrain_layers/converge0.json)"
-        } else {
-            "a terrain layer set is only valid with converge0 content"
-        }));
+        return Err(GraphicsContractError::provenance(
+            if parity_content.converge0 {
+                "converge0 content requires a terrain layer set (tools/terrain_layers/converge0.json)"
+            } else {
+                "a terrain layer set is only valid with converge0 content"
+            },
+        ));
     }
     let objective = packet
         .body
@@ -5423,29 +5529,53 @@ fn lower_campaign2_packet_impl(
         ]);
     }
 
-    let (target, position, fov_y_degrees, width_px, height_px) = match view {
+    let (target, position, fov_y_degrees, native_width_px, native_height_px) = match view {
         Campaign2View::Close => (
             [hero_x, hero_y + 2.45, hero_z],
-            [hero_x + CAMPAIGN2_CAMERA_OFFSETS[0][0], hero_y + CAMPAIGN2_CAMERA_OFFSETS[0][1], hero_z + CAMPAIGN2_CAMERA_OFFSETS[0][2]],
+            [
+                hero_x + CAMPAIGN2_CAMERA_OFFSETS[0][0],
+                hero_y + CAMPAIGN2_CAMERA_OFFSETS[0][1],
+                hero_z + CAMPAIGN2_CAMERA_OFFSETS[0][2],
+            ],
             46.0,
-            768,
-            512,
+            768u32,
+            512u32,
         ),
         Campaign2View::Medium => (
             [hero_x - 1.5, hero_y + 2.2, hero_z + 1.0],
-            [hero_x + CAMPAIGN2_CAMERA_OFFSETS[1][0], hero_y + CAMPAIGN2_CAMERA_OFFSETS[1][1], hero_z + CAMPAIGN2_CAMERA_OFFSETS[1][2]],
+            [
+                hero_x + CAMPAIGN2_CAMERA_OFFSETS[1][0],
+                hero_y + CAMPAIGN2_CAMERA_OFFSETS[1][1],
+                hero_z + CAMPAIGN2_CAMERA_OFFSETS[1][2],
+            ],
             50.0,
-            960,
-            640,
+            960u32,
+            640u32,
         ),
         Campaign2View::Wide => (
             [hero_x - 8.0, hero_y + 1.5, hero_z - 10.0],
-            [hero_x + CAMPAIGN2_CAMERA_OFFSETS[2][0], hero_y + CAMPAIGN2_CAMERA_OFFSETS[2][1], hero_z + CAMPAIGN2_CAMERA_OFFSETS[2][2]],
+            [
+                hero_x + CAMPAIGN2_CAMERA_OFFSETS[2][0],
+                hero_y + CAMPAIGN2_CAMERA_OFFSETS[2][1],
+                hero_z + CAMPAIGN2_CAMERA_OFFSETS[2][2],
+            ],
             50.0,
-            960,
-            640,
+            960u32,
+            640u32,
         ),
     };
+    let (width_px, height_px) = match output_resolution {
+        Campaign2OutputResolution::Native => (native_width_px, native_height_px),
+        Campaign2OutputResolution::Scale2 => (
+            native_width_px
+                .checked_mul(2)
+                .ok_or_else(|| GraphicsContractError::unsupported("R-2 scale 2 width overflows"))?,
+            native_height_px.checked_mul(2).ok_or_else(|| {
+                GraphicsContractError::unsupported("R-2 scale 2 height overflows")
+            })?,
+        ),
+    };
+    validate_dimensions(width_px, height_px, "Campaign 2 output resolution")?;
     let forward = normalize_vector3(
         [
             target[0] - position[0],
@@ -5516,7 +5646,13 @@ fn lower_campaign2_packet_impl(
     if let Some(kit) = kit {
         let trees: Vec<(f32, f32, f32)> = foliage_layout
             .iter()
-            .map(|(dx, dz, scale)| ((f64::from(hero_x) + dx) as f32, (f64::from(hero_z) + dz) as f32, *scale))
+            .map(|(dx, dz, scale)| {
+                (
+                    (f64::from(hero_x) + dx) as f32,
+                    (f64::from(hero_z) + dz) as f32,
+                    *scale,
+                )
+            })
             .collect();
         if converge3 {
             // Grounded on the lowered terrain exactly as it is rasterised; the
@@ -5535,7 +5671,11 @@ fn lower_campaign2_packet_impl(
                 .terrain
                 .wet_zone
                 .map(|zone| (zone.center_xz_m, zone.radii_xz_m))
-                .ok_or_else(|| GraphicsContractError::provenance("converge3 scatter needs the still-water zone"))?;
+                .ok_or_else(|| {
+                    GraphicsContractError::provenance(
+                        "converge3 scatter needs the still-water zone",
+                    )
+                })?;
             let layout = scatter::campaign2_layout(
                 &surface,
                 [body.terrain.width_m * 0.5, body.terrain.length_m * 0.5],
@@ -5544,11 +5684,21 @@ fn lower_campaign2_packet_impl(
                 pool,
                 &kit::ruin_footprints(anchor),
             );
-            kit::apply_kit(&mut body, kit, anchor, kit::KitLayout::Scattered(&layout), |x, z| surface.height(x, z))?;
+            kit::apply_kit(
+                &mut body,
+                kit,
+                anchor,
+                kit::KitLayout::Scattered(&layout),
+                |x, z| surface.height(x, z),
+            )?;
         } else {
-            kit::apply_kit(&mut body, kit, [hero_x, hero_y, hero_z], kit::KitLayout::Authored { trees: &trees }, |x, z| {
-                campaign2_terrain_height(packet, f64::from(x), f64::from(z)) + 0.02
-            })?;
+            kit::apply_kit(
+                &mut body,
+                kit,
+                [hero_x, hero_y, hero_z],
+                kit::KitLayout::Authored { trees: &trees },
+                |x, z| campaign2_terrain_height(packet, f64::from(x), f64::from(z)) + 0.02,
+            )?;
         }
     }
     // N-3: the backdrop seats under the world centre, BACKDROP_SEAT_DROP_M below
@@ -5556,7 +5706,9 @@ fn lower_campaign2_packet_impl(
     // blends its hills from).
     if let Some(set) = backdrop {
         let BufferPayload::F32(source_heights) = &packet.body.terrain.heights_m.payload else {
-            return Err(GraphicsContractError::unsupported("the backdrop seat needs f32 source heights"));
+            return Err(GraphicsContractError::unsupported(
+                "the backdrop seat needs f32 source heights",
+            ));
         };
         let base_level = source_heights.iter().sum::<f32>() / source_heights.len() as f32;
         backdrop::apply_backdrop(&mut body, set, base_level - backdrop::BACKDROP_SEAT_DROP_M)?;
@@ -5733,10 +5885,23 @@ fn validate_camera(camera: &GraphicsCamera) -> Result<(), GraphicsContractError>
 /// W-1 wet zone: a finite ellipse with positive radii and falloff, and wet
 /// multipliers that only darken, smooth and flatten (never brighten).
 fn validate_wet_zone(zone: &TerrainWetZone) -> Result<(), GraphicsContractError> {
-    let finite = zone.center_xz_m.iter().chain(&zone.radii_xz_m).all(|v| v.is_finite());
-    let positive = zone.radii_xz_m.iter().all(|r| *r > 0.0) && zone.falloff_m > 0.0 && zone.falloff_m.is_finite();
-    let unit = |v: f32, allow_zero: bool| v.is_finite() && v <= 1.0 && if allow_zero { v >= 0.0 } else { v > 0.0 };
-    if !(finite && positive && unit(zone.albedo_scale, false) && unit(zone.roughness_scale, false) && unit(zone.normal_scale, true)) {
+    let finite = zone
+        .center_xz_m
+        .iter()
+        .chain(&zone.radii_xz_m)
+        .all(|v| v.is_finite());
+    let positive = zone.radii_xz_m.iter().all(|r| *r > 0.0)
+        && zone.falloff_m > 0.0
+        && zone.falloff_m.is_finite();
+    let unit = |v: f32, allow_zero: bool| {
+        v.is_finite() && v <= 1.0 && if allow_zero { v >= 0.0 } else { v > 0.0 }
+    };
+    if !(finite
+        && positive
+        && unit(zone.albedo_scale, false)
+        && unit(zone.roughness_scale, false)
+        && unit(zone.normal_scale, true))
+    {
         return Err(GraphicsContractError::malformed(
             "terrain wet_zone needs a finite ellipse, positive radii and falloff, albedo/roughness scales in (0, 1] and normal scale in [0, 1]",
         ));
@@ -5768,7 +5933,9 @@ fn validate_terrain(
     }
     if let Some(zone) = &terrain.wet_zone {
         if terrain.layers.is_none() {
-            return Err(GraphicsContractError::unsupported("terrain wet_zone is shaded by the layered terrain only"));
+            return Err(GraphicsContractError::unsupported(
+                "terrain wet_zone is shaded by the layered terrain only",
+            ));
         }
         validate_wet_zone(zone)?;
     }
@@ -5913,7 +6080,10 @@ fn validate_material(material: &MaterialIntent) -> Result<(), GraphicsContractEr
             "single-sided materials omit double_sided",
         ));
     }
-    match (material.metallic_from_texture, &material.roughness_texture_id) {
+    match (
+        material.metallic_from_texture,
+        &material.roughness_texture_id,
+    ) {
         (None, _) | (Some(true), Some(_)) => {}
         (Some(false), _) => {
             return Err(GraphicsContractError::malformed(

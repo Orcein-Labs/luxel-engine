@@ -2,13 +2,13 @@ use std::env;
 use std::fs;
 use std::process::ExitCode;
 
-use serde::Serialize;
 use luxel_asset_contract::{
     AcceptanceStatus, AssetPreparationRequest, AssetUse, PhysicalCalibration, PhysicalRole,
     PreparationStatus, RenderConditioningRequest, RenderPreparationStatus, StructuralAcceptance,
     condition_render_asset, evaluate_physical_acceptance, evaluate_structural_acceptance,
     inspect_file, prepare_asset,
 };
+use serde::Serialize;
 
 #[derive(Serialize)]
 struct Output<'a> {

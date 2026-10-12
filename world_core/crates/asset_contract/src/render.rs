@@ -885,7 +885,8 @@ fn validate_render_material(material: &RenderMaterial) -> Result<(), AssetContra
         )));
     }
     match (material.alpha_mode, material.alpha_cutoff) {
-        (RenderAlphaMode::Mask, Some(cutoff)) if cutoff.is_finite() && cutoff > 0.0 && cutoff < 1.0 => {}
+        (RenderAlphaMode::Mask, Some(cutoff))
+            if cutoff.is_finite() && cutoff > 0.0 && cutoff < 1.0 => {}
         (RenderAlphaMode::Opaque | RenderAlphaMode::Blend, None) => {}
         _ => {
             return Err(AssetContractError::Contract(format!(
@@ -1034,9 +1035,15 @@ fn parse_material(
             cutoff
         }
     });
-    let texture_scalar = |key: &str, field: &str, range: std::ops::RangeInclusive<f32>, findings: &mut Vec<RenderFinding>| {
+    let texture_scalar = |key: &str,
+                          field: &str,
+                          range: std::ops::RangeInclusive<f32>,
+                          findings: &mut Vec<RenderFinding>| {
         let value = material.get(key)?.get(field)?;
-        let scalar = value.as_f64().map(|value| value as f32).filter(|value| value.is_finite() && range.contains(value));
+        let scalar = value
+            .as_f64()
+            .map(|value| value as f32)
+            .filter(|value| value.is_finite() && range.contains(value));
         if scalar.is_none() {
             finding(
                 findings,
@@ -1472,15 +1479,15 @@ fn mask_coverage_cutoffs(
             continue;
         };
         let cutoff = number_value(material.get("alphaCutoff"), 0.5);
-        if let Some(existing) = cutoffs.insert(texture_index, cutoff) {
-            if existing != cutoff {
-                finding(
-                    findings,
-                    RenderFindingCode::InvalidMaterial,
-                    &format!("texture_{texture_index}"),
-                    "MASK materials sharing a base colour texture must share one alphaCutoff",
-                );
-            }
+        if let Some(existing) = cutoffs.insert(texture_index, cutoff)
+            && existing != cutoff
+        {
+            finding(
+                findings,
+                RenderFindingCode::InvalidMaterial,
+                &format!("texture_{texture_index}"),
+                "MASK materials sharing a base colour texture must share one alphaCutoff",
+            );
         }
     }
     cutoffs
@@ -2123,12 +2130,16 @@ mod alpha_coverage_tests {
             state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             f64::from(state >> 8) / f64::from(1u32 << 24)
         };
-        let blobs: Vec<(f64, f64, f64)> =
-            (0..40).map(|_| (next(), next(), 0.02 + 0.05 * next())).collect();
+        let blobs: Vec<(f64, f64, f64)> = (0..40)
+            .map(|_| (next(), next(), 0.02 + 0.05 * next()))
+            .collect();
         let mut rgba = vec![0u8; size as usize * size as usize * 4];
         for y in 0..size {
             for x in 0..size {
-                let (u, v) = (f64::from(x) / f64::from(size), f64::from(y) / f64::from(size));
+                let (u, v) = (
+                    f64::from(x) / f64::from(size),
+                    f64::from(y) / f64::from(size),
+                );
                 let field: f64 = blobs
                     .iter()
                     .map(|(cx, cy, r)| (1.0 - ((u - cx).hypot(v - cy) / r)).max(0.0))
@@ -2159,7 +2170,11 @@ mod alpha_coverage_tests {
                 "{}px: coverage {coverage:.4} vs base {target:.4}",
                 level.width_px
             );
-            let colour = |rgba: &[u8]| rgba.chunks_exact(4).map(|t| [t[0], t[1], t[2]]).collect::<Vec<_>>();
+            let colour = |rgba: &[u8]| {
+                rgba.chunks_exact(4)
+                    .map(|t| [t[0], t[1], t[2]])
+                    .collect::<Vec<_>>()
+            };
             assert_eq!(colour(&plain_level.rgba8), colour(&level.rgba8));
         }
     }
@@ -2176,7 +2191,10 @@ mod alpha_coverage_tests {
             .filter(|level| level.width_px >= 8)
             .map(|level| (alpha_coverage(&level.rgba8, 0.5) - target).abs())
             .fold(0.0, f64::max);
-        assert!(worst > 0.02, "fixture does not exercise coverage loss ({worst:.4})");
+        assert!(
+            worst > 0.02,
+            "fixture does not exercise coverage loss ({worst:.4})"
+        );
     }
 
     #[test]
@@ -2192,7 +2210,10 @@ mod alpha_coverage_tests {
         let mut findings = Vec::new();
         let cutoffs = mask_coverage_cutoffs(&materials, &mut findings);
         assert!(findings.is_empty());
-        assert_eq!(cutoffs.into_iter().collect::<Vec<_>>(), vec![(2, 0.4), (5, 0.5)]);
+        assert_eq!(
+            cutoffs.into_iter().collect::<Vec<_>>(),
+            vec![(2, 0.4), (5, 0.5)]
+        );
 
         let conflicting: Vec<Value> = serde_json::from_str(
             r#"[
@@ -2217,18 +2238,33 @@ mod alpha_coverage_tests {
             mip_policy: RenderMipPolicy::GenerateCpuChain,
             max_texture_dimension: 1024,
         };
-        let document: Value = serde_json::from_str(r#"{"textures": [{"source": 0}], "images": [{"uri": "x.png"}]}"#).unwrap();
+        let document: Value =
+            serde_json::from_str(r#"{"textures": [{"source": 0}], "images": [{"uri": "x.png"}]}"#)
+                .unwrap();
         let parse = |material: &str| {
             let mut findings = Vec::new();
             let material: Value = serde_json::from_str(material).unwrap();
-            (parse_material(&document, 0, &material, &request, &mut findings), findings)
+            (
+                parse_material(&document, 0, &material, &request, &mut findings),
+                findings,
+            )
         };
-        let (plain, findings) = parse(r#"{"normalTexture": {"index": 0}, "occlusionTexture": {"index": 0}}"#);
+        let (plain, findings) =
+            parse(r#"{"normalTexture": {"index": 0}, "occlusionTexture": {"index": 0}}"#);
         assert!(findings.is_empty(), "{findings:?}");
-        assert_eq!((plain.normal_scale, plain.occlusion_strength), (None, None), "absent stays absent");
-        let (set, findings) = parse(r#"{"normalTexture": {"index": 0, "scale": 0.4}, "occlusionTexture": {"index": 0, "strength": 0.7}}"#);
+        assert_eq!(
+            (plain.normal_scale, plain.occlusion_strength),
+            (None, None),
+            "absent stays absent"
+        );
+        let (set, findings) = parse(
+            r#"{"normalTexture": {"index": 0, "scale": 0.4}, "occlusionTexture": {"index": 0, "strength": 0.7}}"#,
+        );
         assert!(findings.is_empty(), "{findings:?}");
-        assert_eq!((set.normal_scale, set.occlusion_strength), (Some(0.4), Some(0.7)));
+        assert_eq!(
+            (set.normal_scale, set.occlusion_strength),
+            (Some(0.4), Some(0.7))
+        );
         let (_, findings) = parse(r#"{"normalTexture": {"index": 0, "scale": 3.0}}"#);
         assert_eq!(findings.len(), 1, "out-of-range scale is a finding");
     }

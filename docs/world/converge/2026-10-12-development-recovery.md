@@ -38,10 +38,10 @@ already exists.
 | Source-checkout October 9 IBL comparison receipt and lighting RPDO audit | Later Codex continuation: IBL comparison rejected; moving-camera cache correctness moves ahead of beauty work. These notes are uncommitted in the source checkout and are not Claude's October 6 checkpoint. |
 | Source-checkout October 9–10 character and avatar receipts | CPU rig/movement and separate avatar authoring experiments; they do not establish animated native 3D playback or production Live2D support. Ornith rest appearance was accepted and explicitly parked. |
 
-The authoritative source checkout is `/mnt/d/Code Projects/luxel-engine`,
+The authoritative source checkout is the primary luxel-engine checkout,
 branch `codex/converge4-lighting`, HEAD `8ea9cf1`. Its triage reported 132 dirty
-entries before this work. This continuation uses an isolated worktree at
-`/home/mattc/rnd/luxel-camera-continuity-20261012`, based on that HEAD; none of
+entries before this work. This continuation uses an isolated worktree on branch
+`codex/luxel-camera-continuity`, based on that HEAD; none of
 those dirty entries were reset, staged or silently incorporated.
 
 ## Where graphics actually stands
@@ -98,3 +98,27 @@ those dirty entries were reset, staged or silently incorporated.
 Each slice retains absent-axis identity, known-bad controls and provenance.
 Render correctness, visual quality and performance have separate evidence;
 none substitutes for the other. No Gesso, Cyan or Palette edits are included.
+
+## Fresh visual review after camera/shadow work
+
+The fresh native wide capture exactly matches the retained October 9 control;
+this fixes correctness without presenting a new beauty result. For an external
+visual reference, root inspected NVIDIA's [original Witcher 3 foliage High
+example](https://international.download.nvidia.com/geforce-com/international/comparisons/the-witcher-3-wild-hunt/the-witcher-3-wild-hunt-foliage-visibility-interactive-comparison-1-ultra-vs-high.html)
+from its May 2015 guide. It is a different scene and camera, so no image metric
+or numerical parity score is valid between it and Luxel.
+
+The reference shows several ground-cover heights, patches of shrubs and crops,
+clear paths through cover, varied tree silhouettes, deep canopy values, and
+distance haze separating groups. Luxel's current wide frame has useful large
+landforms and an identifiable ruin, but near-ground detail is mostly isolated
+small plants, tree spacing/silhouettes repeat, and tree crowns have similar
+brightness. The planned forest slice should therefore build coherent cover
+patches, edge transitions, visible roots and path clearings, plus grouped
+species/ages and stronger canopy-to-floor separation. These are observations
+and proposed content goals, not evidence that an AO or cascade implementation
+has already achieved the difference.
+
+The external reference is retained only as ignored review evidence in
+`artifacts/reference-review-20261012/`, with URL and digest in its provenance.
+It is not a Luxel asset or distributable scene dependency.

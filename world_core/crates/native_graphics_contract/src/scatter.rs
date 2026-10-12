@@ -64,18 +64,28 @@ pub fn poisson_disc(lo: [f32; 2], hi: [f32; 2], radius: f32, seed: u64) -> Vec<[
         for _ in 0..ATTEMPTS {
             let angle = rng.range(0.0, std::f32::consts::TAU);
             let distance = rng.range(radius, 2.0 * radius);
-            let candidate = [origin[0] + distance * angle.cos(), origin[1] + distance * angle.sin()];
-            if candidate[0] < lo[0] || candidate[0] >= hi[0] || candidate[1] < lo[1] || candidate[1] >= hi[1] {
+            let candidate = [
+                origin[0] + distance * angle.cos(),
+                origin[1] + distance * angle.sin(),
+            ];
+            if candidate[0] < lo[0]
+                || candidate[0] >= hi[0]
+                || candidate[1] < lo[1]
+                || candidate[1] >= hi[1]
+            {
                 continue;
             }
             let (cc, cr) = index(candidate);
             let clear = (cr.saturating_sub(2)..(cr + 3).min(rows)).all(|row| {
-                (cc.saturating_sub(2)..(cc + 3).min(columns)).all(|column| match grid[row * columns + column] {
-                    Some(k) => {
-                        let q = points[k];
-                        (q[0] - candidate[0]).powi(2) + (q[1] - candidate[1]).powi(2) >= radius * radius
+                (cc.saturating_sub(2)..(cc + 3).min(columns)).all(|column| {
+                    match grid[row * columns + column] {
+                        Some(k) => {
+                            let q = points[k];
+                            (q[0] - candidate[0]).powi(2) + (q[1] - candidate[1]).powi(2)
+                                >= radius * radius
+                        }
+                        None => true,
                     }
-                    None => true,
                 })
             });
             if clear {
@@ -94,8 +104,9 @@ pub fn poisson_disc(lo: [f32; 2], hi: [f32; 2], radius: f32, seed: u64) -> Vec<[
 }
 
 fn hash2(ix: i32, iz: i32, seed: u32) -> f32 {
-    let mut h =
-        (ix as u32).wrapping_mul(0x8DA6_B343) ^ (iz as u32).wrapping_mul(0xD816_3841) ^ seed.wrapping_mul(0xCB1A_B31F);
+    let mut h = (ix as u32).wrapping_mul(0x8DA6_B343)
+        ^ (iz as u32).wrapping_mul(0xD816_3841)
+        ^ seed.wrapping_mul(0xCB1A_B31F);
     h ^= h >> 13;
     h = h.wrapping_mul(0x5BD1_E995);
     h ^= h >> 15;
@@ -143,9 +154,12 @@ pub enum Exclusion {
 impl Exclusion {
     pub fn contains(&self, p: [f32; 2]) -> bool {
         match *self {
-            Self::Disc { center, radius } => (p[0] - center[0]).powi(2) + (p[1] - center[1]).powi(2) < radius * radius,
+            Self::Disc { center, radius } => {
+                (p[0] - center[0]).powi(2) + (p[1] - center[1]).powi(2) < radius * radius
+            }
             Self::Ellipse { center, radii } => {
-                ((p[0] - center[0]) / radii[0]).powi(2) + ((p[1] - center[1]) / radii[1]).powi(2) < 1.0
+                ((p[0] - center[0]) / radii[0]).powi(2) + ((p[1] - center[1]) / radii[1]).powi(2)
+                    < 1.0
             }
             Self::Corridor {
                 from,
@@ -155,7 +169,8 @@ impl Exclusion {
             } => {
                 let d = [to[0] - from[0], to[1] - from[1]];
                 let length2 = d[0] * d[0] + d[1] * d[1];
-                let t = (((p[0] - from[0]) * d[0] + (p[1] - from[1]) * d[1]) / length2.max(1e-6)).clamp(0.0, 1.0);
+                let t = (((p[0] - from[0]) * d[0] + (p[1] - from[1]) * d[1]) / length2.max(1e-6))
+                    .clamp(0.0, 1.0);
                 let closest = [from[0] + t * d[0], from[1] + t * d[1]];
                 let width = half_width_from + (half_width_to - half_width_from) * t;
                 (p[0] - closest[0]).powi(2) + (p[1] - closest[1]).powi(2) < width * width
@@ -222,12 +237,17 @@ fn quaternion_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
 /// shift changes hue without changing brightness.
 pub fn tint(value: f32, hue: f32, direction: f32) -> [f32; 3] {
     let third = std::f32::consts::TAU / 3.0;
-    [0.0f32, third, 2.0 * third].map(|phase| (1.0 + value) * (1.0 + hue.sin() * (direction + phase).cos()))
+    [0.0f32, third, 2.0 * third]
+        .map(|phase| (1.0 + value) * (1.0 + hue.sin() * (direction + phase).cos()))
 }
 
 /// Placements for one region in one style. Candidates are visited in their
 /// sampling order, so the result is a pure function of the inputs.
-pub fn scatter(region: &ScatterRegion<'_>, surface: &TerrainSurface, style: &Style) -> Vec<Placement> {
+pub fn scatter(
+    region: &ScatterRegion<'_>,
+    surface: &TerrainSurface,
+    style: &Style,
+) -> Vec<Placement> {
     let candidates = poisson_disc(region.lo, region.hi, region.spacing_m, region.seed);
     let mut rng = SplitMix64::new(region.seed ^ 0xA5A5_5A5A_DEAD_BEEF);
     let mut placements = Vec::new();
@@ -429,7 +449,11 @@ pub fn campaign2_layout(
         .enumerate()
         .map(|(i, p)| (if i % 2 == 0 { "rock_a" } else { "rock_b" }, p))
         .collect();
-    crate::kit::ScatteredLayout { trees, rocks, ferns }
+    crate::kit::ScatteredLayout {
+        trees,
+        rocks,
+        ferns,
+    }
 }
 
 #[cfg(test)]

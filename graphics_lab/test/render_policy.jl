@@ -529,10 +529,19 @@ end
     light_direction, right, up = LavaAdapter._basis_vectors(
         light, LavaAdapter._shadow_up_hint(light), "test light basis")
     frame = LavaAdapter._view_fitted_shadow_frame(camera, light_direction, right, up, 60.0f0)
+    # The preview uses a CameraFrame rather than a newly sealed packet camera.
+    # Both entry points must produce exactly the original cold-view fit.
+    view = LavaAdapter._camera_frame(camera)
+    @test LavaAdapter._view_fitted_shadow_frame(view, light_direction, right, up, 60.0f0) == frame
+    delta = Vec4f(42.0f0, 0.0f0, -17.0f0, 0.0f0)
+    shifted = LavaAdapter.CameraFrame(view.position + delta, view.right, view.up,
+        view.forward, view.projection, view.mode, view.width_px, view.height_px)
+    shifted_fit = LavaAdapter._view_fitted_shadow_frame(shifted, light_direction, right, up, 60.0f0)
+    @test shifted_fit.position ≈ frame.position + delta atol=1.0f-4
+    @test shifted_fit.projection ≈ frame.projection atol=1.0f-4
     @test frame.mode == 0.0f0
     half_span = frame.projection[1]
     # Every frustum-slice corner must project inside the orthographic extent.
-    view = LavaAdapter._camera_frame(camera)
     for depth in (view.projection[3], 60.0f0), sx in (-1.0f0, 1.0f0), sy in (-1.0f0, 1.0f0)
         corner = Vec4f(
             (view.position .+ view.forward .* depth .+ view.right .* (sx * view.projection[1] * depth) .+ view.up .* (sy * view.projection[2] * depth))[1:3]...,
