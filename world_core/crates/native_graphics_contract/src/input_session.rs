@@ -146,12 +146,12 @@ pub fn accept_presented_samples(
     let mut previous_timestamp_ms = None;
     for sample in &samples {
         sample.validate()?;
-        if let Some(previous) = previous_timestamp_ms {
-            if sample.timestamp_ms <= previous {
-                return Err(GraphicsWorkerError::protocol(
-                    "worker input sample timestamps must increase with presented frames",
-                ));
-            }
+        if let Some(previous) = previous_timestamp_ms
+            && sample.timestamp_ms <= previous
+        {
+            return Err(GraphicsWorkerError::protocol(
+                "worker input sample timestamps must increase with presented frames",
+            ));
         }
         previous_timestamp_ms = Some(sample.timestamp_ms);
     }
@@ -1605,7 +1605,7 @@ mod tests {
             disposition: "advanced".into(),
             position_after_xyz_m: [0.0, 0.0, 0.5],
         };
-        let digest_a = trace_digest(&[step.clone()]);
+        let digest_a = trace_digest(std::slice::from_ref(&step));
         let digest_b = trace_digest(&[step]);
         assert_eq!(digest_a, digest_b, "digest is deterministic");
         let mut other = InputFrame::new(1);

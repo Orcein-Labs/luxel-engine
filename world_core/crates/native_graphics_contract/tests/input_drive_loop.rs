@@ -5,11 +5,11 @@
 //! `sample_and_present`.
 
 use luxel_native_graphics_contract::input_session::{
-    accept_presented_samples, camera_intent, ds3_map, InputDrivenSession, InputFrame, InputSample,
+    InputDrivenSession, InputFrame, InputSample, accept_presented_samples, camera_intent, ds3_map,
 };
 use luxel_native_graphics_contract::session::{PresentedGraphicsSession, PresentedSessionRequest};
 use luxel_native_graphics_contract::{lower_reference_world, validate_scene_packet};
-use luxel_reference_runtime::{validate_world_artifact, WorldArtifact};
+use luxel_reference_runtime::{WorldArtifact, validate_world_artifact};
 
 const WORLD_FIXTURE: &[u8] = include_bytes!("fixtures/riverwatch-movement-world.json");
 

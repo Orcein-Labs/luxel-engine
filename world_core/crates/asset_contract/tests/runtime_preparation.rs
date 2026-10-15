@@ -53,7 +53,10 @@ fn fixture(name: &str) -> RuntimeFixture {
         value["request"] = base["request"].clone();
     }
     let fixture: RuntimeFixture = serde_json::from_value(value).expect("fixture JSON is typed");
-    assert_eq!(fixture.schema_version, "luxel.asset-runtime-test-fixture/v1");
+    assert_eq!(
+        fixture.schema_version,
+        "luxel.asset-runtime-test-fixture/v1"
+    );
     fixture
 }
 
@@ -693,7 +696,10 @@ fn fixtures_are_not_accidentally_empty() {
         "missing_collision",
     ] {
         let fixture = fixture(name);
-        assert_eq!(fixture.schema_version, "luxel.asset-runtime-test-fixture/v1");
+        assert_eq!(
+            fixture.schema_version,
+            "luxel.asset-runtime-test-fixture/v1"
+        );
     }
 }
 

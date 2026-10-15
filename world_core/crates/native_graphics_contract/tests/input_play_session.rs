@@ -107,7 +107,7 @@ fn play_session_writes_actor_override_matching_movement_sidecar() {
     .expect("sidecar binds the same actor");
 
     let sample = sample_keys(0.0, &[ds3_map::KEY_W]);
-    play.apply_samples(&[sample.clone()])
+    play.apply_samples(std::slice::from_ref(&sample))
         .expect("forward sample applies");
     let sidecar_frame = sidecar
         .advance_sample(&sample)
