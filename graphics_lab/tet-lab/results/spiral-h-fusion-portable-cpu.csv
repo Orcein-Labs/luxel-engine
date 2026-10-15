@@ -1,0 +1,88 @@
+# Spiral H — fusion + graph launch-floor probe (portable driver, backend cpu)
+# device: KernelAbstractions CPU() (1 threads)
+# backend: cpu via KernelAbstractions 0.9.43, workgroup 256
+# variants: A=split wall, B=fused wall, C=graph-split wall, D=graph-fused wall, E=split back-to-back launches (sync outside)
+# timing: median of 25 after 5 warmups
+# blob wind: A=146.0 B=683.0 (fused −-368%) C=149.8 D=555.8 E=161.6 dev A=146.3 B=547.9 µs
+# blob fold4: A=136.7 B=597.3 (fused −-337%) C=136.4 D=596.8 E=142.3 dev A=137.1 B=597.3 µs
+# teapot wind: A=31.6 B=21.4 (fused −32%) C=31.7 D=20.5 E=36.4 dev A=33.3 B=20.5 µs
+# teapot fold4: A=18.7 B=14.4 (fused −23%) C=19.1 D=14.9 E=25.6 dev A=19.0 B=14.4 µs
+# icosphere2 wind: A=68.3 B=9.6 (fused −86%) C=58.6 D=9.5 E=68.4 dev A=54.9 B=8.5 µs
+# icosphere2 fold4: A=46.4 B=10.3 (fused −78%) C=43.9 D=8.9 E=43.9 dev A=43.8 B=8.9 µs
+# robot wind: A=28.0 B=2.6 (fused −91%) C=25.0 D=2.6 E=25.0 dev A=25.1 B=2.6 µs
+# robot fold4: A=30.8 B=3.2 (fused −90%) C=23.9 D=2.9 E=23.9 dev A=25.2 B=2.9 µs
+# conifer wind: A=59.6 B=190.8 (fused −-220%) C=39.3 D=175.8 E=43.3 dev A=42.4 B=174.9 µs
+# conifer fold4: A=38.8 B=230.0 (fused −-493%) C=38.8 D=229.8 E=39.4 dev A=38.8 B=229.8 µs
+# plate wind: A=8.3 B=16.7 (fused −-102%) C=8.3 D=18.2 E=12.9 dev A=9.9 B=19.4 µs
+# plate fold4: A=8.5 B=19.4 (fused −-127%) C=8.1 D=19.5 E=8.0 dev A=8.1 B=19.5 µs
+# grass wind: A=6.3 B=6.3 (fused −0%) C=6.4 D=6.3 E=6.3 dev A=6.3 B=6.9 µs
+# grass fold4: A=6.0 B=7.3 (fused −-21%) C=6.3 D=7.7 E=5.9 dev A=6.0 B=7.3 µs
+# perf hypothesis FALSIFIED on this backend: HF-G3 FAILED (blob wind): fused 683.047 µs > 0.75×split 145.96699999999998 µs — launch floor is NOT dominant, P1 falsified
+# perf hypothesis FALSIFIED on this backend: HF-G4′ sanity FAILED (blob wind): launch-only 161.64804 µs >= wall 145.96699999999998 µs — decomposition inconsistent
+# perf hypothesis FALSIFIED on this backend: HF-G3 FAILED (blob fold4): fused 597.3140000000001 µs > 0.75×split 136.726 µs — launch floor is NOT dominant, P1 falsified
+# perf hypothesis FALSIFIED on this backend: HF-G4′ sanity FAILED (blob fold4): launch-only 142.34884 µs >= wall 136.726 µs — decomposition inconsistent
+# perf hypothesis FALSIFIED on this backend: HF-G4′ sanity FAILED (teapot wind): launch-only 36.35484 µs >= wall 31.599 µs — decomposition inconsistent
+# perf hypothesis FALSIFIED on this backend: HF-G4′ sanity FAILED (teapot fold4): launch-only 25.57116 µs >= wall 18.663999999999998 µs — decomposition inconsistent
+# perf hypothesis FALSIFIED on this backend: HF-G4′ sanity FAILED (icosphere2 wind): launch-only 68.35003999999999 µs >= wall 68.31099999999999 µs — decomposition inconsistent
+# perf hypothesis FALSIFIED on this backend: HF-G4′ sanity FAILED (conifer fold4): launch-only 39.409639999999996 µs >= wall 38.762 µs — decomposition inconsistent
+# perf hypothesis FALSIFIED on this backend: HF-G4′ sanity FAILED (plate wind): launch-only 12.86632 µs >= wall 8.285 µs — decomposition inconsistent
+# perf rows: kind,name,h,tets,verts,family,reps,us_A_split,us_B_fused,us_C_graphsplit,us_D_graphfused,us_E_nosync,us_A_dev,us_B_dev,ident_max,bfuse_max
+perf,blob,0.28,1100,10242,wind,25,145.97,683.05,149.76,555.80,161.65,146.32,547.91,1.192e-07,1.192e-07
+perf,blob,0.28,1100,10242,fold4,25,136.73,597.31,136.44,596.77,142.35,137.06,597.29,1.192e-07,1.192e-07
+perf,teapot,0.3,500,392,wind,25,31.60,21.36,31.65,20.51,36.35,33.31,20.51,0.000e+00,0.000e+00
+perf,teapot,0.3,500,392,fold4,25,18.66,14.40,19.12,14.85,25.57,19.03,14.40,1.192e-07,1.192e-07
+perf,icosphere2,0.3,906,162,wind,25,68.31,9.55,58.56,9.54,68.35,54.92,8.50,5.960e-08,5.960e-08
+perf,icosphere2,0.3,906,162,fold4,25,46.45,10.31,43.86,8.88,43.86,43.78,8.88,1.192e-07,1.192e-07
+perf,robot,0.13,435,48,wind,25,28.01,2.64,24.95,2.63,25.02,25.11,2.63,4.470e-08,4.470e-08
+perf,robot,0.13,435,48,fold4,25,30.85,3.24,23.92,2.88,23.91,25.15,2.88,5.960e-08,5.960e-08
+perf,conifer,0.6,226,3508,wind,25,59.60,190.76,39.31,175.84,43.32,42.36,174.92,2.384e-07,2.384e-07
+perf,conifer,0.6,226,3508,fold4,25,38.76,230.00,38.83,229.80,39.41,38.80,229.82,4.768e-07,4.768e-07
+perf,plate,0.3,96,289,wind,25,8.29,16.73,8.32,18.23,12.87,9.94,19.39,1.192e-07,1.192e-07
+perf,plate,0.3,96,289,fold4,25,8.54,19.43,8.09,19.51,8.03,8.08,19.47,0.000e+00,0.000e+00
+perf,grass,0.16,93,120,wind,25,6.33,6.32,6.35,6.30,6.30,6.34,6.88,5.960e-08,5.960e-08
+perf,grass,0.16,93,120,fold4,25,5.98,7.27,6.31,7.69,5.94,5.99,7.27,2.980e-08,2.980e-08
+# cap rows: kind,name,h,tets,family,duty_ms,cap_split_A,cap_graphfused_D (derived)
+cap,blob,0.28,1100,wind,2.0,13,3
+cap,blob,0.28,1100,wind,4.0,27,7
+cap,blob,0.28,1100,wind,8.0,54,14
+cap,blob,0.28,1100,fold4,2.0,14,3
+cap,blob,0.28,1100,fold4,4.0,29,6
+cap,blob,0.28,1100,fold4,8.0,58,13
+cap,teapot,0.3,500,wind,2.0,63,97
+cap,teapot,0.3,500,wind,4.0,126,194
+cap,teapot,0.3,500,wind,8.0,253,389
+cap,teapot,0.3,500,fold4,2.0,107,134
+cap,teapot,0.3,500,fold4,4.0,214,269
+cap,teapot,0.3,500,fold4,8.0,428,538
+cap,icosphere2,0.3,906,wind,2.0,29,209
+cap,icosphere2,0.3,906,wind,4.0,58,419
+cap,icosphere2,0.3,906,wind,8.0,117,838
+cap,icosphere2,0.3,906,fold4,2.0,43,225
+cap,icosphere2,0.3,906,fold4,4.0,86,450
+cap,icosphere2,0.3,906,fold4,8.0,172,900
+cap,robot,0.13,435,wind,2.0,71,760
+cap,robot,0.13,435,wind,4.0,142,1520
+cap,robot,0.13,435,wind,8.0,285,3040
+cap,robot,0.13,435,fold4,2.0,64,693
+cap,robot,0.13,435,fold4,4.0,129,1386
+cap,robot,0.13,435,fold4,8.0,259,2773
+cap,conifer,0.6,226,wind,2.0,33,11
+cap,conifer,0.6,226,wind,4.0,67,22
+cap,conifer,0.6,226,wind,8.0,134,45
+cap,conifer,0.6,226,fold4,2.0,51,8
+cap,conifer,0.6,226,fold4,4.0,103,17
+cap,conifer,0.6,226,fold4,8.0,206,34
+cap,plate,0.3,96,wind,2.0,241,109
+cap,plate,0.3,96,wind,4.0,482,219
+cap,plate,0.3,96,wind,8.0,965,438
+cap,plate,0.3,96,fold4,2.0,234,102
+cap,plate,0.3,96,fold4,4.0,468,205
+cap,plate,0.3,96,fold4,8.0,936,410
+cap,grass,0.16,93,wind,2.0,316,317
+cap,grass,0.16,93,wind,4.0,632,634
+cap,grass,0.16,93,wind,8.0,1264,1269
+cap,grass,0.16,93,fold4,2.0,334,260
+cap,grass,0.16,93,fold4,4.0,668,520
+cap,grass,0.16,93,fold4,8.0,1336,1040
+# gates: HF-G0 provenance+selfcheck; HF-G1 ulp identity A&B; HF-G3 B<=0.75A on tets>=900; HF-G4 E<=10us on blob/fold4
+# pin protocol: stable columns = kind,name,h,tets,verts,family,reps,ident_max,bfuse_max (us_*/cap are machine-state)

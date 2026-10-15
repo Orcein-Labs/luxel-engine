@@ -1,0 +1,72 @@
+# Spiral F — GPU frame pricing (portable driver, backend cpu)
+# device: KernelAbstractions CPU() (1 threads)
+# backend: cpu via KernelAbstractions 0.9.43, workgroup 256
+# timing: median of 25 reps after 3 warmup launches; us_wall includes launch+sync, us_dev is device time
+# blob h=0.28 tets=1100 (pin ok) self-check max=0.00e+00
+# teapot h=0.30 tets=500 (pin ok) self-check max=0.00e+00
+# icosphere2 h=0.30 tets=906 (pin ok) self-check max=0.00e+00
+# robot h=0.13 tets=435 (pin ok) self-check max=0.00e+00
+# conifer h=0.60 tets=226 (pin ok) self-check max=0.00e+00
+# plate h=0.30 tets=96 (pin ok) self-check max=0.00e+00
+# grass h=0.16 tets=93 (pin ok) self-check max=0.00e+00
+# perf hypotheses: all held on this backend
+# perf rows: kind,name,h,tets,verts,family,us_wall_deform,us_dev_deform,us_wall_recon,us_dev_recon,us_wall_frame,us_dev_frame,reps,tets_per_us_frame,ident_max,dev_px95_cpugpu
+perf,blob,0.28,1100,10242,wind,63.22,63.65,83.72,96.36,146.94,160.01,25,7.486,1.192e-07,0.0000
+perf,blob,0.28,1100,10242,fold4,58.52,58.42,96.52,88.75,155.04,147.16,25,7.095,1.192e-07,0.0000
+perf,teapot,0.3,500,392,wind,31.12,31.12,3.51,3.51,34.63,34.63,25,14.44,0.000e+00,0.0000
+perf,teapot,0.3,500,392,fold4,17.20,16.64,3.86,3.85,21.05,20.50,25,23.75,1.192e-07,0.0000
+perf,icosphere2,0.3,906,162,wind,55.24,55.28,1.59,1.59,56.83,56.87,25,15.94,5.960e-08,0.0000
+perf,icosphere2,0.3,906,162,fold4,46.12,46.11,1.59,1.59,47.72,47.70,25,18.99,1.192e-07,0.0000
+perf,robot,0.13,435,48,wind,28.60,28.51,0.57,0.56,29.17,29.08,25,14.91,4.470e-08,0.0000
+perf,robot,0.13,435,48,fold4,27.06,27.95,0.65,0.64,27.71,28.59,25,15.7,5.960e-08,0.0000
+perf,conifer,0.6,226,3508,wind,13.89,13.84,29.16,29.55,43.05,43.39,25,5.25,2.384e-07,0.0000
+perf,conifer,0.6,226,3508,fold4,13.17,13.14,29.19,29.16,42.36,42.30,25,5.335,4.768e-07,0.0000
+perf,plate,0.3,96,289,wind,6.89,6.96,2.56,2.56,9.45,9.52,25,10.16,1.192e-07,0.0000
+perf,plate,0.3,96,289,fold4,6.21,6.21,2.56,2.56,8.76,8.76,25,10.96,0.000e+00,0.0000
+perf,grass,0.16,93,120,wind,5.78,5.77,1.12,1.11,6.90,6.88,25,13.48,5.960e-08,0.0000
+perf,grass,0.16,93,120,fold4,5.62,5.69,1.19,1.19,6.81,6.88,25,13.66,2.980e-08,0.0000
+# cap rows: kind,name,h,tets,duty_ms,instances_in_duty (derived, not pinned)
+cap,blob,0.28,1100,2.0,13
+cap,blob,0.28,1100,4.0,27
+cap,blob,0.28,1100,8.0,54
+cap,blob,0.28,1100,2.0,12
+cap,blob,0.28,1100,4.0,25
+cap,blob,0.28,1100,8.0,51
+cap,teapot,0.3,500,2.0,57
+cap,teapot,0.3,500,4.0,115
+cap,teapot,0.3,500,8.0,231
+cap,teapot,0.3,500,2.0,94
+cap,teapot,0.3,500,4.0,189
+cap,teapot,0.3,500,8.0,379
+cap,icosphere2,0.3,906,2.0,35
+cap,icosphere2,0.3,906,4.0,70
+cap,icosphere2,0.3,906,8.0,140
+cap,icosphere2,0.3,906,2.0,41
+cap,icosphere2,0.3,906,4.0,83
+cap,icosphere2,0.3,906,8.0,167
+cap,robot,0.13,435,2.0,68
+cap,robot,0.13,435,4.0,137
+cap,robot,0.13,435,8.0,274
+cap,robot,0.13,435,2.0,72
+cap,robot,0.13,435,4.0,144
+cap,robot,0.13,435,8.0,288
+cap,conifer,0.6,226,2.0,46
+cap,conifer,0.6,226,4.0,92
+cap,conifer,0.6,226,8.0,185
+cap,conifer,0.6,226,2.0,47
+cap,conifer,0.6,226,4.0,94
+cap,conifer,0.6,226,8.0,188
+cap,plate,0.3,96,2.0,211
+cap,plate,0.3,96,4.0,423
+cap,plate,0.3,96,8.0,846
+cap,plate,0.3,96,2.0,228
+cap,plate,0.3,96,4.0,456
+cap,plate,0.3,96,8.0,913
+cap,grass,0.16,93,2.0,289
+cap,grass,0.16,93,4.0,579
+cap,grass,0.16,93,8.0,1159
+cap,grass,0.16,93,2.0,293
+cap,grass,0.16,93,4.0,587
+cap,grass,0.16,93,8.0,1175
+# gates: F-G0 tets==pin & self-check; F-G1(a) ident<=4eps*maxcoord & (b) dev_px95_cpugpu<=0.02; F-G2 us_wall_frame<=500
+# pin protocol: stable columns = kind,name,h,tets,verts,family,reps,ident_max (us_*/derived are machine-state)

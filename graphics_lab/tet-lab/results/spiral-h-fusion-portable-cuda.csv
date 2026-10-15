@@ -1,0 +1,81 @@
+# Spiral H — fusion + graph launch-floor probe (portable driver, backend cuda)
+# device: NVIDIA GeForce RTX 5060 cap 12.0.0
+# cuda runtime: 13.3.0
+# backend: cuda via KernelAbstractions 0.9.43, workgroup 256
+# variants: A=split wall, B=fused wall, C=graph-split wall, D=graph-fused wall, E=split back-to-back launches (sync outside)
+# timing: median of 25 after 5 warmups
+# blob wind: A=39.7 B=20.3 (fused −49%) C=10.2 D=9.6 E=20.1 dev A=27.2 B=14.1 µs
+# blob fold4: A=40.8 B=19.4 (fused −52%) C=10.5 D=9.8 E=16.1 dev A=26.3 B=14.2 µs
+# teapot wind: A=36.0 B=18.2 (fused −50%) C=10.0 D=9.2 E=15.6 dev A=26.8 B=14.1 µs
+# teapot fold4: A=32.3 B=17.2 (fused −47%) C=9.5 D=8.5 E=14.9 dev A=25.1 B=14.1 µs
+# icosphere2 wind: A=32.7 B=17.7 (fused −46%) C=9.5 D=8.8 E=16.5 dev A=24.5 B=14.7 µs
+# icosphere2 fold4: A=30.7 B=16.4 (fused −47%) C=9.5 D=8.5 E=17.2 dev A=24.0 B=14.6 µs
+# robot wind: A=31.8 B=17.0 (fused −46%) C=9.5 D=8.7 E=15.8 dev A=28.3 B=14.3 µs
+# robot fold4: A=31.9 B=17.1 (fused −47%) C=9.6 D=8.3 E=16.1 dev A=23.2 B=13.6 µs
+# conifer wind: A=28.6 B=15.5 (fused −46%) C=8.5 D=7.8 E=14.4 dev A=21.8 B=13.9 µs
+# conifer fold4: A=27.5 B=14.7 (fused −47%) C=8.3 D=7.4 E=13.9 dev A=21.8 B=13.2 µs
+# plate wind: A=27.5 B=15.2 (fused −45%) C=8.4 D=8.0 E=17.5 dev A=24.8 B=14.0 µs
+# plate fold4: A=27.8 B=14.6 (fused −47%) C=8.2 D=7.3 E=14.1 dev A=22.0 B=13.2 µs
+# grass wind: A=27.5 B=15.0 (fused −45%) C=8.2 D=7.7 E=14.5 dev A=23.0 B=13.9 µs
+# grass fold4: A=30.1 B=16.6 (fused −45%) C=9.4 D=8.6 E=14.2 dev A=23.6 B=13.9 µs
+# perf hypotheses: all held on this backend
+# perf rows: kind,name,h,tets,verts,family,reps,us_A_split,us_B_fused,us_C_graphsplit,us_D_graphfused,us_E_nosync,us_A_dev,us_B_dev,ident_max,bfuse_max
+perf,blob,0.28,1100,10242,wind,25,39.73,20.32,10.16,9.64,20.11,27.20,14.14,1.192e-07,1.192e-07
+perf,blob,0.28,1100,10242,fold4,25,40.75,19.45,10.54,9.77,16.10,26.34,14.21,2.384e-07,2.384e-07
+perf,teapot,0.3,500,392,wind,25,36.02,18.16,9.96,9.24,15.58,26.75,14.14,1.192e-07,1.192e-07
+perf,teapot,0.3,500,392,fold4,25,32.31,17.20,9.54,8.52,14.89,25.12,14.08,1.192e-07,2.384e-07
+perf,icosphere2,0.3,906,162,wind,25,32.69,17.65,9.48,8.75,16.52,24.51,14.69,5.960e-08,1.192e-07
+perf,icosphere2,0.3,906,162,fold4,25,30.74,16.36,9.51,8.45,17.17,23.97,14.62,1.192e-07,1.192e-07
+perf,robot,0.13,435,48,wind,25,31.76,16.99,9.48,8.71,15.77,28.29,14.30,1.192e-07,1.192e-07
+perf,robot,0.13,435,48,fold4,25,31.91,17.07,9.57,8.32,16.08,23.17,13.63,1.192e-07,1.192e-07
+perf,conifer,0.6,226,3508,wind,25,28.57,15.47,8.46,7.84,14.38,21.79,13.86,9.537e-07,9.537e-07
+perf,conifer,0.6,226,3508,fold4,25,27.52,14.72,8.27,7.40,13.90,21.82,13.15,9.537e-07,9.537e-07
+perf,plate,0.3,96,289,wind,25,27.53,15.16,8.40,7.99,17.55,24.77,14.05,1.192e-07,1.192e-07
+perf,plate,0.3,96,289,fold4,25,27.77,14.61,8.17,7.34,14.12,21.98,13.15,1.192e-07,1.192e-07
+perf,grass,0.16,93,120,wind,25,27.47,15.01,8.22,7.65,14.49,23.01,13.89,1.192e-07,5.960e-08
+perf,grass,0.16,93,120,fold4,25,30.06,16.61,9.39,8.58,14.16,23.58,13.89,1.192e-07,5.960e-08
+# cap rows: kind,name,h,tets,family,duty_ms,cap_split_A,cap_graphfused_D (derived)
+cap,blob,0.28,1100,wind,2.0,50,207
+cap,blob,0.28,1100,wind,4.0,100,414
+cap,blob,0.28,1100,wind,8.0,201,829
+cap,blob,0.28,1100,fold4,2.0,49,204
+cap,blob,0.28,1100,fold4,4.0,98,409
+cap,blob,0.28,1100,fold4,8.0,196,818
+cap,teapot,0.3,500,wind,2.0,55,216
+cap,teapot,0.3,500,wind,4.0,111,432
+cap,teapot,0.3,500,wind,8.0,222,865
+cap,teapot,0.3,500,fold4,2.0,61,234
+cap,teapot,0.3,500,fold4,4.0,123,469
+cap,teapot,0.3,500,fold4,8.0,247,939
+cap,icosphere2,0.3,906,wind,2.0,61,228
+cap,icosphere2,0.3,906,wind,4.0,122,456
+cap,icosphere2,0.3,906,wind,8.0,244,913
+cap,icosphere2,0.3,906,fold4,2.0,65,236
+cap,icosphere2,0.3,906,fold4,4.0,130,473
+cap,icosphere2,0.3,906,fold4,8.0,260,946
+cap,robot,0.13,435,wind,2.0,62,229
+cap,robot,0.13,435,wind,4.0,125,459
+cap,robot,0.13,435,wind,8.0,251,918
+cap,robot,0.13,435,fold4,2.0,62,240
+cap,robot,0.13,435,fold4,4.0,125,480
+cap,robot,0.13,435,fold4,8.0,250,961
+cap,conifer,0.6,226,wind,2.0,69,255
+cap,conifer,0.6,226,wind,4.0,139,510
+cap,conifer,0.6,226,wind,8.0,279,1020
+cap,conifer,0.6,226,fold4,2.0,72,270
+cap,conifer,0.6,226,fold4,4.0,145,540
+cap,conifer,0.6,226,fold4,8.0,290,1080
+cap,plate,0.3,96,wind,2.0,72,250
+cap,plate,0.3,96,wind,4.0,145,500
+cap,plate,0.3,96,wind,8.0,290,1001
+cap,plate,0.3,96,fold4,2.0,72,272
+cap,plate,0.3,96,fold4,4.0,144,544
+cap,plate,0.3,96,fold4,8.0,288,1089
+cap,grass,0.16,93,wind,2.0,72,261
+cap,grass,0.16,93,wind,4.0,145,522
+cap,grass,0.16,93,wind,8.0,291,1045
+cap,grass,0.16,93,fold4,2.0,66,233
+cap,grass,0.16,93,fold4,4.0,133,466
+cap,grass,0.16,93,fold4,8.0,266,932
+# gates: HF-G0 provenance+selfcheck; HF-G1 ulp identity A&B; HF-G3 B<=0.75A on tets>=900; HF-G4 E<=10us on blob/fold4
+# pin protocol: stable columns = kind,name,h,tets,verts,family,reps,ident_max,bfuse_max (us_*/cap are machine-state)

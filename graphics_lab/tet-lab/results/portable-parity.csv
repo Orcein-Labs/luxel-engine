@@ -1,0 +1,16 @@
+case,source,orig_status,p1_bits_differing,p1,cpu_max_ulp,cpu_max_abs,cpu_max_px,p2,cuda_output_sha256
+deform_corners fam=1,spiral_e_gpu.jl,ok,0,PASS,24,1.1920928955078125e-7,1.1920928955078125e-5,PASS,59b2f362ef94febf6da087752ea0e9520b94b960c8cd7f723fd020c3ddc0ccd2
+deform_corners fam=2,spiral_e_gpu.jl,ok,0,PASS,46,2.384185791015625e-7,2.384185791015625e-5,PASS,9b45a2148998d63f9b0aadfe83111ad2a0b89aeec205d244c39ba0eb71870ca7
+deform_corners fam=3,spiral_e_gpu.jl,ok,0,PASS,124,1.1920928955078125e-7,1.1920928955078125e-5,PASS,8434a9c460614f32b54cb6c5552c694fb8dd75f8628fc37b9ba58eedf5b20ec6
+reconstruct,spiral_e_gpu.jl,ok,0,PASS,337,1.7881393432617188e-7,1.7881393432617188e-5,PASS,22c9f88655ae45a34ba08d04657980cb4f30ef0e0b78a482c39af2e47a3e8a1e
+pair_dev,spiral_e_gpu.jl,ok,0,PASS,2,3.0517578125e-5,0.0030517578125,PASS,6e3882299acaf606702605351a40aa2127182741389076c27023469e982386e4
+fused_deform_reconstruct fam=1,spiral_h_fusion.jl,ok,0,PASS,272,1.1920928955078125e-7,1.1920928955078125e-5,PASS,6a8977affff8205d602c87f943177d23d5450b104d2b94afce2a03d90477159b
+fused_deform_reconstruct fam=2,spiral_h_fusion.jl,ok,0,PASS,392,2.384185791015625e-7,2.384185791015625e-5,PASS,c39d373f0dccbb1eab0b9c1bbb962229382e5a21ec688df37311afd2c18c9094
+fused_deform_reconstruct fam=3,spiral_h_fusion.jl,ok,0,PASS,411,2.384185791015625e-7,2.384185791015625e-5,PASS,25869ee71a82ea56254301c7366566f8eb389fbfcb4dc1cabd3d370d167876f0
+fused_batched_wind,spiral_h2_wind_ladder.jl,ok,0,PASS,400,1.7881393432617188e-7,1.7881393432617188e-5,PASS,ffe600b4dc3e8bfe118497e00f6606829d578b5b79bbfa4f6220f51fee3cd6cc
+reconstruct_batched,spiral_i_comparators.jl,ok,0,PASS,682,2.384185791015625e-7,2.384185791015625e-5,PASS,e27d57b69b7f44c8efca82e8dde976751984ddd9ff0c49dcc719c3168a4adc3a
+rot_direct,spiral_i_comparators.jl,ok,0,PASS,122,1.1920928955078125e-7,1.1920928955078125e-5,PASS,2677dd10616c021f26c7e6e54a475801afc1412155adae3cce1e8b91f471387f
+lbs,spiral_i_comparators.jl,ok,0,PASS,181,3.5762786865234375e-7,3.5762786865234375e-5,PASS,345532e18ccdecda96087b86426944a5ccb64a851449cd359e7712814a0389fe
+morph_lerp,spiral_i_comparators.jl,ok,0,PASS,253,1.1920928955078125e-7,1.1920928955078125e-5,PASS,4fc2dcb73bdf2c3985a9aa0cac01689e8ec995015e1141fe2a5352f2dda272d0
+fused_batched_shared,spiral_i_comparators.jl,ok,0,PASS,371,2.384185791015625e-7,2.384185791015625e-5,PASS,0f7aa40dd3756a18f762482a954103c5737f50e4042c273f1c505408b0a0f54b
+probe_div,probe3.jl,orig as written does not compile (InvalidIRError: call to jl_f_getfield); compared against the one-token fix threadIdx.x -> threadIdx().x,0,PASS,0,0.0,0.0,PASS,782bb356dd1538bd3875c1635a934840a687a7eba7f7df4d5305c73f59617454
