@@ -61,3 +61,6 @@ graphics_lab/TetLab.zip
 # TetCage primary source: 15 MB, fetched from the URL pinned (with SHA-256)
 # in graphics_lab/tet-lab/references/tetcage-paper-pin.md.
 graphics_lab/tet-lab/references/*.pdf
+# Its text extraction is AMD's paper too and must not be published; regenerate
+# locally with pdftotext -layout.
+graphics_lab/tet-lab/references/paper.txt
