@@ -386,3 +386,5 @@ end
     @test refuses((translation_xyz_m=[1.0, 2.0, 3.0], rotation_xyzw=[0.0, 0.0, 0.0, 0.0], scale_xyz=[1.0, 1.0, 1.0]))
     @test refuses((translation_xyz_m=[1.0, 2.0, 3.0], rotation_xyzw=[0.0, 0.0, 0.0, 1.0], scale_xyz=[0.0, 1.0, 1.0]))
 end
+
+include("local_light_parser.jl")

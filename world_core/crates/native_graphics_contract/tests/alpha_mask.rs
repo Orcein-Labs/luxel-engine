@@ -45,7 +45,10 @@ fn presence_moves_the_digest() {
     let plain = seal_scene_packet(body()).unwrap();
     let mut sided = body();
     sided.materials[0].double_sided = Some(true);
-    assert_ne!(seal_scene_packet(sided).unwrap().packet_sha256, plain.packet_sha256);
+    assert_ne!(
+        seal_scene_packet(sided).unwrap().packet_sha256,
+        plain.packet_sha256
+    );
 }
 
 #[test]
@@ -85,5 +88,8 @@ fn metallic_from_texture_needs_a_roughness_texture_and_has_one_encoding() {
     let mut untextured = body();
     untextured.materials[0].roughness_texture_id = None;
     untextured.materials[0].metallic_from_texture = Some(true);
-    assert!(validates(untextured).is_err(), "flag without a roughness texture accepted");
+    assert!(
+        validates(untextured).is_err(),
+        "flag without a roughness texture accepted"
+    );
 }

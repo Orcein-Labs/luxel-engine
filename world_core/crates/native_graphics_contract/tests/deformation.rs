@@ -19,8 +19,8 @@ use luxel_native_graphics_contract::{
     BufferPayload, BufferReference, DEFORMATION_V7_ENV, DeformationFamily, DeformationField,
     DeformationIntent, DeformationRejection, DeformationTelemetry, GraphicsScenePacketBody,
     SCENE_PACKET_SCHEMA, SCENE_PACKET_SCHEMA_V7, deformation_v7_enabled, seal_scene_packet,
-    sha256_prefixed, validate_deformation, validate_deformation_receipt,
-    validate_scene_packet, validate_schema_deformation,
+    sha256_prefixed, validate_deformation, validate_deformation_receipt, validate_scene_packet,
+    validate_schema_deformation,
 };
 
 /// Conifer's measured shape from the pinned campaigns (Spiral I/H2): 226
@@ -42,7 +42,9 @@ fn tetra_cage(tets: usize) -> BufferReference {
 fn unit_weights(verts: usize) -> BufferReference {
     let mut buffer = BufferReference::inline_f32(
         "conifer-weights",
-        (0..(4 * verts)).map(|i| if i % 4 == 0 { 1.0 } else { 0.0 }).collect(),
+        (0..(4 * verts))
+            .map(|i| if i % 4 == 0 { 1.0 } else { 0.0 })
+            .collect(),
     );
     buffer.stride_bytes = 4;
     buffer
@@ -51,7 +53,9 @@ fn unit_weights(verts: usize) -> BufferReference {
 fn corner_indices(verts: usize, tets: usize) -> BufferReference {
     let mut buffer = BufferReference::inline_u32(
         "conifer-corner-indices",
-        (0..(4 * verts)).map(|i| (i % (4 * tets)) as u32 + 1).collect(),
+        (0..(4 * verts))
+            .map(|i| (i % (4 * tets)) as u32 + 1)
+            .collect(),
     );
     buffer.stride_bytes = 4;
     buffer
@@ -90,7 +94,9 @@ fn conifer_body(deformation: Option<DeformationIntent>) -> GraphicsScenePacketBo
         },
         camera: GraphicsCamera {
             camera_id: "camera-conifer".into(),
-            projection: CameraProjection::Perspective { fov_y_degrees: 60.0 },
+            projection: CameraProjection::Perspective {
+                fov_y_degrees: 60.0,
+            },
             position_xyz_m: [0.0, 3.0, 6.0],
             forward_xyz: [0.0, -0.2, -1.0],
             up_xyz: [0.0, 1.0, 0.0],
@@ -203,8 +209,13 @@ fn wind_intent() -> DeformationIntent {
     }
 }
 
-fn rejection_code(result: Result<(), luxel_native_graphics_contract::GraphicsContractError>) -> String {
-    result.expect_err("expected a typed rejection").code.to_owned()
+fn rejection_code(
+    result: Result<(), luxel_native_graphics_contract::GraphicsContractError>,
+) -> String {
+    result
+        .expect_err("expected a typed rejection")
+        .code
+        .to_owned()
 }
 
 /// Validate a mutated intent by putting it in a v7 packet and running the real
@@ -217,8 +228,12 @@ fn reject_with(intent: DeformationIntent) -> String {
     // validates, and the whole point of this helper is to feed the validator a
     // packet it must REJECT. The digest is computed the same way so the only
     // thing under test is the content rule, not provenance.
-    let digest = sha256_prefixed(&luxel_native_graphics_contract::canonical_json(&body).expect("canonical"));
-    let packet = luxel_native_graphics_contract::GraphicsScenePacket { body, packet_sha256: digest };
+    let digest =
+        sha256_prefixed(&luxel_native_graphics_contract::canonical_json(&body).expect("canonical"));
+    let packet = luxel_native_graphics_contract::GraphicsScenePacket {
+        body,
+        packet_sha256: digest,
+    };
     rejection_code(validate_scene_packet(&packet))
 }
 
@@ -243,7 +258,10 @@ fn committed_v6_packet_reseals_to_its_committed_digest() {
     let artifact = repo_root()
         .join("artifacts/campaign2/adapter-v6-baseline-replay-2026-09-29/run-a/graphics_scene_packet.json");
     if !artifact.exists() {
-        eprintln!("skipping: committed v6 artifact not present at {}", artifact.display());
+        eprintln!(
+            "skipping: committed v6 artifact not present at {}",
+            artifact.display()
+        );
         return;
     }
     let raw = std::fs::read_to_string(&artifact).expect("committed packet reads");
@@ -276,7 +294,10 @@ fn flag_off_serializes_no_deformation_key() {
     // The flag is a PRODUCER policy; this asserts the type-level property that
     // makes flag-off output safe regardless of who is holding the flag.
     if deformation_v7_enabled() {
-        eprintln!("note: {} is set; the flag-off property is asserted structurally below anyway", DEFORMATION_V7_ENV);
+        eprintln!(
+            "note: {} is set; the flag-off property is asserted structurally below anyway",
+            DEFORMATION_V7_ENV
+        );
     }
     let body = conifer_body(None);
     let json = String::from_utf8(
@@ -309,7 +330,10 @@ fn flagged_v7_conifer_wind_packet_validates_and_seals() {
 
     // A single instance is what P1 ships, and it is the A_param contract:
     // resident state uploaded once, 0 B/frame thereafter.
-    assert_eq!(packet.body.deformation.as_ref().expect("present").instances, 1);
+    assert_eq!(
+        packet.body.deformation.as_ref().expect("present").instances,
+        1
+    );
     assert!(intent.resident_bytes() > 0);
     assert!(packet.body.schema_version == SCENE_PACKET_SCHEMA_V7);
 }
@@ -364,7 +388,9 @@ fn every_typed_rejection_is_reachable() {
     let mut mutated = good.clone();
     mutated.bary_weights = BufferReference::inline_f32(
         "bad-weights",
-        (0..(4 * CONIFER_VERTS)).map(|i| if i == 3 { -1.0 } else { 0.25 }).collect(),
+        (0..(4 * CONIFER_VERTS))
+            .map(|i| if i == 3 { -1.0 } else { 0.25 })
+            .collect(),
     );
     mutated.bary_weights.stride_bytes = 4;
     check(mutated, DeformationRejection::NonFiniteParameter);
@@ -383,7 +409,9 @@ fn every_typed_rejection_is_reachable() {
     // count that is not a multiple of 12 f32 is malformed.
     mutated.cage = BufferReference::inline_f32(
         "ragged-cage",
-        (0..(12 * CONIFER_TETS + 7)).map(|i| i as f32 * 0.001).collect(),
+        (0..(12 * CONIFER_TETS + 7))
+            .map(|i| i as f32 * 0.001)
+            .collect(),
     );
     check(mutated, DeformationRejection::BufferLengthMismatch);
 
@@ -393,11 +421,8 @@ fn every_typed_rejection_is_reachable() {
     // create a second, untested authority over cage quality (TetDeform's job).
     let mut refiner = good.clone();
     refiner.cage = tetra_cage(CONIFER_TETS * 2);
-    validate_deformation(
-        &conifer_body(Some(refiner.clone())),
-        &refiner,
-    )
-    .expect("a different well-formed tet count is valid — cage size is not mesh-derivable");
+    validate_deformation(&conifer_body(Some(refiner.clone())), &refiner)
+        .expect("a different well-formed tet count is valid — cage size is not mesh-derivable");
 
     // UnsupportedFamily is the forward-compatibility path: a family string
     // this build does not know must not deserialize into a field, and the
@@ -458,7 +483,10 @@ fn static_fallback_is_evidence_not_silence() {
     let mut contradictory = telemetry(true);
     contradictory.deform_wall_us = 203;
     assert_eq!(
-        rejection_code(validate_deformation_receipt(Some(&intent), Some(&contradictory))),
+        rejection_code(validate_deformation_receipt(
+            Some(&intent),
+            Some(&contradictory)
+        )),
         DeformationRejection::ReceiptContradictsPacket.code()
     );
 
@@ -499,7 +527,10 @@ fn receipt_contradictions_are_rejected() {
     let mut instances = telemetry(false);
     instances.instances = 128;
     assert_eq!(
-        rejection_code(validate_deformation_receipt(Some(&intent), Some(&instances))),
+        rejection_code(validate_deformation_receipt(
+            Some(&intent),
+            Some(&instances)
+        )),
         DeformationRejection::ReceiptContradictsPacket.code()
     );
 
@@ -528,13 +559,21 @@ fn deformation_section_survives_a_serde_round_trip() {
     let back: luxel_native_graphics_contract::GraphicsScenePacket =
         serde_json::from_str(&json).expect("round trips");
     validate_scene_packet(&back).expect("round-tripped v7 validates");
-    let recovered = back.body.deformation.expect("deformation survived the boundary");
+    let recovered = back
+        .body
+        .deformation
+        .expect("deformation survived the boundary");
     assert_eq!(recovered.instances, intent.instances);
     assert_eq!(recovered.field.family, DeformationFamily::Wind);
     assert_eq!(recovered.cage.payload, intent.cage.payload);
-    assert!(matches!(recovered.corner_indices.payload, BufferPayload::U32(_)));
+    assert!(matches!(
+        recovered.corner_indices.payload,
+        BufferPayload::U32(_)
+    ));
     assert_eq!(
-        sha256_prefixed(&luxel_native_graphics_contract::canonical_json(&packet.body).expect("canonical")),
+        sha256_prefixed(
+            &luxel_native_graphics_contract::canonical_json(&packet.body).expect("canonical")
+        ),
         packet.packet_sha256
     );
 }

@@ -9,10 +9,10 @@
 use std::collections::BTreeSet;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use serde::{Deserialize, Serialize};
 use luxel_asset_contract::{
     RenderAlphaMode, RenderAssetPackage, RenderTextureColorSpace, validate_render_asset_package,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     AlphaMode, GraphicsContractError, MaterialIntent, MeshPacket, TextureColorSpace,
@@ -99,7 +99,10 @@ pub fn project_render_asset(
                 alpha_mode: project_alpha_mode(material.alpha_mode),
                 alpha_cutoff: material.alpha_cutoff,
                 double_sided: material.double_sided.then_some(true),
-                metallic_from_texture: material.metallic_roughness_texture_id.is_some().then_some(true),
+                metallic_from_texture: material
+                    .metallic_roughness_texture_id
+                    .is_some()
+                    .then_some(true),
                 texture_ids,
                 normal_texture_id: material.normal_texture_id.clone(),
                 roughness_texture_id: material.metallic_roughness_texture_id.clone(),
@@ -262,7 +265,12 @@ pub fn validate_graphics_asset_projection(
             material.occlusion_texture_id.as_deref(),
             material.emissive_texture_id.as_deref(),
         ];
-        for texture_id in material.texture_ids.iter().map(String::as_str).chain(slots.into_iter().flatten()) {
+        for texture_id in material
+            .texture_ids
+            .iter()
+            .map(String::as_str)
+            .chain(slots.into_iter().flatten())
+        {
             if !texture_ids.contains(texture_id) {
                 return Err(GraphicsContractError::provenance(format!(
                     "material {} references unknown texture {}",

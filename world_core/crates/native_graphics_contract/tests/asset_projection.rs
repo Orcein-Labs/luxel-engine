@@ -1,4 +1,3 @@
-use sha2::{Digest, Sha256};
 use luxel_asset_contract::{
     AssetIdentity, RENDER_ASSET_PACKAGE_SCHEMA, RenderAlphaMode, RenderAssetPackage,
     RenderAssetProvenance, RenderMaterial, RenderMesh, RenderProducerIdentity, RenderTexture,
@@ -7,6 +6,7 @@ use luxel_asset_contract::{
 use luxel_native_graphics_contract::{
     TextureColorSpace, TexturePayload, project_render_asset, validate_graphics_asset_projection,
 };
+use sha2::{Digest, Sha256};
 
 fn package() -> RenderAssetPackage {
     let source_sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -168,7 +168,11 @@ fn projection_preserves_multilevel_payload_and_digest() {
     assert!(validate_graphics_asset_projection(&tampered).is_err());
 }
 
-fn data_texture(texture_id: &str, index: usize, color_space: RenderTextureColorSpace) -> RenderTexture {
+fn data_texture(
+    texture_id: &str,
+    index: usize,
+    color_space: RenderTextureColorSpace,
+) -> RenderTexture {
     let mut texture = package().textures.remove(0);
     texture.texture_id = texture_id.into();
     texture.source_texture_index = index;
@@ -196,7 +200,11 @@ fn full_pbr_material_projects_one_albedo_and_named_slots() {
     ]);
     let projection = project_render_asset(&seal(full)).expect("full PBR material projects");
     let material = &projection.materials[0];
-    assert_eq!(material.texture_ids, vec!["albedo"], "texture_ids is the albedo slot only");
+    assert_eq!(
+        material.texture_ids,
+        vec!["albedo"],
+        "texture_ids is the albedo slot only"
+    );
     assert_eq!(material.roughness_texture_id.as_deref(), Some("orm"));
     assert_eq!(material.normal_texture_id.as_deref(), Some("normal"));
     assert_eq!(material.occlusion_texture_id.as_deref(), Some("ao"));
@@ -205,8 +213,14 @@ fn full_pbr_material_projects_one_albedo_and_named_slots() {
 
     let mut dangling = projection.clone();
     dangling.materials[0].normal_texture_id = Some("missing".into());
-    assert!(validate_graphics_asset_projection(&dangling).is_err(), "named slots must resolve");
+    assert!(
+        validate_graphics_asset_projection(&dangling).is_err(),
+        "named slots must resolve"
+    );
     let mut doubled = projection;
     doubled.materials[0].texture_ids.push("orm".into());
-    assert!(validate_graphics_asset_projection(&doubled).is_err(), "one albedo texture per material");
+    assert!(
+        validate_graphics_asset_projection(&doubled).is_err(),
+        "one albedo texture per material"
+    );
 }

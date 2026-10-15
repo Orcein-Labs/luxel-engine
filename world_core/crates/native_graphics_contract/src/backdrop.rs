@@ -30,12 +30,17 @@
 
 use std::path::Path;
 
-use serde::Deserialize;
 use luxel_asset_contract::{RenderPreparationStatus, condition_render_asset};
+use serde::Deserialize;
 
-use crate::asset_projection::{GraphicsAssetProjection, project_render_asset, validate_graphics_asset_projection};
+use crate::asset_projection::{
+    GraphicsAssetProjection, project_render_asset, validate_graphics_asset_projection,
+};
 use crate::scene_composition::{AssetNamespace, append_asset_resources};
-use crate::{GraphicsContractError, GraphicsScenePacketBody, InstanceImportance, InstancePacket, Transform3d, sha256_prefixed};
+use crate::{
+    GraphicsContractError, GraphicsScenePacketBody, InstanceImportance, InstancePacket,
+    Transform3d, sha256_prefixed,
+};
 
 pub const BACKDROP_LOCK_SCHEMA: &str = "luxel.backdrop-lock/v1";
 
@@ -76,11 +81,18 @@ pub struct BackdropSet {
 
 /// Load and verify a backdrop from its lock. `repo_root` resolves the lock's
 /// repo-relative GLB path.
-pub fn load_backdrop_set(lock_path: &Path, repo_root: &Path) -> Result<BackdropSet, GraphicsContractError> {
-    let text = std::fs::read(lock_path)
-        .map_err(|error| GraphicsContractError::provenance(format!("backdrop lock {}: {error}", lock_path.display())))?;
+pub fn load_backdrop_set(
+    lock_path: &Path,
+    repo_root: &Path,
+) -> Result<BackdropSet, GraphicsContractError> {
+    let text = std::fs::read(lock_path).map_err(|error| {
+        GraphicsContractError::provenance(format!("backdrop lock {}: {error}", lock_path.display()))
+    })?;
     let lock: Lock = serde_json::from_slice(&text).map_err(|error| {
-        GraphicsContractError::malformed(format!("backdrop lock {} is malformed: {error}", lock_path.display()))
+        GraphicsContractError::malformed(format!(
+            "backdrop lock {} is malformed: {error}",
+            lock_path.display()
+        ))
     })?;
     if lock.schema_version != BACKDROP_LOCK_SCHEMA {
         return Err(GraphicsContractError::malformed(format!(
@@ -119,20 +131,31 @@ pub fn load_backdrop_set(lock_path: &Path, repo_root: &Path) -> Result<BackdropS
 /// Condition and project backdrop GLB bytes whose digest the caller has
 /// already verified. Public so contract tests can exercise placement with a
 /// generated GLB instead of a built Gaea field.
-pub fn backdrop_set_from_glb(set_id: &str, lock_sha256: &str, glb: &[u8]) -> Result<BackdropSet, GraphicsContractError> {
-    let receipt = condition_render_asset(glb, &crate::calibration::render_request())
-        .map_err(|error| GraphicsContractError::provenance(format!("backdrop {set_id} conditioning: {error}")))?;
+pub fn backdrop_set_from_glb(
+    set_id: &str,
+    lock_sha256: &str,
+    glb: &[u8],
+) -> Result<BackdropSet, GraphicsContractError> {
+    let receipt =
+        condition_render_asset(glb, &crate::calibration::render_request()).map_err(|error| {
+            GraphicsContractError::provenance(format!("backdrop {set_id} conditioning: {error}"))
+        })?;
     if receipt.status != RenderPreparationStatus::Ready || !receipt.findings.is_empty() {
         return Err(GraphicsContractError::provenance(format!(
             "backdrop {set_id} failed render conditioning: {:?}",
             receipt.findings
         )));
     }
-    let package = receipt.package.as_ref().expect("a ready receipt has a package");
+    let package = receipt
+        .package
+        .as_ref()
+        .expect("a ready receipt has a package");
     let projection = project_render_asset(package)?;
     validate_graphics_asset_projection(&projection)?;
     if projection.meshes.is_empty() {
-        return Err(GraphicsContractError::malformed(format!("backdrop {set_id} has no meshes")));
+        return Err(GraphicsContractError::malformed(format!(
+            "backdrop {set_id} has no meshes"
+        )));
     }
     Ok(BackdropSet {
         set_id: set_id.to_owned(),
@@ -150,10 +173,18 @@ pub fn apply_backdrop(
     seat_y: f32,
 ) -> Result<(), GraphicsContractError> {
     if !seat_y.is_finite() {
-        return Err(GraphicsContractError::malformed("backdrop seat height is not finite"));
+        return Err(GraphicsContractError::malformed(
+            "backdrop seat height is not finite",
+        ));
     }
-    if body.instances.iter().any(|instance| instance.instance_id.starts_with(BACKDROP_INSTANCE_PREFIX)) {
-        return Err(GraphicsContractError::malformed("the packet already has a backdrop"));
+    if body
+        .instances
+        .iter()
+        .any(|instance| instance.instance_id.starts_with(BACKDROP_INSTANCE_PREFIX))
+    {
+        return Err(GraphicsContractError::malformed(
+            "the packet already has a backdrop",
+        ));
     }
     let namespace = AssetNamespace::new(&set.projection);
     append_asset_resources(body, &namespace, &set.projection)?;

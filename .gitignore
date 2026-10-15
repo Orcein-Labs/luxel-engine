@@ -64,3 +64,6 @@ graphics_lab/tet-lab/references/*.pdf
 # Its text extraction is AMD's paper too and must not be published; regenerate
 # locally with pdftotext -layout.
 graphics_lab/tet-lab/references/paper.txt
+
+# Local agent handoffs and operator state.
+/.local/

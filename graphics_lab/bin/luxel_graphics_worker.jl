@@ -100,7 +100,12 @@ function handle(payload::AbstractString)::String
                     "Rust packet identity does not match the worker packet",
                 )
             frame = LavaAdapter.render_scene(packet)
-            return JSON3.write((schema=WORKER_SCHEMA, kind="frame_rendered", frame=frame))
+            response = (schema=WORKER_SCHEMA, kind="frame_rendered", frame=frame)
+            if packet.render_policy.contact_ao !== nothing
+                depth = LavaAdapter.capture_scene_depth(packet, LavaAdapter.backend())
+                response = merge(response, (depth_capture=depth,))
+            end
+            return JSON3.write(response)
         elseif operation == "open_window"
             allowed = Set(("op", "width_px", "height_px", "vsync"))
             request_keys = Set(String(key) for key in keys(value))

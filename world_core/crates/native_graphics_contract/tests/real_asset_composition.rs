@@ -401,7 +401,10 @@ fn supplied_real_asset_renders_in_lava_and_replays_after_worker_restart() {
     let output_dir = std::env::var_os("LUXEL_C2_4_CAPTURE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            std::env::temp_dir().join(format!("luxel-c2-4-real-asset-render-{}", std::process::id()))
+            std::env::temp_dir().join(format!(
+                "luxel-c2-4-real-asset-render-{}",
+                std::process::id()
+            ))
         });
     fs::create_dir_all(&output_dir).expect("capture output directory is writable");
     let input = output_dir.join("riverwatch.layout.json");

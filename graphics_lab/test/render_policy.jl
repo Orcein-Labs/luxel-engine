@@ -65,15 +65,21 @@ end
     @test low.vignette[1] ≈ 0.22f0 atol = 1.0f-6
     @test low.dither[1] ≈ 1.0f0 atol = 1.0f-6   # milli_lsb 1000 -> 1.0 LSB
 
-    shadow_low = LavaAdapter._shadow_uniform(styled)
+    light_frame = LavaAdapter.CameraFrame(
+        Vec4f(0, 10, 0, 0), Vec4f(1, 0, 0, 0), Vec4f(0, 0, -1, 0),
+        Vec4f(0, -1, 0, 0), Vec4f(10, 10, 0.1, 100), 0f0, 64f0, 64f0,
+    )
+    shadow_low = LavaAdapter._shadow_uniform(styled, light_frame)
     @test shadow_low[1] ≈ 0.96f0 atol = 1.0f-6
     @test shadow_low[2] ≈ 2.4f0 atol = 1.0f-6   # milli 2400 -> 2.4 texels
 
     # Default lowering must be EXACTLY the historical arithmetic, not merely
     # close: 1.0f0 - 7500/10000 == 0.25f0 and 1000/1000 == 1.0f0.
-    default_shadow = LavaAdapter._shadow_uniform(LuxelGraphics.RenderPolicy())
+    default_shadow = LavaAdapter._shadow_uniform(LuxelGraphics.RenderPolicy(), light_frame)
     @test default_shadow[1] === 0.75f0
     @test default_shadow[2] === 1.0f0
+    @test default_shadow[3] === 0.0f0
+    @test default_shadow[4] === 0.0f0
 end
 
 @testset "dither breaks the banding it exists to break" begin
@@ -495,6 +501,102 @@ end
     @test absent.mesh_surface.wrap_repeat == false
 end
 
+@testset "optional cascade and contact AO policy axes" begin
+    policy_json(overrides) = JSON3.read(JSON3.write(Dict{String,Any}("render_policy" => overrides)))
+    cascades = Dict(
+        "near_distance_m" => 30,
+        "far_distance_m" => 250,
+        "blend_width_m" => 6,
+        "near_map_size_px" => 2048,
+        "far_map_size_px" => 4096,
+    )
+    ao = Dict("radius_cm" => 100, "strength_bp" => 5000, "bias_mm" => 20)
+
+    parsed = LuxelGraphics._parse_render_policy(policy_json(Dict("shadow_cascades" => cascades)))
+    @test parsed.shadow_cascades == LuxelGraphics.ShadowCascadesPolicy()
+    @test parsed.shadow_cascades.near_distance_m == 30
+    @test parsed.shadow_cascades.far_distance_m == 250
+    @test parsed.shadow_cascades.blend_width_m == 6
+    @test parsed.shadow_cascades.near_map_size_px == 2048
+    @test parsed.shadow_cascades.far_map_size_px == 4096
+    @test parsed.contact_ao === nothing
+
+    ao_parsed = LuxelGraphics._parse_render_policy(policy_json(Dict("contact_ao" => ao)))
+    @test ao_parsed.contact_ao == LuxelGraphics.ContactAoPolicy(100, 5000, 20)
+    absent = LuxelGraphics._parse_render_policy(policy_json(Dict{String,Any}()))
+    @test absent.shadow_cascades === nothing
+    @test absent.contact_ao === nothing
+
+    for bad in (
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("near_distance_m" => 7)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("far_distance_m" => 2001)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("blend_width_m" => 0)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("blend_width_m" => 60)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("far_distance_m" => 33)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("near_map_size_px" => 1536)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("far_map_size_px" => 256)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("unexpected" => 1)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("near_distance_m" => true)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("near_map_size_px" => 2048.5)),
+    )
+        @test_throws LuxelGraphics.ProtocolError LuxelGraphics._parse_render_policy(
+            policy_json(Dict("shadow_cascades" => bad)),
+        )
+    end
+    @test_throws LuxelGraphics.ProtocolError LuxelGraphics._integer(2048.0, "test integer field")
+
+    for bad in (
+        merge(Dict{String,Any}(ao), Dict{String,Any}("radius_cm" => 0)),
+        merge(Dict{String,Any}(ao), Dict{String,Any}("radius_cm" => 201)),
+        merge(Dict{String,Any}(ao), Dict{String,Any}("strength_bp" => 10001)),
+        merge(Dict{String,Any}(ao), Dict{String,Any}("bias_mm" => 101)),
+        merge(Dict{String,Any}(ao), Dict{String,Any}("unexpected" => 1)),
+        merge(Dict{String,Any}(ao), Dict{String,Any}("strength_bp" => true)),
+    )
+        @test_throws LuxelGraphics.ProtocolError LuxelGraphics._parse_render_policy(
+            policy_json(Dict("contact_ao" => bad)),
+        )
+    end
+
+    @test_throws LuxelGraphics.ProtocolError LuxelGraphics._parse_render_policy(policy_json(Dict(
+        "shadow_cascades" => cascades,
+        "shadow_fit" => Dict("view_distance_m" => 60),
+    )))
+end
+
+@testset "RenderPolicy keeps legacy positional constructor forms" begin
+    grade = LuxelGraphics.GradePolicy()
+    bloom = LuxelGraphics.BloomPolicy()
+    vignette = LuxelGraphics.VignettePolicy()
+    dither = LuxelGraphics.DitherPolicy()
+    terrain = LuxelGraphics.TerrainSurfacePolicy()
+    sampler = LuxelGraphics.SamplerPolicy()
+    shadow = LuxelGraphics.ShadowPolicy()
+    mesh = LuxelGraphics.MeshSurfacePolicy()
+    fit = nothing
+    sky = nothing
+    atmosphere = nothing
+    debug = nothing
+    ibl = nothing
+    foliage = nothing
+
+    old_full = LuxelGraphics.RenderPolicy(
+        grade, bloom, vignette, dither, terrain, sampler, shadow, mesh,
+        fit, sky, atmosphere, debug, ibl, foliage,
+    )
+    old_thirteen = LuxelGraphics.RenderPolicy(
+        grade, bloom, vignette, dither, terrain, sampler, shadow, mesh,
+        fit, sky, atmosphere, debug, ibl,
+    )
+    old_ten = LuxelGraphics.RenderPolicy(grade, bloom, vignette, dither, terrain, sampler, shadow, mesh, fit, sky)
+    old_seven = LuxelGraphics.RenderPolicy(grade, bloom, vignette, dither, terrain, sampler, shadow)
+    for old in (old_full, old_thirteen, old_ten, old_seven)
+        @test old.shadow_cascades === nothing
+        @test old.contact_ao === nothing
+        @test old.point_shadows === nothing
+    end
+end
+
 @testset "mesh repeat wrap is its own axis (CONVERGE-0)" begin
     wrapped = LuxelGraphics.RenderPolicy(
         LuxelGraphics.GradePolicy(), LuxelGraphics.BloomPolicy(), LuxelGraphics.VignettePolicy(),
@@ -523,10 +625,19 @@ end
     light_direction, right, up = LavaAdapter._basis_vectors(
         light, LavaAdapter._shadow_up_hint(light), "test light basis")
     frame = LavaAdapter._view_fitted_shadow_frame(camera, light_direction, right, up, 60.0f0)
+    # The preview uses a CameraFrame rather than a newly sealed packet camera.
+    # Both entry points must produce exactly the original cold-view fit.
+    view = LavaAdapter._camera_frame(camera)
+    @test LavaAdapter._view_fitted_shadow_frame(view, light_direction, right, up, 60.0f0) == frame
+    delta = Vec4f(42.0f0, 0.0f0, -17.0f0, 0.0f0)
+    shifted = LavaAdapter.CameraFrame(view.position + delta, view.right, view.up,
+        view.forward, view.projection, view.mode, view.width_px, view.height_px)
+    shifted_fit = LavaAdapter._view_fitted_shadow_frame(shifted, light_direction, right, up, 60.0f0)
+    @test shifted_fit.position ≈ frame.position + delta atol=1.0f-4
+    @test shifted_fit.projection ≈ frame.projection atol=1.0f-4
     @test frame.mode == 0.0f0
     half_span = frame.projection[1]
     # Every frustum-slice corner must project inside the orthographic extent.
-    view = LavaAdapter._camera_frame(camera)
     for depth in (view.projection[3], 60.0f0), sx in (-1.0f0, 1.0f0), sy in (-1.0f0, 1.0f0)
         corner = Vec4f(
             (view.position .+ view.forward .* depth .+ view.right .* (sx * view.projection[1] * depth) .+ view.up .* (sy * view.projection[2] * depth))[1:3]...,

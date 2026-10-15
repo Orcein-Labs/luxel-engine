@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use serde_json::Value;
 use luxel_asset_contract::{
     AcceptanceStatus, AssetUse, evaluate_structural_acceptance, inspect_file,
 };
+use serde_json::Value;
 
 const EXPECTED_INPUT_SHA256: &str =
     "858fa104880822d081405579fb5b39d533d3b3b341d38aa1490a44b634f5e2b4";
