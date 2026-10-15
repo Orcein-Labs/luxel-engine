@@ -8,14 +8,18 @@
 //! same packet, so the presented loop stays cheap and evidence stays
 //! fail-closed.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use luxel_reference_runtime::{WorldArtifact, validate_world_artifact};
 
 use crate::{
-    GraphicsCamera, GraphicsContractError, GraphicsScenePacket, GraphicsWorkerError,
-    GraphicsWorkerSupervisor, PromotedFrame, seal_scene_packet,
+    CameraProjection, GraphicsCamera, GraphicsContractError, GraphicsScenePacket,
+    GraphicsWorkerError, GraphicsWorkerSupervisor, PromotedFrame, Transform3d,
+    input_session::accept_presented_samples, seal_scene_packet, validate_camera,
+    validate_transform,
 };
 
 pub const PRESENTED_SESSION_REQUEST_SCHEMA: &str = "luxel.presented-session-request/v1";
@@ -103,9 +107,19 @@ impl WindowFrameReport {
     }
 }
 
+/// A request-side instance transform. It travels beside the sealed packet the
+/// same way `camera_override` does; it never reseals presented identity.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct InstanceOverride {
+    pub instance_id: String,
+    pub transform: Transform3d,
+}
+
 /// A persistent presented Luxel session. Rust owns the packet, the camera, the
 /// session tick, and every evidence claim; the worker only ever receives the
-/// validated packet plus a typed camera override and reports presented frames.
+/// validated packet plus typed camera / instance overrides and reports
+/// presented frames.
 #[derive(Debug)]
 pub struct PresentedGraphicsSession {
     base_packet: GraphicsScenePacket,
@@ -118,6 +132,9 @@ pub struct PresentedGraphicsSession {
     vsync: bool,
     camera_position: [f32; 3],
     camera_forward: [f32; 3],
+    camera_up: Option<[f32; 3]>,
+    camera_projection: Option<CameraProjection>,
+    instance_overrides: BTreeMap<String, Transform3d>,
     tick: u64,
     frames_presented: u64,
     window_presented_frames: u64,
@@ -164,6 +181,9 @@ impl PresentedGraphicsSession {
             vsync: request.vsync,
             camera_position: packet.body.camera.position_xyz_m,
             camera_forward: packet.body.camera.forward_xyz,
+            camera_up: None,
+            camera_projection: None,
+            instance_overrides: BTreeMap::new(),
             tick: 0,
             frames_presented: 0,
             window_presented_frames: 0,
@@ -193,6 +213,29 @@ impl PresentedGraphicsSession {
 
     pub fn camera_forward(&self) -> [f32; 3] {
         self.camera_forward
+    }
+
+    pub fn camera_up(&self) -> [f32; 3] {
+        self.camera_up
+            .unwrap_or(self.base_packet.body.camera.up_xyz)
+    }
+
+    pub fn camera_projection(&self) -> CameraProjection {
+        self.camera_projection
+            .clone()
+            .unwrap_or_else(|| self.base_packet.body.camera.projection.clone())
+    }
+
+    pub fn base_packet(&self) -> &GraphicsScenePacket {
+        &self.base_packet
+    }
+
+    pub fn instance_overrides(&self) -> &BTreeMap<String, Transform3d> {
+        &self.instance_overrides
+    }
+
+    pub fn instance_override(&self, instance_id: &str) -> Option<&Transform3d> {
+        self.instance_overrides.get(instance_id)
     }
 
     pub fn is_window_open(&self) -> bool {
@@ -277,6 +320,78 @@ impl PresentedGraphicsSession {
         Ok(())
     }
 
+    /// Teleport the Rust-owned camera including an explicit up basis. Used by
+    /// top-down play, where world-up is collinear with the look direction.
+    pub fn set_camera_basis(
+        &mut self,
+        position: [f32; 3],
+        forward: [f32; 3],
+        up: [f32; 3],
+    ) -> Result<(), GraphicsWorkerError> {
+        self.set_camera(position, forward)?;
+        let mut camera = self.camera_packet();
+        camera.up_xyz = up;
+        validate_camera(&camera).map_err(GraphicsWorkerError::contract)?;
+        self.camera_up = Some(camera.up_xyz);
+        Ok(())
+    }
+
+    /// Override the presented projection (orthographic top-down, or restore
+    /// the packet's perspective). Travels on `camera_override`.
+    pub fn set_camera_projection(
+        &mut self,
+        projection: CameraProjection,
+    ) -> Result<(), GraphicsWorkerError> {
+        let mut camera = self.camera_packet();
+        camera.projection = projection;
+        validate_camera(&camera).map_err(GraphicsWorkerError::contract)?;
+        self.camera_projection = Some(camera.projection);
+        Ok(())
+    }
+
+    /// Restore packet up and projection while keeping the current pose.
+    pub fn clear_camera_shape(&mut self) {
+        self.camera_up = None;
+        self.camera_projection = None;
+    }
+
+    /// Bind a request-side transform for one instance in the sealed packet.
+    /// The packet identity does not change.
+    pub fn set_instance_override(
+        &mut self,
+        instance_id: &str,
+        transform: Transform3d,
+    ) -> Result<(), GraphicsWorkerError> {
+        let mut matches = self
+            .base_packet
+            .body
+            .instances
+            .iter()
+            .filter(|instance| instance.instance_id == instance_id);
+        let Some(_) = matches.next() else {
+            return Err(GraphicsWorkerError::provenance(format!(
+                "instance override {instance_id} is missing from the base packet"
+            )));
+        };
+        if matches.next().is_some() {
+            return Err(GraphicsWorkerError::provenance(format!(
+                "instance override {instance_id} is ambiguous in the base packet"
+            )));
+        }
+        validate_transform(&transform).map_err(GraphicsWorkerError::contract)?;
+        self.instance_overrides
+            .insert(instance_id.to_owned(), transform);
+        Ok(())
+    }
+
+    pub fn clear_instance_override(&mut self, instance_id: &str) {
+        self.instance_overrides.remove(instance_id);
+    }
+
+    pub fn clear_instance_overrides(&mut self) {
+        self.instance_overrides.clear();
+    }
+
     /// Walk a deterministic waypoint path: for each waypoint the camera moves
     /// to it and faces the direction of travel. Waypoint ordering is the input
     /// trace; a repeated waypoint keeps the previous forward.
@@ -301,15 +416,51 @@ impl PresentedGraphicsSession {
         let base = &self.base_packet.body.camera;
         GraphicsCamera {
             camera_id: base.camera_id.clone(),
-            projection: base.projection.clone(),
+            projection: self
+                .camera_projection
+                .clone()
+                .unwrap_or_else(|| base.projection.clone()),
             position_xyz_m: self.camera_position,
             forward_xyz: self.camera_forward,
-            up_xyz: base.up_xyz,
+            up_xyz: self.camera_up.unwrap_or(base.up_xyz),
             near_plane_m: base.near_plane_m,
             far_plane_m: base.far_plane_m,
             width_px: base.width_px,
             height_px: base.height_px,
         }
+    }
+
+    fn instance_override_list(&self) -> Vec<InstanceOverride> {
+        self.instance_overrides
+            .iter()
+            .map(|(instance_id, transform)| InstanceOverride {
+                instance_id: instance_id.clone(),
+                transform: transform.clone(),
+            })
+            .collect()
+    }
+
+    /// Worker-free snapshot packet: the sealed base packet with the current
+    /// camera and instance overrides baked in. Presented frames never send
+    /// this; only offscreen capture reseals pose.
+    pub fn capture_packet(&self) -> Result<GraphicsScenePacket, GraphicsWorkerError> {
+        let camera = self.camera_packet();
+        let camera_changed = camera != self.base_packet.body.camera;
+        if !camera_changed && self.instance_overrides.is_empty() {
+            return Ok(self.base_packet.clone());
+        }
+        let mut body = self.base_packet.body.clone();
+        if camera_changed {
+            body.camera = camera;
+        }
+        if !self.instance_overrides.is_empty() {
+            for instance in &mut body.instances {
+                if let Some(transform) = self.instance_overrides.get(&instance.instance_id) {
+                    instance.transform = transform.clone();
+                }
+            }
+        }
+        seal_scene_packet(body).map_err(GraphicsWorkerError::contract)
     }
 
     /// Present `frame_count` frames of the current camera state. The packet
@@ -341,13 +492,8 @@ impl PresentedGraphicsSession {
         supervisor: &mut GraphicsWorkerSupervisor,
         frame_count: u32,
         collect_input: bool,
-    ) -> Result<
-        (
-            WindowFrameReport,
-            Vec<crate::input_session::InputSample>,
-        ),
-        GraphicsWorkerError,
-    > {
+    ) -> Result<(WindowFrameReport, Vec<crate::input_session::InputSample>), GraphicsWorkerError>
+    {
         if !self.window_open {
             return Err(GraphicsWorkerError::protocol(
                 "presented window is not open; open it before presenting frames",
@@ -374,6 +520,14 @@ impl PresentedGraphicsSession {
                 serde_json::to_value(&camera_override).map_err(|error| {
                     GraphicsWorkerError::protocol(format!(
                         "camera override serialization failed: {error}"
+                    ))
+                })?;
+        }
+        if !self.instance_overrides.is_empty() {
+            request["instance_overrides"] = serde_json::to_value(self.instance_override_list())
+                .map_err(|error| {
+                    GraphicsWorkerError::protocol(format!(
+                        "instance override serialization failed: {error}"
                     ))
                 })?;
         }
@@ -410,11 +564,15 @@ impl PresentedGraphicsSession {
         self.tick = self.tick.saturating_add(u64::from(report.frames_presented));
         let input_samples = if collect_input {
             match response.get("input_samples") {
-                Some(value) => serde_json::from_value(value.clone()).map_err(|error| {
-                    GraphicsWorkerError::protocol(format!(
-                        "worker input samples are not typed: {error}"
-                    ))
-                })?,
+                Some(value) => {
+                    let samples: Vec<crate::input_session::InputSample> =
+                        serde_json::from_value(value.clone()).map_err(|error| {
+                            GraphicsWorkerError::protocol(format!(
+                                "worker input samples are not typed: {error}"
+                            ))
+                        })?;
+                    accept_presented_samples(samples, report.frames_presented)?
+                }
                 None => {
                     return Err(GraphicsWorkerError::protocol(
                         "input collection was requested but the response carries none",
@@ -455,15 +613,7 @@ impl PresentedGraphicsSession {
         world: &WorldArtifact,
     ) -> Result<PromotedFrame, GraphicsWorkerError> {
         self.validate_bound_world(world)?;
-        let camera = self.camera_packet();
-        let unchanged_camera = camera == self.base_packet.body.camera;
-        let packet = if unchanged_camera {
-            self.base_packet.clone()
-        } else {
-            let mut body = self.base_packet.body.clone();
-            body.camera = camera;
-            seal_scene_packet(body).map_err(GraphicsWorkerError::contract)?
-        };
+        let packet = self.capture_packet()?;
         supervisor.render_and_promote(&packet, world)
     }
 

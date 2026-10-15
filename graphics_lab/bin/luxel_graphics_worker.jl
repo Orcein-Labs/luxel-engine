@@ -122,7 +122,7 @@ function handle(payload::AbstractString)::String
                 vsync=opened.vsync,
             ))
         elseif operation == "render_window"
-            allowed = Set(("op", "packet", "camera_override", "frame_count", "expected_packet_sha256", "report_input"))
+            allowed = Set(("op", "packet", "camera_override", "instance_overrides", "frame_count", "expected_packet_sha256", "report_input"))
             request_keys = Set(String(key) for key in keys(value))
             request_keys ⊆ allowed ||
                 return failure("malformed_request", "render_window request fields are closed")
@@ -143,6 +143,13 @@ function handle(payload::AbstractString)::String
             if haskey(value, "camera_override") && value["camera_override"] isa JSON3.Object
                 camera_override = LuxelGraphics._parse_camera(value["camera_override"])
             end
+            instance_overrides = LuxelGraphics.InstanceOverride[]
+            if haskey(value, "instance_overrides")
+                instance_overrides = LuxelGraphics._parse_instance_overrides(
+                    value["instance_overrides"],
+                    packet,
+                )
+            end
             frame_count_raw = get(value, "frame_count", nothing)
             frame_count_raw isa Integer ||
                 return failure("malformed_request", "frame_count must be a positive integer")
@@ -156,6 +163,7 @@ function handle(payload::AbstractString)::String
                 camera_override,
                 frame_count,
                 report_input,
+                instance_overrides,
             )
             response = (
                 schema=WORKER_SCHEMA,

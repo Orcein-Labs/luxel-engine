@@ -4,34 +4,56 @@
 //!
 //! Authority model: the Julia worker samples raw HID state (keyboard, mouse
 //! cursor, raw gamepad axes) while presenting and reports exactly one typed
-//! [`InputSample`] per presented batch. Only this module turns samples into
+//! [`InputSample`] per presented **frame**. Only this module turns samples into
 //! gameplay meaning: the DS3-style button mapping, camera-space movement
 //! intent, `PhysicsWorld::step()` integration at the shared fixed tick rate,
-//! and the third-person camera that follows the body. The worker never
-//! derives semantics; Rust never touches HID devices. Every applied step is a
-//! digest-bound `KinematicStepReceipt`, and every batch appends to an input
-//! trace whose rolling digest makes a replay byte-comparable.
+//! and the third-person camera that follows the body. The drive loop is
+//! `present_frames_with_input` → one [`InputFrame`] per sample → re-aim camera.
+//! The worker never derives semantics; Rust never touches HID devices. Every
+//! applied step is a digest-bound `KinematicStepReceipt`, and every batch
+//! appends to an input trace whose rolling digest makes a replay
+//! byte-comparable.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use luxel_reference_runtime::{
-    KinematicInput, KinematicState, PhysicsWorld, REFERENCE_TICK_RATE_HZ,
+    KinematicInput, KinematicState, KinematicStepDisposition, PhysicsWorld, REFERENCE_TICK_RATE_HZ,
+    WorldArtifact,
 };
 
+use crate::action_map::{ActionMap, frame_from_sample_mapped};
 use crate::{
-    GraphicsWorkerError, GraphicsWorkerSupervisor,
+    BufferPayload, CameraProjection, GraphicsScenePacket, GraphicsWorkerError,
+    GraphicsWorkerSupervisor, PromotedFrame, TerrainPacket, Transform3d, canonical_json,
     session::{PresentedGraphicsSession, WindowFrameReport},
+    validate_scene_packet,
+};
+use luxel_live_evidence_contract::{
+    CertifiedSnapshotIdentity, LIVE_FRAME_SCHEMA, LiveEvidenceSession, LiveFrameAttestation,
+    LiveFrameTelemetry, PacketIdentity, SNAPSHOT_RESULT_SCHEMA, SessionState, TierAResult,
+    TierASnapshotRequest,
 };
 
 pub const INPUT_SAMPLE_SCHEMA: &str = "luxel.input-sample/v1";
 pub const INPUT_FRAME_SCHEMA: &str = "luxel.input-frame/v1";
 pub const INPUT_TRACE_SCHEMA: &str = "luxel.input-trace/v1";
+pub const ACTOR_MOVEMENT_FRAME_SCHEMA: &str = "luxel.actor-movement-frame/v1";
+pub const ACTOR_MOVEMENT_TRACE_SCHEMA: &str = "luxel.actor-movement-trace/v1";
+pub const ACTOR_MOVEMENT_TRACE_DIGEST_DOMAIN: &[u8] = b"luxel.actor-movement-trace/v1\0";
 
 /// Fixed simulated timestep the worker batches against. The worker is asked
 /// for whole multiples of this interval, so sim time and present time stay
 /// composable without drifting.
 pub const INPUT_SIM_TICK_DT_MS: f64 = 1000.0 / (REFERENCE_TICK_RATE_HZ as f64);
+pub const INPUT_SIM_TICK_DT_SECONDS: f32 = (INPUT_SIM_TICK_DT_MS / 1000.0) as f32;
+
+fn fixed_tick_frame(
+    expected_tick: u64,
+    sample: &InputSample,
+) -> Result<InputFrame, GraphicsWorkerError> {
+    frame_from_sample(expected_tick, sample, INPUT_SIM_TICK_DT_SECONDS)
+}
 
 /// Raw HID state sampled by the worker. Every field is device-raw: the
 /// semantic meaning (sprint, crouch, camera yaw) is applied only by Rust.
@@ -64,7 +86,7 @@ impl InputSample {
         }
     }
 
-    fn validate(&self) -> Result<(), GraphicsWorkerError> {
+    pub fn validate(&self) -> Result<(), GraphicsWorkerError> {
         if self.schema_version != INPUT_SAMPLE_SCHEMA {
             return Err(GraphicsWorkerError::protocol(
                 "input sample schema is not the supported version",
@@ -86,9 +108,9 @@ impl InputSample {
             }
         }
         for value in self.gamepad_axes.iter().copied() {
-            if !value.is_finite() {
+            if !value.is_finite() || !(-1.0..=1.0).contains(&value) {
                 return Err(GraphicsWorkerError::protocol(
-                    "gamepad axes must be finite",
+                    "gamepad axes must be finite and within [-1, 1]",
                 ));
             }
         }
@@ -103,6 +125,37 @@ impl InputSample {
         }
         Ok(())
     }
+}
+
+/// Fail closed unless the worker returned one typed sample per presented frame
+/// with strictly increasing timestamps.
+pub fn accept_presented_samples(
+    samples: Vec<InputSample>,
+    frames_presented: u32,
+) -> Result<Vec<InputSample>, GraphicsWorkerError> {
+    if samples.len()
+        != usize::try_from(frames_presented)
+            .map_err(|_| GraphicsWorkerError::protocol("presented frame count is not a usize"))?
+    {
+        return Err(GraphicsWorkerError::protocol(format!(
+            "worker returned {} input samples for {} presented frames",
+            samples.len(),
+            frames_presented
+        )));
+    }
+    let mut previous_timestamp_ms = None;
+    for sample in &samples {
+        sample.validate()?;
+        if let Some(previous) = previous_timestamp_ms {
+            if sample.timestamp_ms <= previous {
+                return Err(GraphicsWorkerError::protocol(
+                    "worker input sample timestamps must increase with presented frames",
+                ));
+            }
+        }
+        previous_timestamp_ms = Some(sample.timestamp_ms);
+    }
+    Ok(samples)
 }
 
 /// Semantic movement intent for one fixed tick, already DS3-shaped: camera-
@@ -147,7 +200,7 @@ impl InputFrame {
         }
     }
 
-    fn validate(&self) -> Result<(), GraphicsWorkerError> {
+    pub(crate) fn validate(&self) -> Result<(), GraphicsWorkerError> {
         if self.schema_version != INPUT_FRAME_SCHEMA {
             return Err(GraphicsWorkerError::protocol(
                 "input frame schema is not the supported version",
@@ -205,11 +258,11 @@ pub mod ds3_map {
 
 const MOVE_SPEED_MPS: f32 = 4.0;
 const SPRINT_MULTIPLIER: f32 = 1.8;
-const MOUSE_YAW_RATE_RAD_PER_NORM: f32 = 6.5;
-const MOUSE_PITCH_RATE_RAD_PER_NORM: f32 = 3.0;
-const GAMEPAD_LOOK_RATE_RAD_PER_S: f32 = 3.4;
+pub(crate) const MOUSE_YAW_RATE_RAD_PER_NORM: f32 = 6.5;
+pub(crate) const MOUSE_PITCH_RATE_RAD_PER_NORM: f32 = 3.0;
+pub(crate) const GAMEPAD_LOOK_RATE_RAD_PER_S: f32 = 3.4;
 const GAMEPAD_DEADZONE: f32 = 0.15;
-const CAMERA_MIN_HEIGHT_M: f32 = 0.5;
+pub(crate) const CAMERA_MIN_HEIGHT_M: f32 = 0.5;
 const CAMERA_DISTANCE_M: f32 = 5.0;
 const CAMERA_SHOULDER_M: f32 = 0.9;
 
@@ -330,7 +383,11 @@ fn velocity_for(frame: &InputFrame, yaw_rad: f32) -> [f64; 2] {
     let world_x = right[0] * frame.move_x as f64 + forward[0] * frame.move_y as f64;
     let world_z = right[1] * frame.move_x as f64 + forward[1] * frame.move_y as f64;
     let length = (world_x * world_x + world_z * world_z).sqrt() as f32;
-    let scale = if length > 1.0 { scalar / length } else { scalar };
+    let scale = if length > 1.0 {
+        scalar / length
+    } else {
+        scalar
+    };
     [world_x * scale as f64, world_z * scale as f64]
 }
 
@@ -347,9 +404,8 @@ pub fn camera_intent(
     let pitch = pitch_rad.clamp(-1.2, 1.2) as f64;
     let eye = [
         position[0] - forward[0] * CAMERA_DISTANCE_M as f64 + right[0] * CAMERA_SHOULDER_M as f64,
-        (position[1] + 2.0 + (pitch.sin() * CAMERA_DISTANCE_M as f64)).max(
-            position[1] + CAMERA_MIN_HEIGHT_M as f64,
-        ),
+        (position[1] + 2.0 + (pitch.sin() * CAMERA_DISTANCE_M as f64))
+            .max(position[1] + CAMERA_MIN_HEIGHT_M as f64),
         position[2] - forward[1] * CAMERA_DISTANCE_M as f64 + right[1] * CAMERA_SHOULDER_M as f64,
     ];
     // Look direction from eye toward a point above the body origin.
@@ -371,6 +427,168 @@ pub fn camera_intent(
     ))
 }
 
+const FIRST_PERSON_EYE_HEIGHT_M: f32 = 1.6;
+const TOP_DOWN_HEIGHT_M: f32 = 24.0;
+const TOP_DOWN_SPAN_M: f32 = 32.0;
+const CAMERA_BOOM_COLLISION_STEPS: u32 = 16;
+
+/// Play camera modes. Default third-person matches [`camera_intent`].
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CameraProfile {
+    ThirdPerson,
+    ThirdPersonCollision,
+    FirstPerson,
+    TopDown,
+}
+
+/// Pose produced by a camera profile. `up` and `projection` are `None` when
+/// the packet's authored basis and projection should stay.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CameraPose {
+    pub position: [f32; 3],
+    pub forward: [f32; 3],
+    pub up: Option<[f32; 3]>,
+    pub projection: Option<CameraProjection>,
+}
+
+/// Bilinear sample of the sealed packet heightfield. Off-map returns `None`.
+pub fn terrain_height_at(terrain: &TerrainPacket, x: f32, z: f32) -> Option<f32> {
+    let BufferPayload::F32(heights) = &terrain.heights_m.payload else {
+        return None;
+    };
+    let n = terrain.resolution;
+    if n < 2 || heights.len() != n * n {
+        return None;
+    }
+    let half_width = terrain.width_m * 0.5;
+    let half_length = terrain.length_m * 0.5;
+    if x.abs() > half_width || z.abs() > half_length {
+        return None;
+    }
+    let column = (x / terrain.width_m + 0.5) * (n - 1) as f32;
+    let row = (0.5 - z / terrain.length_m) * (n - 1) as f32;
+    let c0 = (column.floor() as usize).min(n - 2);
+    let r0 = (row.floor() as usize).min(n - 2);
+    let tc = column - c0 as f32;
+    let tr = row - r0 as f32;
+    let sample = |r: usize, c: usize| heights[r * n + c];
+    let top = sample(r0, c0) * (1.0 - tc) + sample(r0, c0 + 1) * tc;
+    let bottom = sample(r0 + 1, c0) * (1.0 - tc) + sample(r0 + 1, c0 + 1) * tc;
+    Some(top * (1.0 - tr) + bottom * tr)
+}
+
+/// Profiled camera intent. `ThirdPerson` is [`camera_intent`] with packet up
+/// and projection left unchanged.
+pub fn camera_intent_for_profile(
+    body: &KinematicState,
+    yaw_rad: f32,
+    pitch_rad: f32,
+    profile: CameraProfile,
+    terrain: Option<&TerrainPacket>,
+) -> Result<CameraPose, GraphicsWorkerError> {
+    match profile {
+        CameraProfile::ThirdPerson => {
+            let (position, forward) = camera_intent(body, yaw_rad, pitch_rad)?;
+            Ok(CameraPose {
+                position,
+                forward,
+                up: None,
+                projection: None,
+            })
+        }
+        CameraProfile::ThirdPersonCollision => {
+            let (desired, forward) = camera_intent(body, yaw_rad, pitch_rad)?;
+            let position = match terrain {
+                Some(terrain) => collide_boom(body, desired, terrain),
+                None => {
+                    return Err(GraphicsWorkerError::protocol(
+                        "third-person collision camera requires the packet heightfield",
+                    ));
+                }
+            };
+            let look = [
+                (body.body.position_xyz_m[0] as f32) - position[0],
+                (body.body.position_xyz_m[1] as f32 + 1.5) - position[1],
+                (body.body.position_xyz_m[2] as f32) - position[2],
+            ];
+            let length = (look[0] * look[0] + look[1] * look[1] + look[2] * look[2]).sqrt();
+            let forward = if length > f32::EPSILON && length.is_finite() {
+                [look[0] / length, look[1] / length, look[2] / length]
+            } else {
+                forward
+            };
+            Ok(CameraPose {
+                position,
+                forward,
+                up: None,
+                projection: None,
+            })
+        }
+        CameraProfile::FirstPerson => {
+            let pitch = pitch_rad.clamp(-1.2, 1.2);
+            let cos_pitch = pitch.cos();
+            let forward = [
+                yaw_rad.sin() * cos_pitch,
+                pitch.sin(),
+                yaw_rad.cos() * cos_pitch,
+            ];
+            let position = [
+                body.body.position_xyz_m[0] as f32,
+                body.body.position_xyz_m[1] as f32 + FIRST_PERSON_EYE_HEIGHT_M,
+                body.body.position_xyz_m[2] as f32,
+            ];
+            Ok(CameraPose {
+                position,
+                forward,
+                up: None,
+                projection: None,
+            })
+        }
+        CameraProfile::TopDown => {
+            let position = [
+                body.body.position_xyz_m[0] as f32,
+                body.body.position_xyz_m[1] as f32 + TOP_DOWN_HEIGHT_M,
+                body.body.position_xyz_m[2] as f32,
+            ];
+            Ok(CameraPose {
+                position,
+                forward: [0.0, -1.0, 0.0],
+                up: Some([0.0, 0.0, 1.0]),
+                projection: Some(CameraProjection::Orthographic {
+                    span_m: TOP_DOWN_SPAN_M,
+                }),
+            })
+        }
+    }
+}
+
+fn collide_boom(body: &KinematicState, desired_eye: [f32; 3], terrain: &TerrainPacket) -> [f32; 3] {
+    let target = [
+        body.body.position_xyz_m[0] as f32,
+        body.body.position_xyz_m[1] as f32 + 1.5,
+        body.body.position_xyz_m[2] as f32,
+    ];
+    let clearance = CAMERA_MIN_HEIGHT_M;
+    for step in 0..=CAMERA_BOOM_COLLISION_STEPS {
+        let t = step as f32 / CAMERA_BOOM_COLLISION_STEPS as f32;
+        let point = [
+            desired_eye[0] + (target[0] - desired_eye[0]) * t,
+            desired_eye[1] + (target[1] - desired_eye[1]) * t,
+            desired_eye[2] + (target[2] - desired_eye[2]) * t,
+        ];
+        match terrain_height_at(terrain, point[0], point[2]) {
+            Some(height) if point[1] >= height + clearance => {
+                return [point[0], point[1].max(height + clearance), point[2]];
+            }
+            Some(_) => {}
+            None => {}
+        }
+    }
+    let height = terrain_height_at(terrain, target[0], target[2]).unwrap_or(target[1]);
+    [target[0], target[1].max(height + clearance), target[2]]
+}
+
 /// One applied or rejected simulation step, recorded for replay comparison.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -388,9 +606,7 @@ pub fn trace_digest(steps: &[TraceStep]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(INPUT_TRACE_DIGEST_DOMAIN);
     for step in steps {
-        hasher.update(
-            serde_json::to_vec(step).expect("trace step serialization cannot fail"),
-        );
+        hasher.update(serde_json::to_vec(step).expect("trace step serialization cannot fail"));
     }
     format!("sha256:{}", hex(&hasher.finalize()))
 }
@@ -401,6 +617,12 @@ fn hex(bytes: &[u8]) -> String {
         out.push_str(&format!("{byte:02x}"));
     }
     out
+}
+
+struct ActorBinding {
+    instance_id: String,
+    source_transform: Transform3d,
+    spawn_state: KinematicState,
 }
 
 /// An input-driven native session: the presented session keeps presenting,
@@ -414,9 +636,12 @@ pub struct InputDrivenSession<'world> {
     player: KinematicState,
     yaw_rad: f32,
     pitch_rad: f32,
-    last_sample_ms: Option<f64>,
     trace: Vec<TraceStep>,
     trace_digest: String,
+    actor: Option<ActorBinding>,
+    camera_profile: CameraProfile,
+    action_map: ActionMap,
+    evidence: Option<PresentedEvidenceBinder>,
 }
 
 impl<'world> InputDrivenSession<'world> {
@@ -427,11 +652,12 @@ impl<'world> InputDrivenSession<'world> {
         world: &'world luxel_reference_runtime::WorldArtifact,
     ) -> Result<Self, GraphicsWorkerError> {
         session.validate_bound_world(world)?;
-        let physics_world = PhysicsWorld::new(world)
-            .map_err(|error| GraphicsWorkerError::provenance(format!("physics binding failed: {error}")))?;
-        let player = physics_world
-            .initialize_player()
-            .map_err(|error| GraphicsWorkerError::provenance(format!("player spawn failed: {error}")))?;
+        let physics_world = PhysicsWorld::new(world).map_err(|error| {
+            GraphicsWorkerError::provenance(format!("physics binding failed: {error}"))
+        })?;
+        let player = physics_world.initialize_player().map_err(|error| {
+            GraphicsWorkerError::provenance(format!("player spawn failed: {error}"))
+        })?;
         Ok(Self {
             session,
             physics: physics_world,
@@ -439,10 +665,89 @@ impl<'world> InputDrivenSession<'world> {
             player,
             yaw_rad: 0.0,
             pitch_rad: 0.0,
-            last_sample_ms: None,
             trace: Vec::new(),
             trace_digest: trace_digest(&[]),
+            actor: None,
+            camera_profile: CameraProfile::ThirdPerson,
+            action_map: ActionMap::ds3_default(),
+            evidence: None,
         })
+    }
+
+    /// Bind one unique packet instance as the moving actor. Displacement is
+    /// measured from the current body so this is called at spawn.
+    pub fn bind_actor(&mut self, instance_id: &str) -> Result<(), GraphicsWorkerError> {
+        let mut matches = self
+            .session
+            .base_packet()
+            .body
+            .instances
+            .iter()
+            .filter(|instance| instance.instance_id == instance_id);
+        let actor = matches.next().ok_or_else(|| {
+            GraphicsWorkerError::provenance(format!(
+                "movement actor instance {instance_id} is missing from the base packet"
+            ))
+        })?;
+        if matches.next().is_some() {
+            return Err(GraphicsWorkerError::provenance(format!(
+                "movement actor instance {instance_id} is ambiguous in the base packet"
+            )));
+        }
+        self.actor = Some(ActorBinding {
+            instance_id: instance_id.to_owned(),
+            source_transform: actor.transform.clone(),
+            spawn_state: self.player.clone(),
+        });
+        Ok(())
+    }
+
+    pub fn actor_instance_id(&self) -> Option<&str> {
+        self.actor.as_ref().map(|actor| actor.instance_id.as_str())
+    }
+
+    pub fn set_camera_profile(
+        &mut self,
+        profile: CameraProfile,
+    ) -> Result<(), GraphicsWorkerError> {
+        self.camera_profile = profile;
+        self.apply_camera_pose()?;
+        Ok(())
+    }
+
+    pub fn camera_profile(&self) -> CameraProfile {
+        self.camera_profile
+    }
+
+    pub fn set_action_map(&mut self, map: ActionMap) -> Result<(), GraphicsWorkerError> {
+        map.validate()?;
+        self.action_map = map;
+        Ok(())
+    }
+
+    pub fn action_map(&self) -> &ActionMap {
+        &self.action_map
+    }
+
+    pub fn bind_evidence(
+        &mut self,
+        binder: PresentedEvidenceBinder,
+    ) -> Result<(), GraphicsWorkerError> {
+        if binder.packet_sha256() != self.session.base_packet().packet_sha256 {
+            return Err(GraphicsWorkerError::provenance(
+                "evidence binder packet identity is detached from the presented session",
+            ));
+        }
+        self.evidence = Some(binder);
+        Ok(())
+    }
+
+    pub fn evidence(&self) -> Option<&PresentedEvidenceBinder> {
+        self.evidence.as_ref()
+    }
+
+    pub fn evidence_mut(&mut self) -> Option<&mut PresentedEvidenceBinder> {
+        self.evidence.as_mut()
     }
 
     pub fn player_state(&self) -> &KinematicState {
@@ -470,29 +775,49 @@ impl<'world> InputDrivenSession<'world> {
     /// recorded with its disposition — the world rejects, the session adapts.
     pub fn apply_frame(&mut self, frame: InputFrame) -> Result<&TraceStep, GraphicsWorkerError> {
         frame.validate()?;
-        let expected = self.player.body.tick + 1;
+        let expected = self.player.body.tick.checked_add(1).ok_or_else(|| {
+            GraphicsWorkerError::protocol("input simulation tick counter overflow")
+        })?;
         if frame.expected_tick != expected {
             return Err(GraphicsWorkerError::protocol(format!(
                 "input frame expects tick {}, simulation is at tick {}",
                 frame.expected_tick, self.player.body.tick
             )));
         }
-        // Yaw is the simulation's heading authority; pitch only affects the
-        // camera and is clamped in `camera_intent`.
-        self.yaw_rad = wrap_angle(self.yaw_rad + frame.look_dx_rad);
-        self.pitch_rad = (self.pitch_rad + frame.look_dy_rad).clamp(-1.2, 1.2);
-        let velocity = velocity_for(&frame, self.yaw_rad);
+        // Stage camera state until the physics call succeeds. A rejected
+        // collision step is a successful receipt and still commits look input.
+        let yaw_rad = wrap_angle(self.yaw_rad + frame.look_dx_rad);
+        let pitch_rad = (self.pitch_rad + frame.look_dy_rad).clamp(-1.2, 1.2);
+        let velocity = velocity_for(&frame, yaw_rad);
         let input = KinematicInput {
             expected_tick: frame.expected_tick,
             velocity_xz_mps: velocity,
         };
-        let receipt = self
-            .physics
-            .step(&self.player, input)
-            .map_err(|error| {
-                GraphicsWorkerError::provenance(format!("kinematic step rejected: {error}"))
-            })?;
-        self.player = receipt.body.next_state.clone();
+        let receipt = self.physics.step(&self.player, input).map_err(|error| {
+            GraphicsWorkerError::provenance(format!("kinematic step rejected: {error}"))
+        })?;
+        let next_player = receipt.body.next_state.clone();
+        let actor_override = if let Some(actor) = &self.actor {
+            Some((
+                actor.instance_id.clone(),
+                moved_actor_transform(
+                    &actor.source_transform,
+                    &actor.spawn_state,
+                    &next_player,
+                    yaw_rad,
+                )?,
+            ))
+        } else {
+            None
+        };
+        self.push_camera_pose(&next_player, yaw_rad, pitch_rad)?;
+        if let Some((instance_id, transform)) = actor_override {
+            self.session
+                .set_instance_override(&instance_id, transform)?;
+        }
+        self.yaw_rad = yaw_rad;
+        self.pitch_rad = pitch_rad;
+        self.player = next_player;
         let disposition = match receipt.body.disposition {
             luxel_reference_runtime::KinematicStepDisposition::Advanced => "advanced",
             luxel_reference_runtime::KinematicStepDisposition::Rejected => "rejected",
@@ -508,38 +833,98 @@ impl<'world> InputDrivenSession<'world> {
         Ok(last)
     }
 
-    /// Sample one raw worker input, advance the simulation by the elapsed
-    /// whole ticks (capped for the bounded seam), and re-aim the presented
-    /// camera at the resulting third-person intent. Returns the batch report.
+    fn apply_camera_pose(&mut self) -> Result<(), GraphicsWorkerError> {
+        self.push_camera_pose(&self.player.clone(), self.yaw_rad, self.pitch_rad)
+    }
+
+    fn push_camera_pose(
+        &mut self,
+        player: &KinematicState,
+        yaw_rad: f32,
+        pitch_rad: f32,
+    ) -> Result<(), GraphicsWorkerError> {
+        let terrain = &self.session.base_packet().body.terrain;
+        let pose = camera_intent_for_profile(
+            player,
+            yaw_rad,
+            pitch_rad,
+            self.camera_profile,
+            Some(terrain),
+        )?;
+        if pose.up.is_none() && pose.projection.is_none() {
+            self.session.clear_camera_shape();
+            self.session.set_camera(pose.position, pose.forward)?;
+            return Ok(());
+        }
+        if let Some(up) = pose.up {
+            self.session
+                .set_camera_basis(pose.position, pose.forward, up)?;
+        } else {
+            self.session.set_camera(pose.position, pose.forward)?;
+        }
+        if let Some(projection) = pose.projection {
+            self.session.set_camera_projection(projection)?;
+        }
+        Ok(())
+    }
+
+    /// Worker-free oracle of the drive loop: one raw sample becomes one fixed
+    /// tick. The presented camera is re-aimed after each successful tick.
+    pub fn apply_samples(&mut self, samples: &[InputSample]) -> Result<usize, GraphicsWorkerError> {
+        for sample in samples {
+            let expected_tick = self.player.body.tick.checked_add(1).ok_or_else(|| {
+                GraphicsWorkerError::protocol("input simulation tick counter overflow")
+            })?;
+            let frame = frame_from_sample_mapped(
+                expected_tick,
+                sample,
+                INPUT_SIM_TICK_DT_SECONDS,
+                &self.action_map,
+            )?;
+            self.apply_frame(frame)?;
+        }
+        Ok(samples.len())
+    }
+
+    /// Replay recorded semantic frames from this session's current tick.
+    /// A fresh session started on the same world reproduces a prior trace.
+    pub fn replay_semantic_frames(
+        &mut self,
+        frames: &[InputFrame],
+    ) -> Result<(), GraphicsWorkerError> {
+        for frame in frames {
+            self.apply_frame(frame.clone())?;
+        }
+        Ok(())
+    }
+
+    /// The drive loop presents only after the persistent window is open.
+    pub fn require_open_window(&self) -> Result<(), GraphicsWorkerError> {
+        if !self.session.is_window_open() {
+            return Err(GraphicsWorkerError::protocol(
+                "presented window is not open; open it before sampling input",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Present `target_frames` through the worker's HID sampler, then apply
+    /// exactly one tick per returned sample. Does not invent or repeat samples
+    /// from wall-clock elapsed time.
     pub fn sample_and_present(
         &mut self,
         supervisor: &mut GraphicsWorkerSupervisor,
-        sample: &InputSample,
         target_frames: u32,
     ) -> Result<(WindowFrameReport, usize), GraphicsWorkerError> {
-        sample.validate()?;
-        let elapsed_ms = match self.last_sample_ms {
-            Some(previous) => (sample.timestamp_ms - previous).max(0.0),
-            None => INPUT_SIM_TICK_DT_MS * target_frames.max(1) as f64,
-        };
-        self.last_sample_ms = Some(sample.timestamp_ms);
-        let ticks = ((elapsed_ms / INPUT_SIM_TICK_DT_MS).floor() as usize)
-            .clamp(1, target_frames.max(1) as usize);
-        let mut applied = 0usize;
-        for index in 0..ticks {
-            let expected_tick = self.player.body.tick + 1;
-            let frame = frame_from_sample(
-                expected_tick,
-                sample,
-                INPUT_SIM_TICK_DT_MS as f32,
-            )?;
-            self.apply_frame(frame)?;
-            applied += 1;
-            let _ = index;
+        self.require_open_window()?;
+        let (report, samples) = self
+            .session
+            .present_frames_with_input(supervisor, target_frames)?;
+        let applied = self.apply_samples(&samples)?;
+        if let Some(evidence) = self.evidence.as_mut() {
+            let now_ms = evidence.advance_from_report(&report)?;
+            evidence.observe_report(&report, self.session.base_packet(), now_ms)?;
         }
-        let (position, forward) = camera_intent(&self.player, self.yaw_rad, self.pitch_rad)?;
-        self.session.set_camera(position, forward)?;
-        let report = self.session.present_frames(supervisor, target_frames)?;
         Ok((report, applied))
     }
 
@@ -573,6 +958,521 @@ impl<'world> InputDrivenSession<'world> {
     pub fn is_window_open(&self) -> bool {
         self.session.is_window_open()
     }
+
+    /// Promote a due Tier A sample through the offscreen authority path and
+    /// complete it against the live (base) packet identity.
+    pub fn sample_tier_a_if_due(
+        &mut self,
+        supervisor: &mut GraphicsWorkerSupervisor,
+        now_ms: u64,
+    ) -> Result<Option<PromotedFrame>, GraphicsWorkerError> {
+        let Some(evidence) = self.evidence.as_mut() else {
+            return Ok(None);
+        };
+        let Some(request) = evidence.tick(now_ms)? else {
+            return Ok(None);
+        };
+        let promoted = self.session.capture_and_promote(supervisor, self.world)?;
+        evidence.complete_promoted(&request, &promoted, now_ms)?;
+        Ok(Some(promoted))
+    }
+}
+
+/// Play session: the Star 1 drive loop plus a bound actor whose transform is
+/// pushed as a presented instance override each tick.
+pub struct PresentedPlaySession<'world> {
+    inner: InputDrivenSession<'world>,
+}
+
+impl<'world> PresentedPlaySession<'world> {
+    pub fn new(
+        session: PresentedGraphicsSession,
+        world: &'world WorldArtifact,
+        actor_instance_id: &str,
+    ) -> Result<Self, GraphicsWorkerError> {
+        let mut inner = InputDrivenSession::new(session, world)?;
+        inner.bind_actor(actor_instance_id)?;
+        Ok(Self { inner })
+    }
+
+    pub fn inner(&self) -> &InputDrivenSession<'world> {
+        &self.inner
+    }
+
+    pub fn inner_mut(&mut self) -> &mut InputDrivenSession<'world> {
+        &mut self.inner
+    }
+
+    pub fn actor_transform(&self) -> Option<&Transform3d> {
+        let id = self.inner.actor_instance_id()?;
+        self.inner.session.instance_override(id)
+    }
+
+    pub fn apply_samples(&mut self, samples: &[InputSample]) -> Result<usize, GraphicsWorkerError> {
+        self.inner.apply_samples(samples)
+    }
+
+    pub fn sample_and_present(
+        &mut self,
+        supervisor: &mut GraphicsWorkerSupervisor,
+        target_frames: u32,
+    ) -> Result<(WindowFrameReport, usize), GraphicsWorkerError> {
+        self.inner.sample_and_present(supervisor, target_frames)
+    }
+}
+
+/// Presented-path caller of [`LiveEvidenceSession`]. Records Tier B from a
+/// window report and completes Tier A against the live packet identity.
+pub struct PresentedEvidenceBinder {
+    evidence: LiveEvidenceSession,
+    project_id: String,
+    session_id: String,
+    packet_sha256: String,
+    capabilities_sha256: String,
+    last_observed_at_ms: u64,
+}
+
+impl PresentedEvidenceBinder {
+    pub fn new(
+        project_id: impl Into<String>,
+        session_id: impl Into<String>,
+        packet: &GraphicsScenePacket,
+        capabilities_sha256: impl Into<String>,
+        policy: luxel_live_evidence_contract::SamplingPolicy,
+        started_at_ms: u64,
+    ) -> Result<Self, GraphicsWorkerError> {
+        let project_id = project_id.into();
+        let session_id = session_id.into();
+        let capabilities_sha256 = capabilities_sha256.into();
+        let packet_identity = PacketIdentity {
+            packet_sha256: packet.packet_sha256.clone(),
+            capabilities_sha256: capabilities_sha256.clone(),
+        };
+        let evidence = LiveEvidenceSession::new(
+            project_id.clone(),
+            session_id.clone(),
+            packet_identity,
+            policy,
+            started_at_ms,
+        )
+        .map_err(|error| {
+            GraphicsWorkerError::protocol(format!("live evidence session rejected: {error}"))
+        })?;
+        Ok(Self {
+            evidence,
+            project_id,
+            session_id,
+            packet_sha256: packet.packet_sha256.clone(),
+            capabilities_sha256,
+            last_observed_at_ms: started_at_ms,
+        })
+    }
+
+    pub fn state(&self) -> &SessionState {
+        self.evidence.state()
+    }
+
+    pub fn packet_sha256(&self) -> &str {
+        &self.packet_sha256
+    }
+
+    pub fn last_observed_at_ms(&self) -> u64 {
+        self.last_observed_at_ms
+    }
+
+    pub fn pending_request(&self) -> Option<&TierASnapshotRequest> {
+        self.evidence.pending_request()
+    }
+
+    /// Advance the binder clock by the presented batch duration. Does not
+    /// read a wall clock.
+    pub fn advance_from_report(
+        &self,
+        report: &WindowFrameReport,
+    ) -> Result<u64, GraphicsWorkerError> {
+        let elapsed_us = report.frame_times_us.iter().copied().sum::<u64>();
+        let elapsed_ms = (elapsed_us / 1000).max(1);
+        self.last_observed_at_ms
+            .checked_add(elapsed_ms)
+            .ok_or_else(|| GraphicsWorkerError::protocol("evidence clock overflow"))
+    }
+
+    pub fn observe_report(
+        &mut self,
+        report: &WindowFrameReport,
+        packet: &GraphicsScenePacket,
+        now_ms: u64,
+    ) -> Result<(), GraphicsWorkerError> {
+        if packet.packet_sha256 != self.packet_sha256 {
+            return Err(GraphicsWorkerError::provenance(
+                "live-frame packet identity is detached from the evidence session",
+            ));
+        }
+        let frame_time_us = report
+            .frame_time_us_at_percentile(50.0)
+            .or_else(|| report.frame_times_us.last().copied())
+            .unwrap_or(0);
+        if frame_time_us == 0 {
+            return Err(GraphicsWorkerError::protocol(
+                "presented evidence requires a positive frame time",
+            ));
+        }
+        let instance_count = u32::try_from(packet.body.instances.len()).map_err(|_| {
+            GraphicsWorkerError::protocol("presented instance count exceeds Tier B range")
+        })?;
+        let attestation = LiveFrameAttestation {
+            schema_version: LIVE_FRAME_SCHEMA.to_owned(),
+            project_id: self.project_id.clone(),
+            session_id: self.session_id.clone(),
+            packet: PacketIdentity {
+                packet_sha256: self.packet_sha256.clone(),
+                capabilities_sha256: self.capabilities_sha256.clone(),
+            },
+            frame_sequence: report.window_presented_frames,
+            observed_at_ms: now_ms,
+            telemetry: LiveFrameTelemetry {
+                frame_time_us,
+                gpu_time_us: 0,
+                draw_calls: report.frames_presented,
+                submitted_instances: instance_count,
+                visible_instances: instance_count,
+                dropped_frames: 0,
+            },
+        };
+        self.evidence
+            .record_live_frame(attestation)
+            .map_err(|error| {
+                GraphicsWorkerError::protocol(format!("live-frame attestation rejected: {error}"))
+            })?;
+        self.last_observed_at_ms = now_ms;
+        Ok(())
+    }
+
+    pub fn tick(
+        &mut self,
+        now_ms: u64,
+    ) -> Result<Option<TierASnapshotRequest>, GraphicsWorkerError> {
+        self.evidence.tick(now_ms).map_err(|error| {
+            GraphicsWorkerError::protocol(format!("live evidence tick rejected: {error}"))
+        })
+    }
+
+    pub fn complete_certified(
+        &mut self,
+        result: TierAResult,
+        now_ms: u64,
+    ) -> Result<(), GraphicsWorkerError> {
+        self.evidence
+            .complete_snapshot(Some(result), now_ms)
+            .map_err(|error| {
+                GraphicsWorkerError::protocol(format!("Tier A result rejected: {error}"))
+            })?;
+        self.last_observed_at_ms = now_ms;
+        Ok(())
+    }
+
+    pub fn complete_promoted(
+        &mut self,
+        request: &TierASnapshotRequest,
+        promoted: &PromotedFrame,
+        now_ms: u64,
+    ) -> Result<(), GraphicsWorkerError> {
+        let capture_sha256 = promoted.frame.capture_sha256.clone();
+        let result = TierAResult::Certified {
+            schema_version: SNAPSHOT_RESULT_SCHEMA.to_owned(),
+            request_id: request.request_id.clone(),
+            project_id: self.project_id.clone(),
+            session_id: self.session_id.clone(),
+            packet: PacketIdentity {
+                packet_sha256: self.packet_sha256.clone(),
+                capabilities_sha256: self.capabilities_sha256.clone(),
+            },
+            completed_at_ms: now_ms,
+            snapshot: CertifiedSnapshotIdentity {
+                project_id: self.project_id.clone(),
+                snapshot_id: promoted.frame.capture_id.clone(),
+                candidate_sha256: capture_sha256,
+                receipt_id: promoted.receipt.body.capture_id.clone(),
+                receipt_sha256: promoted.receipt.receipt_sha256.clone(),
+                validator_registry_sha256: promoted.receipt.body.renderer_identity_sha256.clone(),
+                validator_id: "luxel.native-graphics/v1".to_owned(),
+                receipt_schema: crate::FRAME_RECEIPT_SCHEMA.to_owned(),
+            },
+        };
+        self.complete_certified(result, now_ms)
+    }
+}
+
+/// A transient transform/camera override tied to an unchanged sealed scene
+/// packet. This is CPU movement state; it does not claim that a renderer has
+/// consumed the override.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ActorMovementFrame {
+    pub schema_version: String,
+    pub source_packet_sha256: String,
+    pub world_artifact_id: String,
+    pub world_artifact_sha256: String,
+    pub actor_instance_id: String,
+    pub tick: u64,
+    pub actor_transform: Transform3d,
+    pub camera_position_xyz_m: [f32; 3],
+    pub camera_forward_xyz: [f32; 3],
+    pub physics_disposition: KinematicStepDisposition,
+    pub physics_receipt_sha256: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ActorMovementTraceStep {
+    pub schema_version: String,
+    pub input_frame: InputFrame,
+    pub movement_frame: ActorMovementFrame,
+}
+
+/// CPU-only movement playback that binds one actor transform to a validated
+/// base packet and world. Packet identity and actor transform are snapshotted;
+/// the session does not retain the packet or re-seal it.
+pub struct ActorMovementSession<'world> {
+    source_packet_sha256: String,
+    world_artifact_id: String,
+    world_artifact_sha256: String,
+    actor_instance_id: String,
+    actor_source_transform: Transform3d,
+    spawn_state: KinematicState,
+    player: KinematicState,
+    physics: PhysicsWorld<'world>,
+    yaw_rad: f32,
+    pitch_rad: f32,
+    trace: Vec<ActorMovementTraceStep>,
+    trace_digest: [u8; 32],
+}
+
+impl<'world> ActorMovementSession<'world> {
+    pub fn new(
+        packet: &GraphicsScenePacket,
+        world: &'world WorldArtifact,
+        actor_instance_id: &str,
+    ) -> Result<Self, GraphicsWorkerError> {
+        validate_scene_packet(packet).map_err(GraphicsWorkerError::contract)?;
+        let physics = PhysicsWorld::new(world).map_err(|error| {
+            GraphicsWorkerError::provenance(format!("physics binding failed: {error}"))
+        })?;
+        if packet.body.world_artifact_id != world.artifact_id
+            || packet.body.world_artifact_sha256 != world.artifact_sha256
+            || packet.body.spatial_fields_sha256 != world.body.fields.spatial_sha256
+        {
+            return Err(GraphicsWorkerError::provenance(
+                "movement packet provenance is detached from the validated world artifact",
+            ));
+        }
+        let mut matches = packet
+            .body
+            .instances
+            .iter()
+            .filter(|instance| instance.instance_id == actor_instance_id);
+        let actor = matches.next().ok_or_else(|| {
+            GraphicsWorkerError::provenance(format!(
+                "movement actor instance {actor_instance_id} is missing from the base packet"
+            ))
+        })?;
+        if matches.next().is_some() {
+            return Err(GraphicsWorkerError::provenance(format!(
+                "movement actor instance {actor_instance_id} is ambiguous in the base packet"
+            )));
+        }
+        let player = physics.initialize_player().map_err(|error| {
+            GraphicsWorkerError::provenance(format!("player spawn failed: {error}"))
+        })?;
+        let trace_digest = Sha256::digest(ACTOR_MOVEMENT_TRACE_DIGEST_DOMAIN).into();
+        Ok(Self {
+            source_packet_sha256: packet.packet_sha256.clone(),
+            world_artifact_id: world.artifact_id.clone(),
+            world_artifact_sha256: world.artifact_sha256.clone(),
+            actor_instance_id: actor_instance_id.to_owned(),
+            actor_source_transform: actor.transform.clone(),
+            spawn_state: player.clone(),
+            player,
+            physics,
+            yaw_rad: 0.0,
+            pitch_rad: 0.0,
+            trace: Vec::new(),
+            trace_digest,
+        })
+    }
+
+    pub fn actor_instance_id(&self) -> &str {
+        &self.actor_instance_id
+    }
+
+    pub fn player_state(&self) -> &KinematicState {
+        &self.player
+    }
+
+    pub fn camera_yaw_rad(&self) -> f32 {
+        self.yaw_rad
+    }
+
+    pub fn camera_pitch_rad(&self) -> f32 {
+        self.pitch_rad
+    }
+
+    pub fn trace(&self) -> &[ActorMovementTraceStep] {
+        &self.trace
+    }
+
+    pub fn trace_digest(&self) -> String {
+        format!("sha256:{}", hex(&self.trace_digest))
+    }
+
+    /// Convert one raw sample to one fixed simulation tick; wall-clock timing
+    /// and presentation batching are intentionally outside this CPU oracle.
+    pub fn advance_sample(
+        &mut self,
+        sample: &InputSample,
+    ) -> Result<&ActorMovementFrame, GraphicsWorkerError> {
+        let expected_tick =
+            self.player.body.tick.checked_add(1).ok_or_else(|| {
+                GraphicsWorkerError::protocol("actor movement tick counter overflow")
+            })?;
+        let frame = fixed_tick_frame(expected_tick, sample)?;
+        self.advance_frame(frame)
+    }
+
+    pub fn advance_frame(
+        &mut self,
+        frame: InputFrame,
+    ) -> Result<&ActorMovementFrame, GraphicsWorkerError> {
+        frame.validate()?;
+        let expected_tick =
+            self.player.body.tick.checked_add(1).ok_or_else(|| {
+                GraphicsWorkerError::protocol("actor movement tick counter overflow")
+            })?;
+        if frame.expected_tick != expected_tick {
+            return Err(GraphicsWorkerError::protocol(format!(
+                "input frame expects tick {}, simulation is at tick {}",
+                frame.expected_tick, self.player.body.tick
+            )));
+        }
+
+        let yaw_rad = wrap_angle(self.yaw_rad + frame.look_dx_rad);
+        let pitch_rad = (self.pitch_rad + frame.look_dy_rad).clamp(-1.2, 1.2);
+        let input = KinematicInput {
+            expected_tick: frame.expected_tick,
+            velocity_xz_mps: velocity_for(&frame, yaw_rad),
+        };
+        let receipt = self.physics.step(&self.player, input).map_err(|error| {
+            GraphicsWorkerError::provenance(format!("kinematic step rejected: {error}"))
+        })?;
+        let player = receipt.body.next_state.clone();
+        let actor_transform = moved_actor_transform(
+            &self.actor_source_transform,
+            &self.spawn_state,
+            &player,
+            yaw_rad,
+        )?;
+        let (camera_position_xyz_m, camera_forward_xyz) =
+            camera_intent(&player, yaw_rad, pitch_rad)?;
+        let movement_frame = ActorMovementFrame {
+            schema_version: ACTOR_MOVEMENT_FRAME_SCHEMA.to_owned(),
+            source_packet_sha256: self.source_packet_sha256.clone(),
+            world_artifact_id: self.world_artifact_id.clone(),
+            world_artifact_sha256: self.world_artifact_sha256.clone(),
+            actor_instance_id: self.actor_instance_id.clone(),
+            tick: player.body.tick,
+            actor_transform,
+            camera_position_xyz_m,
+            camera_forward_xyz,
+            physics_disposition: receipt.body.disposition,
+            physics_receipt_sha256: receipt.receipt_sha256,
+        };
+        let trace_step = ActorMovementTraceStep {
+            schema_version: ACTOR_MOVEMENT_TRACE_SCHEMA.to_owned(),
+            input_frame: frame,
+            movement_frame,
+        };
+        let trace_digest = actor_movement_digest_step(&self.trace_digest, &trace_step)?;
+
+        self.player = player;
+        self.yaw_rad = yaw_rad;
+        self.pitch_rad = pitch_rad;
+        self.trace.push(trace_step);
+        self.trace_digest = trace_digest;
+        Ok(&self
+            .trace
+            .last()
+            .expect("movement trace just appended")
+            .movement_frame)
+    }
+
+    pub fn replay_semantic_frames(
+        &mut self,
+        frames: &[InputFrame],
+    ) -> Result<(), GraphicsWorkerError> {
+        for frame in frames {
+            self.advance_frame(frame.clone())?;
+        }
+        Ok(())
+    }
+}
+
+fn moved_actor_transform(
+    source: &Transform3d,
+    spawn: &KinematicState,
+    player: &KinematicState,
+    yaw_rad: f32,
+) -> Result<Transform3d, GraphicsWorkerError> {
+    let mut translation_xyz_m = [0.0; 3];
+    for (index, translation) in translation_xyz_m.iter_mut().enumerate() {
+        let delta = player.body.position_xyz_m[index] - spawn.body.position_xyz_m[index];
+        let moved = f64::from(source.translation_xyz_m[index]) + delta;
+        *translation = moved as f32;
+        if !moved.is_finite() || !(*translation).is_finite() {
+            return Err(GraphicsWorkerError::protocol(
+                "actor movement produced a non-finite transform",
+            ));
+        }
+    }
+    let rotation_xyzw = if yaw_rad == 0.0 {
+        source.rotation_xyzw
+    } else {
+        let (sin_yaw, cos_yaw) = (yaw_rad * 0.5).sin_cos();
+        let [bx, by, bz, bw] = source.rotation_xyzw;
+        let rotation = [
+            cos_yaw * bx + sin_yaw * bz,
+            cos_yaw * by + sin_yaw * bw,
+            cos_yaw * bz - sin_yaw * bx,
+            cos_yaw * bw - sin_yaw * by,
+        ];
+        let norm = rotation
+            .iter()
+            .map(|value| f64::from(*value) * f64::from(*value))
+            .sum::<f64>()
+            .sqrt();
+        if !norm.is_finite() || norm <= f64::EPSILON {
+            return Err(GraphicsWorkerError::protocol(
+                "actor movement produced a degenerate rotation",
+            ));
+        }
+        rotation.map(|value| (f64::from(value) / norm) as f32)
+    };
+    Ok(Transform3d {
+        translation_xyz_m,
+        rotation_xyzw,
+        scale_xyz: source.scale_xyz,
+    })
+}
+
+fn actor_movement_digest_step(
+    previous: &[u8; 32],
+    step: &ActorMovementTraceStep,
+) -> Result<[u8; 32], GraphicsWorkerError> {
+    let bytes = canonical_json(step).map_err(GraphicsWorkerError::contract)?;
+    let mut hasher = Sha256::new();
+    hasher.update(ACTOR_MOVEMENT_TRACE_DIGEST_DOMAIN);
+    hasher.update(previous);
+    hasher.update(bytes);
+    Ok(hasher.finalize().into())
 }
 
 fn wrap_angle(angle: f32) -> f32 {
@@ -607,6 +1507,10 @@ mod tests {
         let mut sample = InputSample::new(1.0);
         sample.gamepad_axes = vec![f32::INFINITY];
         assert!(sample.validate().is_err());
+        sample.gamepad_axes = vec![1.01];
+        assert!(sample.validate().is_err());
+        sample.gamepad_axes = vec![-1.01];
+        assert!(sample.validate().is_err());
         sample.gamepad_axes = Vec::new();
         sample.cursor = Some([f64::NAN, 0.5]);
         assert!(sample.validate().is_err());
@@ -637,6 +1541,19 @@ mod tests {
         assert!((frame.move_y - 1.0).abs() < 1e-6, "stick up drives forward");
         assert!(frame.look_dx_rad > 0.0, "right stick right yaws positive");
         assert!(frame.roll, "A rolls");
+    }
+
+    #[test]
+    fn fixed_tick_gamepad_look_uses_seconds() {
+        let mut sample = InputSample::new(1.0);
+        sample.gamepad_axes = vec![0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+        let frame = fixed_tick_frame(1, &sample).expect("fixed-tick sample maps");
+        let expected = GAMEPAD_LOOK_RATE_RAD_PER_S / REFERENCE_TICK_RATE_HZ as f32;
+        assert!(
+            (frame.look_dx_rad - expected).abs() < 1e-6,
+            "one tick of full right-stick input is {expected} radians, got {}",
+            frame.look_dx_rad
+        );
     }
 
     #[test]
@@ -707,5 +1624,60 @@ mod tests {
         let mut frame = InputFrame::new(1);
         frame.move_x = 1.5;
         assert!(frame.validate().is_err());
+    }
+
+    #[test]
+    fn physics_failure_does_not_commit_staged_look_input() {
+        let world: WorldArtifact = serde_json::from_str(include_str!(
+            "../tests/fixtures/riverwatch-movement-world.json"
+        ))
+        .expect("checked-in Julia-produced world artifact parses");
+        let packet = crate::lower_reference_world(&world).expect("world lowers to a packet");
+        let request = crate::session::PresentedSessionRequest::new(
+            "input-session-atomicity",
+            packet.body.camera.width_px,
+            packet.body.camera.height_px,
+            false,
+        )
+        .expect("request is valid");
+        let presented = PresentedGraphicsSession::new(&request, &packet, &world)
+            .expect("validated world and packet bind");
+        let mut session = InputDrivenSession::new(presented, &world).expect("input session binds");
+        session.player.state_sha256 = "sha256:forged".into();
+        let prior_player = session.player.clone();
+        let prior_digest = session.trace_digest.clone();
+        let mut frame = InputFrame::new(1);
+        frame.look_dx_rad = 0.25;
+        frame.look_dy_rad = -0.1;
+
+        assert!(session.apply_frame(frame).is_err());
+        assert_eq!(session.yaw_rad, 0.0);
+        assert_eq!(session.pitch_rad, 0.0);
+        assert_eq!(session.player, prior_player);
+        assert!(session.trace.is_empty());
+        assert_eq!(session.trace_digest, prior_digest);
+    }
+
+    #[test]
+    fn accept_presented_samples_requires_one_monotonic_sample_per_frame() {
+        let ok = vec![InputSample::new(1.0), InputSample::new(2.5)];
+        let accepted =
+            accept_presented_samples(ok, 2).expect("two increasing samples match two frames");
+        assert_eq!(accepted.len(), 2);
+
+        let count = accept_presented_samples(vec![InputSample::new(1.0)], 2)
+            .expect_err("count mismatch is protocol");
+        assert_eq!(count.code, "worker_protocol");
+
+        let non_monotonic =
+            accept_presented_samples(vec![InputSample::new(2.0), InputSample::new(2.0)], 2)
+                .expect_err("equal timestamps are not increasing");
+        assert_eq!(non_monotonic.code, "worker_protocol");
+
+        let mut bad = InputSample::new(1.0);
+        bad.gamepad_axes = vec![1.5];
+        let invalid =
+            accept_presented_samples(vec![bad], 1).expect_err("invalid sample fails closed");
+        assert_eq!(invalid.code, "worker_protocol");
     }
 }
