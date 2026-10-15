@@ -367,3 +367,22 @@ end
     @test refuses(inst(variation=(tint_rgb=[2.0, 1.0, 1.0],)))
     @test refuses(inst(variation=(tint_rgb=[1.0, 1.0, 1.0], stray=1)))
 end
+
+@testset "instance override transform parse is closed and identity-preserving" begin
+    parsed = LuxelGraphics._parse_transform(JSON3.read(JSON3.write((
+        translation_xyz_m=[1.0, 2.0, 3.0],
+        rotation_xyzw=[0.0, 0.0, 0.0, 1.0],
+        scale_xyz=[0.8, 1.7, 0.8],
+    ))), "instance_override.transform")
+    @test parsed.translation_xyz_m == (1.0f0, 2.0f0, 3.0f0)
+    @test parsed.scale_xyz == (0.8f0, 1.7f0, 0.8f0)
+    refuses(value) = try
+        LuxelGraphics._parse_transform(JSON3.read(JSON3.write(value)), "t")
+        false
+    catch e
+        e isa LuxelGraphics.ProtocolError
+    end
+    @test refuses((translation_xyz_m=[1.0, 2.0, 3.0], rotation_xyzw=[0.0, 0.0, 0.0, 1.0], scale_xyz=[0.8, 1.7, 0.8], stray=1))
+    @test refuses((translation_xyz_m=[1.0, 2.0, 3.0], rotation_xyzw=[0.0, 0.0, 0.0, 0.0], scale_xyz=[1.0, 1.0, 1.0]))
+    @test refuses((translation_xyz_m=[1.0, 2.0, 3.0], rotation_xyzw=[0.0, 0.0, 0.0, 1.0], scale_xyz=[0.0, 1.0, 1.0]))
+end

@@ -197,6 +197,11 @@ struct TransformPacket
     scale_xyz::NTuple{3,Float32}
 end
 
+struct InstanceOverride
+    instance_id::String
+    transform::TransformPacket
+end
+
 abstract type InstanceImportance end
 
 struct BackgroundImportance <: InstanceImportance end
@@ -1538,22 +1543,7 @@ function _parse_instances(
         material_id in material_ids ||
             throw(ProtocolError("provenance", "instance references unknown material $material_id"))
         importance = _parse_instance_importance(_string(object["importance"], "instance.importance"))
-        transform = _object(object["transform"], "instance.transform")
-        _exact_keys(transform, ("translation_xyz_m", "rotation_xyzw", "scale_xyz"), "instance.transform")
-        translation = _tuple(transform["translation_xyz_m"], Val(3), "instance.transform.translation_xyz_m")
-        _bounded_values(translation, "instance.transform.translation_xyz_m") ||
-            throw(ProtocolError("malformed_packet", "instance translation exceeds native physical bounds"))
-        rotation = _tuple(transform["rotation_xyzw"], Val(4), "instance.transform.rotation_xyzw")
-        scale = _tuple(transform["scale_xyz"], Val(3), "instance.transform.scale_xyz")
-        rotation_norm_squared = _squared_norm(rotation)
-        isfinite(rotation_norm_squared) && rotation_norm_squared > eps(Float32) ||
-            throw(ProtocolError("malformed_packet", "instance rotation is degenerate"))
-        abs(rotation_norm_squared - 1.0f0) <= 1.0f-3 ||
-            throw(ProtocolError("malformed_packet", "instance rotation must be a unit quaternion"))
-        all(value -> value >= MIN_NATIVE_SCALE, scale) ||
-            throw(ProtocolError("malformed_packet", "instance scale must be positive"))
-        all(value -> value <= MAX_NATIVE_COORDINATE_M, scale) ||
-            throw(ProtocolError("malformed_packet", "instance scale exceeds native physical bounds"))
+        transform = _parse_transform(_object(object["transform"], "instance.transform"), "instance.transform")
         tint = if haskey(object, "variation")
             variation = _object(object["variation"], "instance.variation")
             _exact_keys(variation, ("tint_rgb",), "instance.variation")
@@ -1564,9 +1554,106 @@ function _parse_instances(
         else
             (1.0f0, 1.0f0, 1.0f0)
         end
-        push!(instances, InstancePacket(id, mesh_id, material_id, importance, TransformPacket(translation, rotation, scale), tint))
+        push!(instances, InstancePacket(id, mesh_id, material_id, importance, transform, tint))
     end
     return instances
+end
+
+function _parse_transform(value::JSON3.Object, label::String)::TransformPacket
+    _exact_keys(value, ("translation_xyz_m", "rotation_xyzw", "scale_xyz"), label)
+    translation = _tuple(value["translation_xyz_m"], Val(3), "$label.translation_xyz_m")
+    _bounded_values(translation, "$label.translation_xyz_m") ||
+        throw(ProtocolError("malformed_packet", "$label translation exceeds native physical bounds"))
+    rotation = _tuple(value["rotation_xyzw"], Val(4), "$label.rotation_xyzw")
+    scale = _tuple(value["scale_xyz"], Val(3), "$label.scale_xyz")
+    rotation_norm_squared = _squared_norm(rotation)
+    isfinite(rotation_norm_squared) && rotation_norm_squared > eps(Float32) ||
+        throw(ProtocolError("malformed_packet", "$label rotation is degenerate"))
+    abs(rotation_norm_squared - 1.0f0) <= 1.0f-3 ||
+        throw(ProtocolError("malformed_packet", "$label rotation must be a unit quaternion"))
+    all(component -> component >= MIN_NATIVE_SCALE, scale) ||
+        throw(ProtocolError("malformed_packet", "$label scale must be positive"))
+    all(component -> component <= MAX_NATIVE_COORDINATE_M, scale) ||
+        throw(ProtocolError("malformed_packet", "$label scale exceeds native physical bounds"))
+    return TransformPacket(translation, rotation, scale)
+end
+
+function _parse_instance_overrides(
+    value,
+    packet::GraphicsScenePacket,
+)::Vector{InstanceOverride}
+    value isa JSON3.Array ||
+        throw(ProtocolError("malformed_request", "instance_overrides must be an array"))
+    overrides = InstanceOverride[]
+    seen = Set{String}()
+    packet_ids = Set(instance.instance_id for instance in packet.instances)
+    for entry in value
+        object = _object(entry, "instance_override")
+        _exact_keys(object, ("instance_id", "transform"), "instance_override")
+        id = _string(object["instance_id"], "instance_override.instance_id")
+        _valid_id(id, "instance_id")
+        id in seen && throw(ProtocolError("malformed_request", "duplicate instance override $id"))
+        push!(seen, id)
+        id in packet_ids ||
+            throw(ProtocolError("provenance", "instance override $id is missing from the base packet"))
+        transform = _parse_transform(_object(object["transform"], "instance_override.transform"), "instance_override.transform")
+        push!(overrides, InstanceOverride(id, transform))
+    end
+    return overrides
+end
+
+function _copy_packet_with_instances(
+    packet::GraphicsScenePacket,
+    instances::Vector{InstancePacket},
+)::GraphicsScenePacket
+    return GraphicsScenePacket(
+        packet.packet_sha256,
+        packet.content_sha256,
+        packet.packet_id,
+        packet.world_artifact_id,
+        packet.world_artifact_sha256,
+        packet.spatial_fields_sha256,
+        packet.frame_seed,
+        packet.camera,
+        packet.terrain,
+        packet.materials,
+        packet.textures,
+        packet.meshes,
+        instances,
+        packet.lights,
+        packet.environment,
+        packet.overlays,
+        packet.capture_id,
+        packet.width_px,
+        packet.height_px,
+        packet.include_depth,
+        packet.render_policy,
+    )
+end
+
+function apply_instance_overrides(
+    packet::GraphicsScenePacket,
+    overrides::Vector{InstanceOverride},
+)::GraphicsScenePacket
+    isempty(overrides) && return packet
+    instances = copy(packet.instances)
+    for override in overrides
+        idx = findfirst(instance -> instance.instance_id == override.instance_id, instances)
+        idx === nothing && throw(ProtocolError(
+            "provenance",
+            "instance override $(override.instance_id) is missing from the base packet",
+        ))
+        old = instances[idx]
+        instances[idx] = InstancePacket(
+            old.instance_id,
+            old.mesh_id,
+            old.material_id,
+            old.importance,
+            override.transform,
+            old.tint_rgb,
+        )
+    end
+    return _copy_packet_with_instances(packet, instances)
 end
 
 function _parse_instance_importance(value::String)::InstanceImportanceValue

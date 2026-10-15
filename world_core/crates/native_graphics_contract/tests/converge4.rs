@@ -1,6 +1,6 @@
 //! CONVERGE-4 gates (`docs/world/converge/converge4-contracts.md`).
 //!
-//! N-3 km-scale backdrop. Tests that lower `converge4` need the built kit2,
+//! N-3 km-scale backdrop. Tests that lower `converge4` or `converge4-ibl` need the built kit2,
 //! like the CONVERGE-3 ones: `python3 tools/build_kit.py --set kit2`, then
 //! `cargo test --test converge4 -- --include-ignored`. The backdrop itself is
 //! synthetic here (`support/synthetic_backdrop.rs`); the real one is built from
@@ -8,13 +8,14 @@
 
 use std::path::{Path, PathBuf};
 
+use luxel_native_graphics_contract::ibl::{IBL_BRDF_LUT_TEXTURE_ID, IBL_ENVIRONMENT_TEXTURE_ID};
 use luxel_native_graphics_contract::backdrop::{
     BACKDROP_FAR_PLANE_M, BACKDROP_INSTANCE_PREFIX, BACKDROP_SEAT_DROP_M, apply_backdrop, backdrop_set_from_glb,
 };
 use luxel_native_graphics_contract::{
-    BackdropSet, BufferPayload, Campaign2Inputs, Campaign2View, GraphicsScenePacket, KitSet, ParityContent,
+    BackdropSet, BufferPayload, Campaign2Inputs, Campaign2View, GraphicsScenePacket, IblPolicy, KitSet, ParityContent,
     ParityPolicyCandidate, canonical_json, load_backdrop_set, load_kit_set, lower_campaign2_packet_inputs,
-    sha256_prefixed, validate_scene_packet, CONVERGE4_ATMOSPHERE, CONVERGE4_SHADOW_FIT,
+    seal_scene_packet, sha256_prefixed, validate_scene_packet, CONVERGE4_ATMOSPHERE, CONVERGE4_SHADOW_FIT,
 };
 
 #[path = "support/synthetic_layers.rs"]
@@ -77,6 +78,12 @@ fn converge4_is_converge3_policy_plus_backdrop_content() {
     assert_eq!(c4.policy(), Some(expected), "converge4 = converge3 policy + km-scale atmosphere + L-1a shadow fit");
     assert!(c4.uses_converge0_content() && c4.uses_kit() && c4.uses_converge3_content() && c4.uses_backdrop());
     assert!(c3.uses_converge3_content() && !c3.uses_backdrop());
+    let c4_ibl = ParityPolicyCandidate::Converge4Ibl;
+    let mut ibl_policy = c4.policy().expect("converge4 policy");
+    ibl_policy.ibl = Some(IblPolicy { enabled: true });
+    assert_eq!(c4_ibl.policy(), Some(ibl_policy));
+    assert_eq!(ParityPolicyCandidate::from_selector("converge4-ibl"), c4_ibl);
+    assert!(c4_ibl.uses_converge0_content() && c4_ibl.uses_kit() && c4_ibl.uses_converge3_content() && c4_ibl.uses_backdrop());
     for earlier in [
         ParityPolicyCandidate::Null,
         ParityPolicyCandidate::Converge0,
@@ -84,7 +91,9 @@ fn converge4_is_converge3_policy_plus_backdrop_content() {
         ParityPolicyCandidate::Converge2,
     ] {
         assert!(!earlier.uses_backdrop() && !earlier.uses_converge3_content(), "{earlier:?}");
+        assert!(earlier.policy().and_then(|p| p.ibl).is_none(), "{earlier:?} remains without IBL");
     }
+    assert!(c3.policy().and_then(|p| p.ibl).is_none() && c4.policy().and_then(|p| p.ibl).is_none());
 }
 
 #[test]
@@ -186,7 +195,7 @@ fn the_lock_pins_the_glb_and_its_gaea_source() {
 
 #[test]
 #[ignore = "needs the built kit (python3 tools/build_kit.py --set kit2)"]
-fn converge4_requires_its_backdrop_and_adds_only_the_backdrop() {
+fn converge4_arms_keep_backdrop_and_ibl_comparison_contracts() {
     let kit = kit2();
     let backdrop = synthetic_backdrop();
     let error = lower(ParityPolicyCandidate::Converge4, Some(&kit), None, Campaign2View::Wide).unwrap_err();
@@ -198,9 +207,34 @@ fn converge4_requires_its_backdrop_and_adds_only_the_backdrop() {
     for view in [Campaign2View::Close, Campaign2View::Medium, Campaign2View::Wide] {
         let c3 = lower(ParityPolicyCandidate::Converge3, Some(&kit), None, view).expect("converge3 lowers");
         let c4 = lower(ParityPolicyCandidate::Converge4, Some(&kit), Some(&backdrop), view).expect("converge4 lowers");
+        let c4_ibl = lower(ParityPolicyCandidate::Converge4Ibl, Some(&kit), Some(&backdrop), view)
+            .expect("converge4-ibl lowers");
         validate_scene_packet(&c4).expect("valid");
+        validate_scene_packet(&c4_ibl).expect("converge4-ibl packet and baked textures validate");
+        let mut without_ibl = c4_ibl.body.clone();
+        assert_eq!(without_ibl.render_policy.as_ref().and_then(|p| p.ibl), Some(IblPolicy { enabled: true }));
+        without_ibl.render_policy.as_mut().unwrap().ibl = None;
+        without_ibl.textures.retain(|t| t.texture_id != IBL_ENVIRONMENT_TEXTURE_ID && t.texture_id != IBL_BRDF_LUT_TEXTURE_ID);
+        assert_eq!(canonical_json(&without_ibl).unwrap(), canonical_json(&c4.body).unwrap(), "{view:?}: only IBL policy/resources differ");
         assert!(!c3.body.instances.iter().any(|i| i.instance_id.starts_with(BACKDROP_INSTANCE_PREFIX)));
         assert_eq!(c3.body.camera.far_plane_m, 1500.0, "converge3 keeps its far plane");
+
+        if view == Campaign2View::Wide {
+            let mut missing = c4_ibl.body.clone();
+            missing.textures.retain(|t| t.texture_id != IBL_ENVIRONMENT_TEXTURE_ID);
+            let mut corrupted = c4_ibl.body.clone();
+            corrupted
+                .textures
+                .iter_mut()
+                .find(|t| t.texture_id == IBL_BRDF_LUT_TEXTURE_ID)
+                .expect("IBL LUT")
+                .source_artifact_id
+                .push_str("-corrupt");
+            for invalid in [missing, corrupted] {
+                let error = seal_scene_packet(invalid).unwrap_err().to_string();
+                assert!(error.contains("IBL textures"), "{error}");
+            }
+        }
 
         // converge4 = converge3 + backdrop: strip the backdrop and the far
         // plane and the bodies must match exactly.

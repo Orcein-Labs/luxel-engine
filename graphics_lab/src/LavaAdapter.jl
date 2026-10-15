@@ -5119,6 +5119,32 @@ end
 `BACKDROP_INSTANCE_PREFIX` in `world_core/crates/native_graphics_contract/src/backdrop.rs`."""
 const BACKDROP_INSTANCE_PREFIX = "backdrop-"
 
+"""Cache identity for GPU resources that bake per-instance transforms.
+
+Packet `content_sha256` is sealed and does not change when a request-side
+instance override moves an actor. Mesh uploads and the shadow map both bake
+those transforms, so their cache key salts the packet digest with a
+fingerprint of every instance pose. Terrain, IBL, and overlay caches stay on
+`content_sha256`."""
+function _mesh_transform_cache_key(packet::LuxelGraphics.GraphicsScenePacket)::String
+    io = IOBuffer()
+    write(io, packet.content_sha256)
+    for instance in packet.instances
+        write(io, instance.instance_id)
+        write(io, UInt8(0))
+        for component in instance.transform.translation_xyz_m
+            write(io, component)
+        end
+        for component in instance.transform.rotation_xyzw
+            write(io, component)
+        end
+        for component in instance.transform.scale_xyz
+            write(io, component)
+        end
+    end
+    return packet.content_sha256 * ":" * bytes2hex(sha256(take!(io)))
+end
+
 function _mesh_resources!(
     state::LavaBackend,
     packet::LuxelGraphics.GraphicsScenePacket,
@@ -5130,7 +5156,8 @@ function _mesh_resources!(
 )::Union{Nothing,MeshResources}
     current = cache === :shadow ? state.shadow_mesh_resources :
               cache === :reflection ? state.reflection_mesh_resources : state.mesh_resources
-    current !== nothing && current.cache_key == packet.content_sha256 && return current
+    cache_key = _mesh_transform_cache_key(packet)
+    current !== nothing && current.cache_key == cache_key && return current
     groups = Dict{Tuple{String,String},Vector{LuxelGraphics.InstancePacket}}()
     for instance in packet.instances
         _instance_visible(frame, packet, instance) || continue
@@ -5253,7 +5280,7 @@ function _mesh_resources!(
         total_vertices += length(positions)
     end
     created = MeshResources(
-        packet.content_sha256,
+        cache_key,
         batches,
         visibility.instance_count,
         visibility.visible_instance_count,
@@ -5432,7 +5459,8 @@ function _shadow_resources!(
     lighting::DirectionalLighting,
 )::ShadowResources
     current = state.shadow_resources
-    current !== nothing && current.cache_key == packet.content_sha256 && return current
+    cache_key = _mesh_transform_cache_key(packet)
+    current !== nothing && current.cache_key == cache_key && return current
     light_frame = _shadow_frame(packet, lighting)
     size = _shadow_map_size(packet.render_policy)
     framebuffer = _framebuffer!(state, size, size, true, :shadow)
@@ -5441,7 +5469,7 @@ function _shadow_resources!(
     # the typed shadow contract. Nearest filtering made hero-scale shadows
     # visibly stair-stepped in the native showcase.
     sampler = Lava.LavaSampler(ctx=state.context, filter=:linear, wrap=:clamp)
-    created = ShadowResources(packet.content_sha256, framebuffer, texture, sampler, light_frame)
+    created = ShadowResources(cache_key, framebuffer, texture, sampler, light_frame)
     terrain = _terrain_resources!(state, packet)
     visibility = _mesh_visibility(packet, light_frame)
     mesh_resources = _mesh_resources!(state, packet, light_frame, visibility; shadow=true)
@@ -6366,8 +6394,10 @@ function render_window_frames!(
     camera_override::Union{Nothing,LuxelGraphics.CameraPacket},
     frame_count::Integer,
     report_input::Bool=false,
+    instance_overrides::Vector{LuxelGraphics.InstanceOverride}=LuxelGraphics.InstanceOverride[],
 )
     session = _window_session(state)
+    packet = LuxelGraphics.apply_instance_overrides(packet, instance_overrides)
     frame_count >= 1 ||
         throw(AdapterError("invalid_request", "frame_count must be at least one"))
     material = _terrain_material(packet)
