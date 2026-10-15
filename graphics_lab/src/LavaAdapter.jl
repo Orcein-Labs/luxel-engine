@@ -15,7 +15,8 @@ export AdapterError,
     render_probe,
     render_depth_probe,
     render_texture_probe,
-    render_scene
+    render_scene,
+    capture_scene_depth
 
 const ADAPTER_REVISION = "luxel.lava-adapter/v7"
 const LAVA_REVISION = "11c7e31bdf62408d22bf379e9e59510f69d2103e"
@@ -133,6 +134,12 @@ struct MaterialTextures
     max_sampler_lod::UInt32
 end
 
+struct PointLightResources
+    cache_key::String
+    texture::Lava.LavaTexture2D{NTuple{4,Float32}}
+    sampler::Lava.LavaSampler
+end
+
 struct MaterialTextureResources
     cache_key::String
     material_id::String
@@ -141,6 +148,7 @@ struct MaterialTextureResources
     sampler::Lava.LavaSampler
     bindings::Lava.TextureBindings
     max_sampler_lod::UInt32
+    point_lights::Union{Nothing,PointLightResources}
 end
 
 struct DirectionalLighting
@@ -194,7 +202,15 @@ struct ShadowResources
     texture::Lava.LavaTexture2D{NTuple{4,Float32}}
     sampler::Lava.LavaSampler
     light_frame::CameraFrame
+    far_frame::Union{Nothing,CameraFrame}
+    far_framebuffer::Union{Nothing,Lava.LavaFramebuffer}
+    far_texture::Union{Nothing,Lava.LavaTexture2D{NTuple{4,Float32}}}
+    far_sampler::Union{Nothing,Lava.LavaSampler}
 end
+
+include("ShadowCascades.jl")
+include("ContactOcclusion.jl")
+include("LocalShadows.jl")
 
 struct ResolveResources
     source_size::Tuple{Int,Int}
@@ -215,6 +231,7 @@ struct TerrainLayerResources
     uniforms::NTuple{7,Vec4f}
     # The bound (texture, sampler) list, so the wet variant can add slot 16.
     textures::Vector{Lava.SampledTexture}
+    point_lights::Union{Nothing,PointLightResources}
 end
 
 """N-2 IBL textures for one packet: the baked environment atlas and BRDF table
@@ -228,7 +245,12 @@ struct IblResources
     sampler::Lava.LavaSampler
 end
 
-mutable struct LavaBackend{MCVP,C,Q,PP,SP,SVP,TP,TLP,TWP,OP,MP,MCP,TXP,DP,TSP,MSP,MCSP,RP}
+struct WetTerrainBindingResources
+    bindings::Lava.TextureBindings
+    point_lights::Union{Nothing,PointLightResources}
+end
+
+mutable struct LavaBackend{MCVP,C,Q,PP,SP,SVP,TP,TLP,TWP,OP,MP,MCP,TXP,DP,TSP,MSP,MCSP,RP,CTP,CLTP,CWTP,CMP,CMCP,CMVP,PPL,CDTP,CDMP,CDCP,CAP}
     context::C
     queue::Q
     probe_pipeline::PP
@@ -251,11 +273,12 @@ mutable struct LavaBackend{MCVP,C,Q,PP,SP,SVP,TP,TLP,TWP,OP,MP,MCP,TXP,DP,TSP,MS
     overlay_resources::Union{Nothing,OverlayResources}
     mesh_resources::Union{Nothing,MeshResources}
     shadow_mesh_resources::Union{Nothing,MeshResources}
+    cascade_far_mesh_resources::Union{Nothing,MeshResources}
     shadow_resources::Union{Nothing,ShadowResources}
     terrain_layer_resources::Union{Nothing,TerrainLayerResources}
     resolve_resources::Union{Nothing,ResolveResources}
     texture_resources::Union{Nothing,TextureProbeResources}
-    material_texture_resources::Dict{Tuple{String,String,SamplerSpec},MaterialTextureResources}
+    material_texture_resources::Dict{Tuple{String,String,SamplerSpec,Bool,Bool},MaterialTextureResources}
     material_textures::Dict{Tuple{String,String},MaterialTextures}
     cutout_shadow_bindings::Dict{Tuple{String,String},Lava.TextureBindings}
     surface_samplers::Dict{Tuple{SamplerSpec,UInt32},Lava.LavaSampler}
@@ -285,10 +308,37 @@ mutable struct LavaBackend{MCVP,C,Q,PP,SP,SVP,TP,TLP,TWP,OP,MP,MCP,TXP,DP,TSP,MS
     # reflection image) are cached so the window path does not allocate a
     # descriptor set every frame.
     reflection_mesh_resources::Union{Nothing,MeshResources}
-    wet_terrain_bindings::Dict{Tuple{String,UInt},Lava.TextureBindings}
+    wet_terrain_bindings::Dict{Tuple{String,UInt},WetTerrainBindingResources}
     # L-2a: alpha-mask meshes on a multisampled target write coverage.
     mesh_coverage_pipeline::MCVP
     mesh_coverage_compiled::Bool
+    # Cascade variants have their own descriptor layouts (binding 17), leaving
+    # every absent-policy pipeline on its historical texture count.
+    cascade_terrain_pipeline::CTP
+    cascade_layered_pipeline::CLTP
+    cascade_wet_pipeline::CWTP
+    cascade_mesh_pipeline::CMP
+    cascade_mesh_cutout_pipeline::CMCP
+    cascade_mesh_coverage_pipeline::CMVP
+    # These point-light specializations are constructed once but compiled only
+    # if a packet actually contains local lights. Legacy pipelines stay active
+    # for directional-only packets, preserving their descriptor layouts/pixels.
+    point_pipelines::PPL
+    point_pipeline_compiled::Vector{Bool}
+    cascade_pipeline_compiled::Vector{Bool}
+    # Contact occlusion state follows.
+    contact_depth_terrain_pipeline::CDTP
+    contact_depth_mesh_pipeline::CDMP
+    contact_depth_cutout_pipeline::CDCP
+    contact_ao_pipeline::CAP
+    contact_ao_resources::Union{Nothing,ContactOcclusionResources}
+    point_light_resources::Union{Nothing,PointLightResources}
+    point_shadow_resources::Union{Nothing,PointShadowResources}
+    dummy_point_shadows::Union{Nothing,PointShadowResources}
+    contact_depth_terrain_compiled::Bool
+    contact_depth_mesh_compiled::Bool
+    contact_depth_cutout_compiled::Bool
+    contact_ao_compiled::Bool
 end
 
 const BACKEND_REF = Ref{Union{Nothing,LavaBackend}}(nothing)
@@ -876,6 +926,7 @@ end
 # `ConstantIbl`. Shaders pass `TextureIbl()`.
 struct NoIbl end
 struct TextureIbl end
+const ZERO_LIGHT_COLOR = Vec4f(0.0f0, 0.0f0, 0.0f0, 0.0f0)
 struct ConstantIbl
     irradiance::Vec4f
     prefiltered::Vec4f
@@ -982,6 +1033,22 @@ function _perturbed_normal(
     )
 end
 
+"""Isotropic GGX normal distribution with bounded perceptual roughness.
+
+The roughness floor keeps the denominator strictly positive. An additive
+epsilon here destroys normalization for polished surfaces; use the stable
+equivalent denominator instead of subtracting nearly equal values at N·H=1.
+"""
+@inline function _ggx_distribution(normal_half::Float32, roughness::Float32)::Float32
+    nh = clamp(normal_half, 0.0f0, 1.0f0)
+    r = clamp(roughness, 0.045f0, 1.0f0)
+    alpha = r * r
+    alpha_squared = alpha * alpha
+    nh_squared = nh * nh
+    denominator = (1.0f0 - nh_squared) + nh_squared * alpha_squared
+    return alpha_squared / (3.1415927f0 * denominator * denominator)
+end
+
 function _material_response(
     base_color::Vec4f,
     normal::Vec4f,
@@ -1029,12 +1096,7 @@ function _material_response(
         0.045f0,
         1.0f0,
     )
-    alpha = surface_roughness * surface_roughness
-    alpha_squared = alpha * alpha
-    normal_half_squared = normal_half * normal_half
-    distribution_denominator = normal_half_squared * (alpha_squared - 1.0f0) + 1.0f0
-    distribution = alpha_squared /
-        (3.1415927f0 * distribution_denominator * distribution_denominator + 0.0001f0)
+    distribution = _ggx_distribution(normal_half, surface_roughness)
     roughness_plus_one = surface_roughness + 1.0f0
     geometry_k = roughness_plus_one * roughness_plus_one * 0.125f0
     geometry_view = normal_view / (normal_view * (1.0f0 - geometry_k) + geometry_k)
@@ -1054,12 +1116,7 @@ function _material_response(
     specular_scale = distribution * geometry / specular_denominator
     coat = clamp(clearcoat, 0.0f0, 1.0f0)
     coat_roughness = clamp(clearcoat_roughness, 0.045f0, 1.0f0)
-    coat_alpha = coat_roughness * coat_roughness
-    coat_alpha_squared = coat_alpha * coat_alpha
-    coat_distribution_denominator = normal_half_squared *
-        (coat_alpha_squared - 1.0f0) + 1.0f0
-    coat_distribution = coat_alpha_squared /
-        (3.1415927f0 * coat_distribution_denominator * coat_distribution_denominator + 0.0001f0)
+    coat_distribution = _ggx_distribution(normal_half, coat_roughness)
     coat_roughness_plus_one = coat_roughness + 1.0f0
     coat_geometry_k = coat_roughness_plus_one * coat_roughness_plus_one * 0.125f0
     coat_geometry_view = normal_view /
@@ -1166,6 +1223,105 @@ function _material_response(
             emissive_blue
     )
     return Vec4f(max(red, 0.0f0), max(green, 0.0f0), max(blue, 0.0f0), base_color[4])
+end
+
+@inline function _point_light_attenuation(distance_squared::Float32, range::Float32, intensity::Float32)::Float32
+    distance = sqrt(max(distance_squared, 0.0f0))
+    distance >= range && return 0.0f0
+    range_ratio = distance / range
+    edge = max(1.0f0 - range_ratio * range_ratio * range_ratio * range_ratio, 0.0f0)
+    return intensity * (edge * edge) / max(distance_squared, 0.01f0)
+end
+
+"""One unshadowed point light's direct response, evaluated by the shared PBR
+routine. Zero environment and emission plus full occlusion make its ambient,
+IBL and emissive terms exactly zero, leaving only the existing GGX direct lobe."""
+@inline function _point_light_direct(
+    base_color::Vec4f, normal::Vec4f, view_direction::Vec4f,
+    light_vector::Vec4f, light_color::Vec4f, intensity::Float32,
+    metallic::Float32, roughness::Float32, roughness_sample::Float32,
+    clearcoat::Float32, clearcoat_roughness::Float32,
+)::Vec4f
+    light_direction = Vec4f(-light_vector[1], -light_vector[2], -light_vector[3], 0.0f0)
+    response = _material_response(
+        base_color, normal, light_direction, light_color, intensity,
+        ZERO_LIGHT_COLOR, ZERO_LIGHT_COLOR, ZERO_LIGHT_COLOR,
+        metallic, roughness, clearcoat, clearcoat_roughness,
+        1.0f0, view_direction, roughness_sample,
+        0.0f0, 1.0f0, ZERO_LIGHT_COLOR, ZERO_LIGHT_COLOR, ZERO_LIGHT_COLOR,
+        0.0f0, NoIbl(),
+    )
+    return Vec4f(response[1], response[2], response[3], 0.0f0)
+end
+
+"""Direct point response times cube-atlas visibility. `_point_sample_direct`
+stays the unshadowed CPU/GPU helper; visibility lives only here so CPU tests
+of that helper never sample descriptor 19."""
+@inline function _point_shadowed_direct(
+    base_color::Vec4f, normal::Vec4f, view_direction::Vec4f,
+    world_position::Vec4f, position::Vec4f, color::Vec4f,
+    metallic::Float32, roughness::Float32, roughness_sample::Float32,
+    clearcoat::Float32, clearcoat_roughness::Float32,
+    light_index::Int32, map_size_px::Float32, darkness::Float32, filter_texel::Float32,
+)::Vec4f
+    contrib = _point_sample_direct(
+        base_color, normal, view_direction, world_position, position, color,
+        metallic, roughness, roughness_sample, clearcoat, clearcoat_roughness,
+    )
+    vis = _point_shadow_visibility(
+        world_position, position, light_index, map_size_px, darkness, filter_texel,
+    )
+    return Vec4f(contrib[1] * vis, contrib[2] * vis, contrib[3] * vis, contrib[4])
+end
+
+@inline function _accumulate_point_direct(
+    lit::Vec4f, base_color::Vec4f, normal::Vec4f, view_direction::Vec4f,
+    world_position::Vec4f, metallic::Float32, roughness::Float32,
+    clearcoat::Float32, clearcoat_roughness::Float32, roughness_sample::Float32,
+)::Vec4f
+    header = _sample_texture(UInt32(18), Vec2f(0.5f0 / 9.0f0, 0.5f0))
+    count = Int32(header[1])
+    darkness = header[2]
+    map_size = header[3]
+    filter_texel = header[4]
+    # The texture is a 9x1 RGBA32F table: header (count, darkness, map_size,
+    # filter), then four position/range records, then four colour/intensity
+    # records. Map size 0 is the unshadowed stand-in.
+    p1 = _sample_texture(UInt32(18), Vec2f(1.5f0 / 9.0f0, 0.5f0))
+    c1 = _sample_texture(UInt32(18), Vec2f(5.5f0 / 9.0f0, 0.5f0))
+    p2 = _sample_texture(UInt32(18), Vec2f(2.5f0 / 9.0f0, 0.5f0))
+    c2 = _sample_texture(UInt32(18), Vec2f(6.5f0 / 9.0f0, 0.5f0))
+    p3 = _sample_texture(UInt32(18), Vec2f(3.5f0 / 9.0f0, 0.5f0))
+    c3 = _sample_texture(UInt32(18), Vec2f(7.5f0 / 9.0f0, 0.5f0))
+    p4 = _sample_texture(UInt32(18), Vec2f(4.5f0 / 9.0f0, 0.5f0))
+    c4 = _sample_texture(UInt32(18), Vec2f(8.5f0 / 9.0f0, 0.5f0))
+    count > 0 && (lit = lit + _point_shadowed_direct(base_color, normal, view_direction, world_position, p1, c1,
+        metallic, roughness, roughness_sample, clearcoat, clearcoat_roughness, Int32(0), map_size, darkness, filter_texel))
+    count > 1 && (lit = lit + _point_shadowed_direct(base_color, normal, view_direction, world_position, p2, c2,
+        metallic, roughness, roughness_sample, clearcoat, clearcoat_roughness, Int32(1), map_size, darkness, filter_texel))
+    count > 2 && (lit = lit + _point_shadowed_direct(base_color, normal, view_direction, world_position, p3, c3,
+        metallic, roughness, roughness_sample, clearcoat, clearcoat_roughness, Int32(2), map_size, darkness, filter_texel))
+    count > 3 && (lit = lit + _point_shadowed_direct(base_color, normal, view_direction, world_position, p4, c4,
+        metallic, roughness, roughness_sample, clearcoat, clearcoat_roughness, Int32(3), map_size, darkness, filter_texel))
+    return Vec4f(lit[1], lit[2], lit[3], lit[4])
+end
+
+@inline function _point_sample_direct(base_color::Vec4f, normal::Vec4f, view_direction::Vec4f,
+    world_position::Vec4f, position::Vec4f, color::Vec4f, metallic::Float32,
+    roughness::Float32, roughness_sample::Float32, clearcoat::Float32,
+    clearcoat_roughness::Float32)::Vec4f
+    dx = position[1] - world_position[1]
+    dy = position[2] - world_position[2]
+    dz = position[3] - world_position[3]
+    distance_squared = dx * dx + dy * dy + dz * dz
+    attenuation = _point_light_attenuation(distance_squared, position[4], color[4])
+    attenuation == 0.0f0 && return Vec4f(0.0f0, 0.0f0, 0.0f0, 0.0f0)
+    distance = sqrt(max(distance_squared, 0.0f0))
+    toward_light = distance <= 1.0f-4 ? _normalize_vector(normal) :
+        Vec4f(dx / distance, dy / distance, dz / distance, 0.0f0)
+    return _point_light_direct(base_color, normal, view_direction, toward_light,
+        Vec4f(color[1], color[2], color[3], 1.0f0), attenuation,
+        metallic, roughness, roughness_sample, clearcoat, clearcoat_roughness)
 end
 
 function _sample_texture(binding::UInt32, uv::Vec2f)::Vec4f
@@ -1429,6 +1585,16 @@ and the layered terrain pipelines so their geometry cannot drift apart."""
     sky_parameters::Vec4f,
     atmosphere_parameters::Vec4f,
     surface_options::Vec4f,
+    cascade_far_position::Vec4f,
+    cascade_far_right::Vec4f,
+    cascade_far_up::Vec4f,
+    cascade_far_forward::Vec4f,
+    cascade_far_projection::Vec4f,
+    cascade_far_mode::Float32,
+    cascade_parameters::Vec4f,
+    cascade_far_bias::Float32,
+    cascade_selection_position::Vec4f,
+    cascade_selection_forward::Vec4f,
 )
     vertex_id = Lava.vertex_index() - Int32(1)
     cells_per_axis = resolution - Int32(1)
@@ -1482,18 +1648,30 @@ and the layered terrain pipelines so their geometry cannot drift apart."""
     Lava.gfx_output(10, environment_ground)
     Lava.gfx_output(11, fog_color)
     Lava.gfx_output(12, camera_position)
-    Lava.gfx_output(
-        13,
-        _project_world(
-            world_position,
-            light_position,
-            light_right,
-            light_up,
-            light_forward,
-            light_projection,
-            light_mode,
-        ),
+    light_space, cascade_sky_parameters, cascade_surface_options = _surface_shadow_varyings(
+        world_position,
+        camera_position,
+        camera_forward,
+        light_position,
+        light_right,
+        light_up,
+        light_forward,
+        light_projection,
+        light_mode,
+        cascade_far_position,
+        cascade_far_right,
+        cascade_far_up,
+        cascade_far_forward,
+        cascade_far_projection,
+        cascade_far_mode,
+        cascade_parameters,
+        cascade_far_bias,
+        cascade_selection_position,
+        cascade_selection_forward,
+        sky_parameters,
+        surface_options,
     )
+    Lava.gfx_output(13, light_space)
     Lava.gfx_output(14, emissive_factor)
     Lava.gfx_output(15, Vec4f(clearcoat, clearcoat_roughness, 0.0f0, 0.0f0))
     Lava.gfx_output(
@@ -1501,9 +1679,9 @@ and the layered terrain pipelines so their geometry cannot drift apart."""
         _terrain_tangent(heights, resolution, sample_x, sample_z, width_m, length_m),
     )
     Lava.gfx_output(17, shadow)
-    Lava.gfx_output(18, sky_parameters)
+    Lava.gfx_output(18, cascade_sky_parameters)
     Lava.gfx_output(19, atmosphere_parameters)
-    Lava.gfx_output(20, surface_options)
+    Lava.gfx_output(20, cascade_surface_options)
     return nothing
 end
 
@@ -1549,8 +1727,18 @@ function _terrain_vertex(
     sky_parameters::Vec4f,
     atmosphere_parameters::Vec4f,
     surface_options::Vec4f,
+    cascade_far_position::Vec4f,
+    cascade_far_right::Vec4f,
+    cascade_far_up::Vec4f,
+    cascade_far_forward::Vec4f,
+    cascade_far_projection::Vec4f,
+    cascade_far_mode::Float32,
+    cascade_parameters::Vec4f,
+    cascade_far_bias::Float32,
+    cascade_selection_position::Vec4f,
+    cascade_selection_forward::Vec4f,
 )
-    _emit_terrain_vertex(heights, slopes, regions, resolution, width_m, length_m, camera_position, camera_right, camera_up, camera_forward, camera_projection, camera_mode, light_position, light_right, light_up, light_forward, light_projection, light_mode, base_color, metallic, roughness, clearcoat, clearcoat_roughness, normal_scale, occlusion_strength, light_direction, light_color, light_intensity, environment_top, environment_horizon, environment_ground, fog_color, fog_density, exposure, texture_enabled, emissive_factor, shadow, uv_repeat, sky_parameters, atmosphere_parameters, surface_options)
+    _emit_terrain_vertex(heights, slopes, regions, resolution, width_m, length_m, camera_position, camera_right, camera_up, camera_forward, camera_projection, camera_mode, light_position, light_right, light_up, light_forward, light_projection, light_mode, base_color, metallic, roughness, clearcoat, clearcoat_roughness, normal_scale, occlusion_strength, light_direction, light_color, light_intensity, environment_top, environment_horizon, environment_ground, fog_color, fog_density, exposure, texture_enabled, emissive_factor, shadow, uv_repeat, sky_parameters, atmosphere_parameters, surface_options, cascade_far_position, cascade_far_right, cascade_far_up, cascade_far_forward, cascade_far_projection, cascade_far_mode, cascade_parameters, cascade_far_bias, cascade_selection_position, cascade_selection_forward)
     return nothing
 end
 
@@ -1606,8 +1794,18 @@ function _terrain_layered_vertex(
     layer2_a::Vec4f,
     layer2_b::Vec4f,
     macro_parameters::Vec4f,
+    cascade_far_position::Vec4f,
+    cascade_far_right::Vec4f,
+    cascade_far_up::Vec4f,
+    cascade_far_forward::Vec4f,
+    cascade_far_projection::Vec4f,
+    cascade_far_mode::Float32,
+    cascade_parameters::Vec4f,
+    cascade_far_bias::Float32,
+    cascade_selection_position::Vec4f,
+    cascade_selection_forward::Vec4f,
 )
-    _emit_terrain_vertex(heights, slopes, regions, resolution, width_m, length_m, camera_position, camera_right, camera_up, camera_forward, camera_projection, camera_mode, light_position, light_right, light_up, light_forward, light_projection, light_mode, base_color, metallic, roughness, clearcoat, clearcoat_roughness, normal_scale, occlusion_strength, light_direction, light_color, light_intensity, environment_top, environment_horizon, environment_ground, fog_color, fog_density, exposure, texture_enabled, emissive_factor, shadow, uv_repeat, sky_parameters, atmosphere_parameters, surface_options)
+    _emit_terrain_vertex(heights, slopes, regions, resolution, width_m, length_m, camera_position, camera_right, camera_up, camera_forward, camera_projection, camera_mode, light_position, light_right, light_up, light_forward, light_projection, light_mode, base_color, metallic, roughness, clearcoat, clearcoat_roughness, normal_scale, occlusion_strength, light_direction, light_color, light_intensity, environment_top, environment_horizon, environment_ground, fog_color, fog_density, exposure, texture_enabled, emissive_factor, shadow, uv_repeat, sky_parameters, atmosphere_parameters, surface_options, cascade_far_position, cascade_far_right, cascade_far_up, cascade_far_forward, cascade_far_projection, cascade_far_mode, cascade_parameters, cascade_far_bias, cascade_selection_position, cascade_selection_forward)
     Lava.gfx_output(21, layer0_a)
     Lava.gfx_output(22, layer0_b)
     Lava.gfx_output(23, layer1_a)
@@ -1672,8 +1870,18 @@ function _terrain_layered_wet_vertex(
     wet_b::Vec4f,
     wet_c::Vec4f,
     wet_d::Vec4f,
+    cascade_far_position::Vec4f,
+    cascade_far_right::Vec4f,
+    cascade_far_up::Vec4f,
+    cascade_far_forward::Vec4f,
+    cascade_far_projection::Vec4f,
+    cascade_far_mode::Float32,
+    cascade_parameters::Vec4f,
+    cascade_far_bias::Float32,
+    cascade_selection_position::Vec4f,
+    cascade_selection_forward::Vec4f,
 )
-    _emit_terrain_vertex(heights, slopes, regions, resolution, width_m, length_m, camera_position, camera_right, camera_up, camera_forward, camera_projection, camera_mode, light_position, light_right, light_up, light_forward, light_projection, light_mode, base_color, metallic, roughness, clearcoat, clearcoat_roughness, normal_scale, occlusion_strength, light_direction, light_color, light_intensity, environment_top, environment_horizon, environment_ground, fog_color, fog_density, exposure, texture_enabled, emissive_factor, shadow, uv_repeat, sky_parameters, atmosphere_parameters, surface_options)
+    _emit_terrain_vertex(heights, slopes, regions, resolution, width_m, length_m, camera_position, camera_right, camera_up, camera_forward, camera_projection, camera_mode, light_position, light_right, light_up, light_forward, light_projection, light_mode, base_color, metallic, roughness, clearcoat, clearcoat_roughness, normal_scale, occlusion_strength, light_direction, light_color, light_intensity, environment_top, environment_horizon, environment_ground, fog_color, fog_density, exposure, texture_enabled, emissive_factor, shadow, uv_repeat, sky_parameters, atmosphere_parameters, surface_options, cascade_far_position, cascade_far_right, cascade_far_up, cascade_far_forward, cascade_far_projection, cascade_far_mode, cascade_parameters, cascade_far_bias, cascade_selection_position, cascade_selection_forward)
     Lava.gfx_output(21, layer0_a)
     Lava.gfx_output(22, layer0_b)
     Lava.gfx_output(23, layer1_a)
@@ -1726,6 +1934,16 @@ function _mesh_vertex(
     sky_parameters::Vec4f,
     atmosphere_parameters::Vec4f,
     surface_options::Vec4f,
+    cascade_far_position::Vec4f,
+    cascade_far_right::Vec4f,
+    cascade_far_up::Vec4f,
+    cascade_far_forward::Vec4f,
+    cascade_far_projection::Vec4f,
+    cascade_far_mode::Float32,
+    cascade_parameters::Vec4f,
+    cascade_far_bias::Float32,
+    cascade_selection_position::Vec4f,
+    cascade_selection_forward::Vec4f,
 )
     vertex_id = Lava.vertex_index()
     instance_id = Lava.instance_index()
@@ -1783,25 +2001,37 @@ function _mesh_vertex(
     Lava.gfx_output(10, environment_ground)
     Lava.gfx_output(11, fog_color)
     Lava.gfx_output(12, camera_position)
-    Lava.gfx_output(
-        13,
-        _project_world(
-            world_position,
-            light_position,
-            light_right,
-            light_up,
-            light_forward,
-            light_projection,
-            light_mode,
-        ),
+    light_space, cascade_sky_parameters, cascade_surface_options = _surface_shadow_varyings(
+        world_position,
+        camera_position,
+        camera_forward,
+        light_position,
+        light_right,
+        light_up,
+        light_forward,
+        light_projection,
+        light_mode,
+        cascade_far_position,
+        cascade_far_right,
+        cascade_far_up,
+        cascade_far_forward,
+        cascade_far_projection,
+        cascade_far_mode,
+        cascade_parameters,
+        cascade_far_bias,
+        cascade_selection_position,
+        cascade_selection_forward,
+        sky_parameters,
+        surface_options,
     )
+    Lava.gfx_output(13, light_space)
     Lava.gfx_output(14, emissive_parameters[instance_id])
     Lava.gfx_output(15, surface_parameters[instance_id])
     Lava.gfx_output(16, tangent)
     Lava.gfx_output(17, shadow)
-    Lava.gfx_output(18, sky_parameters)
+    Lava.gfx_output(18, cascade_sky_parameters)
     Lava.gfx_output(19, atmosphere_parameters)
-    Lava.gfx_output(20, surface_options)
+    Lava.gfx_output(20, cascade_surface_options)
     return nothing
 end
 
@@ -1973,6 +2203,10 @@ function _shadow_depth(u::Float32, v::Float32)::Float32
     return Lava.sample_texture_2d(UInt32(5), u, v, UInt32(0))
 end
 
+@inline function _far_shadow_depth(u::Float32, v::Float32)::Float32
+    return Lava.sample_texture_2d(UInt32(17), u, v, UInt32(0))
+end
+
 """Directional shadow lookup: 4-tap PCF with a policy-driven darkness floor.
 
 The historical adapter returned `0.25 + 0.75 * pcf`, i.e. a shadowed surface
@@ -2011,6 +2245,55 @@ constant bound (see `_apply_bloom`).
     return (1.0f0 - darkness) + darkness * pcf
 end
 
+@inline function _shadow_visibility_texel(light_space::Vec4f, darkness::Float32, texel::Float32, binding::UInt32)::Float32
+    inside =
+        -1.0f0 <= light_space[1] <= 1.0f0 &&
+            -1.0f0 <= light_space[2] <= 1.0f0 &&
+            0.0f0 <= light_space[3] <= 1.0f0
+    inside || return 1.0f0
+    uv_x = light_space[1] * 0.5f0 + 0.5f0
+    uv_y = light_space[2] * 0.5f0 + 0.5f0
+    depth = light_space[3]
+    visible = 0.0f0
+    visible += depth <= Lava.sample_texture_2d(binding, uv_x - texel, uv_y - texel, UInt32(0)) ? 1.0f0 : 0.0f0
+    visible += depth <= Lava.sample_texture_2d(binding, uv_x + texel, uv_y - texel, UInt32(0)) ? 1.0f0 : 0.0f0
+    visible += depth <= Lava.sample_texture_2d(binding, uv_x - texel, uv_y + texel, UInt32(0)) ? 1.0f0 : 0.0f0
+    visible += depth <= Lava.sample_texture_2d(binding, uv_x + texel, uv_y + texel, UInt32(0)) ? 1.0f0 : 0.0f0
+    pcf = visible * 0.25f0
+    return (1.0f0 - darkness) + darkness * pcf
+end
+
+@inline function _cascade_shadow_visibility(
+    near_space::Vec4f,
+    far_space::Vec4f,
+    shadow::Vec4f,
+)::Float32
+    near_visibility = _shadow_visibility_texel(near_space, shadow[1], shadow[2], UInt32(5))
+    far_visibility = _shadow_visibility_texel(far_space, shadow[1], shadow[3], UInt32(17))
+    # `near_space.w` carries linear view depth normalized to the authored
+    # overlap interval. Apply smoothstep here, after perspective-correct
+    # interpolation, so large triangles cannot stretch the overlap band.
+    blend = _cascade_overlap_blend(near_space[4])
+    return _mix(near_visibility, far_visibility, blend)
+end
+
+@inline _cascade_overlap_blend(linear_depth_in_overlap::Float32)::Float32 =
+    _ramp(0.0f0, 1.0f0, linear_depth_in_overlap)
+
+@inline _surface_shadow_visibility(::Val{false}, light_space::Vec4f, shadow::Vec4f, ::Vec4f, ::Vec4f)::Float32 =
+    _shadow_visibility(light_space, shadow[1], shadow[2], shadow[3], shadow[4])
+
+@inline function _surface_shadow_visibility(
+    ::Val{true},
+    light_space::Vec4f,
+    shadow::Vec4f,
+    sky_parameters::Vec4f,
+    surface_options::Vec4f,
+)::Float32
+    far_space = Vec4f(sky_parameters[3], sky_parameters[4], surface_options[4], 0.0f0)
+    return _cascade_shadow_visibility(light_space, far_space, shadow)
+end
+
 """Lower the shadow policy into the flat wire form the scene shaders take.
 
 `(darkness, filter_texel, shadow map side, depth bias)`. The defaults 7500/1000 reproduce the historical
@@ -2028,6 +2311,42 @@ absent policy is byte-identical, which is the whole premise of this channel.
         # only approximately 512 per fragment.
         _shadow_map_size(policy) == SHADOW_MAP_SIZE ? 0.0f0 : Float32(_shadow_map_size(policy)),
         _shadow_depth_bias(policy, light_frame),
+    )
+end
+
+@inline function _cascade_shadow_uniform(
+    policy::LuxelGraphics.RenderPolicy,
+    cascade_policy::LuxelGraphics.ShadowCascadesPolicy,
+)::Vec4f
+    shadow = policy.shadow
+    return Vec4f(
+        _bp(shadow.darkness_bp),
+        (Float32(shadow.filter_radius_milli) / 1000.0f0) / Float32(cascade_policy.near_map_size_px),
+        (Float32(shadow.filter_radius_milli) / 1000.0f0) / Float32(cascade_policy.far_map_size_px),
+        0.0f0,
+    )
+end
+
+function _cascade_vertex_arguments(
+    policy::LuxelGraphics.RenderPolicy,
+    shadows::ShadowResources,
+    selection_frame::CameraFrame,
+)
+    far_frame = shadows.far_frame === nothing ? shadows.light_frame : shadows.far_frame
+    cascade_policy = policy.shadow_cascades
+    cascade_policy === nothing && return (
+        far_frame.position, far_frame.right, far_frame.up, far_frame.forward, far_frame.projection,
+        far_frame.mode, Vec4f(0.0f0, 0.0f0, 0.0f0, 0.0f0), 0.0f0,
+        selection_frame.position, selection_frame.forward,
+    )
+    near_bias = SHADOW_BIAS_M / (shadows.light_frame.projection[4] - shadows.light_frame.projection[3])
+    far_bias = SHADOW_BIAS_M / (far_frame.projection[4] - far_frame.projection[3])
+    split = Float32(cascade_policy.near_distance_m)
+    half_blend = 0.5f0 * Float32(cascade_policy.blend_width_m)
+    return (
+        far_frame.position, far_frame.right, far_frame.up, far_frame.forward, far_frame.projection,
+        far_frame.mode, Vec4f(1.0f0, split - half_blend, split + half_blend, near_bias), far_bias,
+        selection_frame.position, selection_frame.forward,
     )
 end
 
@@ -2454,7 +2773,31 @@ function _resolve_fragment()
 end
 
 function _terrain_fragment()
-    lit = _surface_fragment_color(Lava.gfx_input(Vec4f, 1), Lava.gfx_input(Vec4f, 16))
+    lit = _surface_fragment_color(Lava.gfx_input(Vec4f, 1), Lava.gfx_input(Vec4f, 16), Val(false))
+    Lava.gfx_output(0, lit)
+    return nothing
+end
+
+function _terrain_cascade_fragment()
+    lit = _surface_fragment_color(Lava.gfx_input(Vec4f, 1), Lava.gfx_input(Vec4f, 16), Val(true))
+    Lava.gfx_output(0, lit)
+    return nothing
+end
+
+_terrain_point_fragment() = _terrain_point_shade(Val(false))
+_terrain_point_cascade_fragment() = _terrain_point_shade(Val(true))
+
+function _terrain_point_shade(cascaded::Val)
+    lit = _surface_fragment_color(Lava.gfx_input(Vec4f, 1), Lava.gfx_input(Vec4f, 16), cascaded, Val(true))
+    Lava.gfx_output(0, lit)
+    return nothing
+end
+
+_mesh_point_fragment() = _terrain_point_fragment()
+_mesh_point_cascade_fragment() = _terrain_point_cascade_fragment()
+
+function _mesh_cascade_fragment()
+    lit = _surface_fragment_color(Lava.gfx_input(Vec4f, 1), Lava.gfx_input(Vec4f, 16), Val(true))
     Lava.gfx_output(0, lit)
     return nothing
 end
@@ -2468,14 +2811,21 @@ negated (glTF: "back-facing normals are reversed"). The discard comes after ever
 texture sample, so implicit-LOD derivatives are taken while the whole quad is
 still running.
 """
-function _mesh_cutout_fragment()
+_mesh_cutout_fragment() = _mesh_cutout_fragment(Val(false))
+_mesh_cutout_cascade_fragment() = _mesh_cutout_fragment(Val(true))
+_mesh_cutout_point_fragment() = _mesh_cutout_fragment(Val(false), Val(true))
+_mesh_cutout_point_cascade_fragment() = _mesh_cutout_fragment(Val(true), Val(true))
+
+_mesh_cutout_fragment(cascaded::Val) = _mesh_cutout_fragment(cascaded, Val(false))
+
+function _mesh_cutout_fragment(cascaded::Val, points::Val)
     surface_parameters = Lava.gfx_input(Vec4f, 15)
     normal = Lava.gfx_input(Vec4f, 1)
     tangent = Lava.gfx_input(Vec4f, 16)
     back = surface_parameters[4] > 0.5f0 && !Lava.front_facing()
     facing_normal = back ? Vec4f(-normal[1], -normal[2], -normal[3], -normal[4]) : normal
     facing_tangent = back ? Vec4f(-tangent[1], -tangent[2], -tangent[3], -tangent[4]) : tangent
-    lit = _surface_fragment_color(facing_normal, facing_tangent)
+    lit = _surface_fragment_color(facing_normal, facing_tangent, cascaded, points)
     coverage = _textured_color(
         Lava.gfx_input(Vec4f, 0),
         Lava.gfx_input(Vec2f, 3),
@@ -2494,14 +2844,21 @@ pixel's alpha gradient, `(a - cutoff) / fwidth(a) + 0.5`, as coverage
 (alpha-to-coverage; alpha-to-one makes the covered samples opaque). Up close
 the edge stays as crisp as the alpha test; far away a leaf thinner than a
 pixel keeps partial coverage instead of vanishing."""
-function _mesh_coverage_fragment()
+_mesh_coverage_fragment() = _mesh_coverage_fragment(Val(false))
+_mesh_coverage_cascade_fragment() = _mesh_coverage_fragment(Val(true))
+_mesh_coverage_point_fragment() = _mesh_coverage_fragment(Val(false), Val(true))
+_mesh_coverage_point_cascade_fragment() = _mesh_coverage_fragment(Val(true), Val(true))
+
+_mesh_coverage_fragment(cascaded::Val) = _mesh_coverage_fragment(cascaded, Val(false))
+
+function _mesh_coverage_fragment(cascaded::Val, points::Val)
     surface_parameters = Lava.gfx_input(Vec4f, 15)
     normal = Lava.gfx_input(Vec4f, 1)
     tangent = Lava.gfx_input(Vec4f, 16)
     back = surface_parameters[4] > 0.5f0 && !Lava.front_facing()
     facing_normal = back ? Vec4f(-normal[1], -normal[2], -normal[3], -normal[4]) : normal
     facing_tangent = back ? Vec4f(-tangent[1], -tangent[2], -tangent[3], -tangent[4]) : tangent
-    lit = _surface_fragment_color(facing_normal, facing_tangent)
+    lit = _surface_fragment_color(facing_normal, facing_tangent, cascaded, points)
     coverage = _textured_color(
         Lava.gfx_input(Vec4f, 0),
         Lava.gfx_input(Vec2f, 3),
@@ -2519,7 +2876,14 @@ function _mesh_coverage_fragment()
     return nothing
 end
 
-@inline function _surface_fragment_color(normal::Vec4f, tangent::Vec4f)::Vec4f
+@inline _surface_fragment_color(normal::Vec4f, tangent::Vec4f)::Vec4f =
+    _surface_fragment_color(normal, tangent, Val(false))
+
+@inline function _surface_fragment_color(normal::Vec4f, tangent::Vec4f, cascaded::Val{C})::Vec4f where {C}
+    return _surface_fragment_color(normal, tangent, cascaded, Val(false))
+end
+
+@inline function _surface_fragment_color(normal::Vec4f, tangent::Vec4f, cascaded::Val{C}, points::Val{P})::Vec4f where {C,P}
     base_color = Lava.gfx_input(Vec4f, 0)
     world_position = Lava.gfx_input(Vec4f, 2)
     uv = Lava.gfx_input(Vec2f, 3)
@@ -2577,7 +2941,7 @@ end
         material[2],
         surface_parameters[1],
         surface_parameters[2],
-        _shadow_visibility(light_space, shadow[1], shadow[2], shadow[3], shadow[4]),
+        _surface_shadow_visibility(cascaded, light_space, shadow, sky_parameters, surface_options),
         view_direction,
         roughness_sample,
         occlusion_sample,
@@ -2588,6 +2952,11 @@ end
         surface_options[3],
         TextureIbl(),
     )
+    if P
+        lit_color = _accumulate_point_direct(lit_color, _albedo_override(_textured_color(base_color, uv, texture_enabled), surface_options),
+            _perturbed_normal(normal, tangent, uv, material[3]), view_direction, world_position, metallic,
+            material[2], surface_parameters[1], surface_parameters[2], roughness_sample)
+    end
     fogged_color = _apply_aerial_perspective(
         lit_color,
         world_position,
@@ -2675,12 +3044,18 @@ colour is deliberately NOT applied: layer materials are neutral and the scans
 carry the colour.
 """
 _terrain_layered_fragment() = _terrain_layered_shade(Val(false))
+_terrain_layered_cascade_fragment() = _terrain_layered_shade(Val(false), Val(true))
+_terrain_layered_point_fragment() = _terrain_layered_shade(Val(false), Val(false), Val(true))
+_terrain_layered_point_cascade_fragment() = _terrain_layered_shade(Val(false), Val(true), Val(true))
 
 """Layered terrain with the W-1 wet zone (`TerrainWetZone`): the same shading,
 with albedo darkened (linear) and saturated, normals flattened and roughness
 lowered by the zone's weight, and standing water (flat, dark, smooth) inside
 its noise-displaced ellipse. Varyings 28-31 carry the zone."""
 _terrain_layered_wet_fragment() = _terrain_layered_shade(Val(true))
+_terrain_layered_wet_cascade_fragment() = _terrain_layered_shade(Val(true), Val(true))
+_terrain_layered_wet_point_fragment() = _terrain_layered_shade(Val(true), Val(false), Val(true))
+_terrain_layered_wet_point_cascade_fragment() = _terrain_layered_shade(Val(true), Val(true), Val(true))
 
 """Width of the standing-water shore, in ellipse units (~3 cm on the pool)."""
 const WATER_EDGE_ELLIPSE = 0.012f0
@@ -2709,7 +3084,11 @@ end
 @inline _water_fresnel(cos_theta::Float32)::Float32 =
     0.02f0 + 0.98f0 * (1.0f0 - clamp(cos_theta, 0.0f0, 1.0f0))^5
 
-@inline function _terrain_layered_shade(::Val{wet}) where {wet}
+@inline _terrain_layered_shade(wet::Val{W}) where {W} = _terrain_layered_shade(wet, Val(false))
+@inline _terrain_layered_shade(wet::Val{W}, cascaded::Val{C}) where {W,C} =
+    _terrain_layered_shade(wet, cascaded, Val(false))
+
+@inline function _terrain_layered_shade(::Val{wet}, cascaded::Val{C}, points::Val{P}) where {wet,C,P}
     normal = Lava.gfx_input(Vec4f, 1)
     world_position = Lava.gfx_input(Vec4f, 2)
     material = Lava.gfx_input(Vec4f, 4)
@@ -2855,7 +3234,7 @@ end
         1.0f0,
         surface_parameters[1],
         surface_parameters[2],
-        _shadow_visibility(light_space, shadow[1], shadow[2], shadow[3], shadow[4]),
+        _surface_shadow_visibility(cascaded, light_space, shadow, sky_parameters, surface_options),
         view_direction,
         roughness_sample,
         occlusion_sample,
@@ -2866,6 +3245,12 @@ end
         surface_options[3],
         TextureIbl(),
     )
+    point_direct = ZERO_LIGHT_COLOR
+    if P
+        point_direct = _accumulate_point_direct(ZERO_LIGHT_COLOR, surface_color, shading_normal, view_direction,
+            world_position, 0.0f0, 1.0f0, surface_parameters[1], surface_parameters[2], roughness_sample)
+        lit_color = lit_color + point_direct
+    end
     if wet
         if wet_d[4] > 0.5f0
             # Reflection pass: the mirror sees only what stands above the water
@@ -2892,7 +3277,7 @@ end
                 1.0f0,
                 surface_parameters[1],
                 surface_parameters[2],
-                _shadow_visibility(light_space, shadow[1], shadow[2], shadow[3], shadow[4]),
+                _surface_shadow_visibility(cascaded, light_space, shadow, sky_parameters, surface_options),
                 view_direction,
                 roughness_sample,
                 0.0f0,
@@ -2903,6 +3288,9 @@ end
                 surface_options[3],
                 TextureIbl(),
             )
+            if P
+                direct = direct + point_direct
+            end
             view_unit = _normalize_vector(view_direction)
             fresnel = _water_fresnel(view_unit[2])
             water_color = Vec4f(
@@ -3035,6 +3423,101 @@ function backend()::LavaBackend
             depth=DepthLess(),
             alpha_to_coverage=true,
         )
+        cascade_terrain_pipeline = GraphicsPipeline(
+            ;
+            vertex=_terrain_vertex,
+            fragment=_terrain_cascade_fragment,
+            blend=Opaque(),
+            cull=NoCull(),
+            depth=DepthLess(),
+        )
+        cascade_layered_pipeline = GraphicsPipeline(
+            ;
+            vertex=_terrain_layered_vertex,
+            fragment=_terrain_layered_cascade_fragment,
+            blend=Opaque(),
+            cull=NoCull(),
+            depth=DepthLess(),
+        )
+        cascade_wet_pipeline = GraphicsPipeline(
+            ;
+            vertex=_terrain_layered_wet_vertex,
+            fragment=_terrain_layered_wet_cascade_fragment,
+            blend=Opaque(),
+            cull=NoCull(),
+            depth=DepthLess(),
+        )
+        cascade_mesh_pipeline = GraphicsPipeline(
+            ;
+            vertex=_mesh_vertex,
+            fragment=_mesh_cascade_fragment,
+            blend=Opaque(),
+            cull=NoCull(),
+            depth=DepthLess(),
+        )
+        cascade_mesh_cutout_pipeline = GraphicsPipeline(
+            ;
+            vertex=_mesh_vertex,
+            fragment=_mesh_cutout_cascade_fragment,
+            blend=Opaque(),
+            cull=NoCull(),
+            depth=DepthLess(),
+        )
+        cascade_mesh_coverage_pipeline = GraphicsPipeline(
+            ;
+            vertex=_mesh_vertex,
+            fragment=_mesh_coverage_cascade_fragment,
+            blend=Opaque(),
+            cull=NoCull(),
+            depth=DepthLess(),
+            alpha_to_coverage=true,
+        )
+        point_pipelines = (
+            GraphicsPipeline(; vertex=_terrain_vertex, fragment=_terrain_point_fragment, blend=Opaque(), cull=NoCull(), depth=DepthLess()),
+            GraphicsPipeline(; vertex=_terrain_vertex, fragment=_terrain_point_cascade_fragment, blend=Opaque(), cull=NoCull(), depth=DepthLess()),
+            GraphicsPipeline(; vertex=_terrain_layered_vertex, fragment=_terrain_layered_point_fragment, blend=Opaque(), cull=NoCull(), depth=DepthLess()),
+            GraphicsPipeline(; vertex=_terrain_layered_vertex, fragment=_terrain_layered_point_cascade_fragment, blend=Opaque(), cull=NoCull(), depth=DepthLess()),
+            GraphicsPipeline(; vertex=_terrain_layered_wet_vertex, fragment=_terrain_layered_wet_point_fragment, blend=Opaque(), cull=NoCull(), depth=DepthLess()),
+            GraphicsPipeline(; vertex=_terrain_layered_wet_vertex, fragment=_terrain_layered_wet_point_cascade_fragment, blend=Opaque(), cull=NoCull(), depth=DepthLess()),
+            GraphicsPipeline(; vertex=_mesh_vertex, fragment=_mesh_point_fragment, blend=Opaque(), cull=NoCull(), depth=DepthLess()),
+            GraphicsPipeline(; vertex=_mesh_vertex, fragment=_mesh_point_cascade_fragment, blend=Opaque(), cull=NoCull(), depth=DepthLess()),
+            GraphicsPipeline(; vertex=_mesh_vertex, fragment=_mesh_cutout_point_fragment, blend=Opaque(), cull=NoCull(), depth=DepthLess()),
+            GraphicsPipeline(; vertex=_mesh_vertex, fragment=_mesh_cutout_point_cascade_fragment, blend=Opaque(), cull=NoCull(), depth=DepthLess()),
+            GraphicsPipeline(; vertex=_mesh_vertex, fragment=_mesh_coverage_point_fragment, blend=Opaque(), cull=NoCull(), depth=DepthLess(), alpha_to_coverage=true),
+            GraphicsPipeline(; vertex=_mesh_vertex, fragment=_mesh_coverage_point_cascade_fragment, blend=Opaque(), cull=NoCull(), depth=DepthLess(), alpha_to_coverage=true),
+        )
+        contact_depth_terrain_pipeline = GraphicsPipeline(
+            ;
+            vertex=_terrain_shadow_vertex,
+            fragment=_contact_depth_fragment,
+            blend=Opaque(),
+            cull=NoCull(),
+            depth=DepthLess(),
+        )
+        contact_depth_mesh_pipeline = GraphicsPipeline(
+            ;
+            vertex=_mesh_shadow_vertex,
+            fragment=_contact_depth_fragment,
+            blend=Opaque(),
+            cull=NoCull(),
+            depth=DepthLess(),
+        )
+        contact_depth_cutout_pipeline = GraphicsPipeline(
+            ;
+            vertex=_mesh_cutout_shadow_vertex,
+            fragment=_contact_depth_cutout_fragment,
+            blend=Opaque(),
+            cull=NoCull(),
+            depth=DepthLess(),
+        )
+        contact_ao_pipeline = GraphicsPipeline(
+            ;
+            vertex=_contact_ao_vertex,
+            fragment=_contact_ao_fragment,
+            blend=Opaque(),
+            cull=NoCull(),
+            depth=DepthOff(),
+        )
         texture_pipeline = GraphicsPipeline(
             ;
             vertex=_texture_probe_vertex,
@@ -3110,7 +3593,8 @@ function backend()::LavaBackend
             nothing,
             nothing,
             nothing,
-            Dict{Tuple{String,String,SamplerSpec},MaterialTextureResources}(),
+            nothing,
+            Dict{Tuple{String,String,SamplerSpec,Bool,Bool},MaterialTextureResources}(),
             Dict{Tuple{String,String},MaterialTextures}(),
             Dict{Tuple{String,String},Lava.TextureBindings}(),
             Dict{Tuple{SamplerSpec,UInt32},Lava.LavaSampler}(),
@@ -3136,8 +3620,29 @@ function backend()::LavaBackend
             false,
             false,
             nothing,
-            Dict{Tuple{String,UInt},Lava.TextureBindings}(),
+            Dict{Tuple{String,UInt},WetTerrainBindingResources}(),
             mesh_coverage_pipeline,
+            false,
+            cascade_terrain_pipeline,
+            cascade_layered_pipeline,
+            cascade_wet_pipeline,
+            cascade_mesh_pipeline,
+            cascade_mesh_cutout_pipeline,
+            cascade_mesh_coverage_pipeline,
+            point_pipelines,
+            fill(false, 12),
+            fill(false, 6),
+            contact_depth_terrain_pipeline,
+            contact_depth_mesh_pipeline,
+            contact_depth_cutout_pipeline,
+            contact_ao_pipeline,
+            nothing,
+            nothing,
+            nothing,
+            nothing,
+            false,
+            false,
+            false,
             false,
         )
         BACKEND_REF[] = created
@@ -3956,6 +4461,8 @@ function _material_texture_resources!(
     shadow::ShadowResources,
     material::LuxelGraphics.MaterialPacket,
     spec::SamplerSpec,
+    point_lights::Union{Nothing,PointLightResources}=nothing,
+    point_shadows::Union{Nothing,PointShadowResources}=nothing,
 )
     cache = state.material_texture_resources
     if any(resource -> resource.cache_key != packet.content_sha256, values(cache))
@@ -3963,7 +4470,9 @@ function _material_texture_resources!(
         empty!(state.material_textures)
         empty!(state.surface_samplers)
     end
-    key = (packet.content_sha256, material.material_id, spec)
+    cascaded = shadow.far_texture !== nothing
+    uses_points = point_lights !== nothing
+    key = (packet.content_sha256, material.material_id, spec, cascaded, uses_points)
     cached = get(cache, key, nothing)
     cached === nothing || return cached
     textures = _material_textures!(state, packet, material)
@@ -3971,7 +4480,7 @@ function _material_texture_resources!(
     ibl = _ibl_resources!(state, packet)
     # Bindings 6..13 are stand-ins so the IBL textures sit at 14/15 in every
     # surface pipeline (the layered terrain uses 0..13 for its layers).
-    bindings = Lava.bind_textures([
+    surface_textures = Lava.SampledTexture[
         textures.albedo_texture * sampler,
         textures.normal_texture * sampler,
         textures.roughness_texture * sampler,
@@ -3981,7 +4490,14 @@ function _material_texture_resources!(
         (ibl.placeholder * ibl.sampler for _ in 6:13)...,
         ibl.environment * ibl.sampler,
         ibl.brdf_lut * ibl.sampler,
-    ])
+    ]
+    if cascaded
+        # Slot 16 remains reserved for planar reflection; the far map is 17.
+        push!(surface_textures, ibl.placeholder * ibl.sampler)
+        push!(surface_textures, (shadow.far_texture::Lava.LavaTexture2D{NTuple{4,Float32}}) * (shadow.far_sampler::Lava.LavaSampler))
+    end
+    _append_point_light_bindings!(surface_textures, ibl, point_lights, point_shadows)
+    bindings = Lava.bind_textures(surface_textures)
     created = MaterialTextureResources(
         packet.content_sha256,
         material.material_id,
@@ -3990,9 +4506,30 @@ function _material_texture_resources!(
         sampler,
         bindings,
         textures.max_sampler_lod,
+        point_lights,
     )
     cache[key] = created
     return created
+end
+
+"""Pad to slot 18, then bind the point table and the cube atlas (or 1×1 stand-in)."""
+function _append_point_light_bindings!(
+    textures::Vector{Lava.SampledTexture},
+    ibl::IblResources,
+    point_lights::Union{Nothing,PointLightResources},
+    point_shadows::Union{Nothing,PointShadowResources},
+)
+    point_lights === nothing && return textures
+    point_shadows === nothing && throw(AdapterError(
+        "unsupported_lighting",
+        "point lights require a point-shadow atlas or the 1x1 stand-in at descriptor 19",
+    ))
+    while length(textures) < 18
+        push!(textures, ibl.placeholder * ibl.sampler)
+    end
+    push!(textures, point_lights.texture * point_lights.sampler)
+    push!(textures, point_shadows.texture * point_shadows.sampler)
+    return textures
 end
 
 """Lower the layer set into the seven layered-terrain uniforms.
@@ -4055,14 +4592,22 @@ end
 stand-in when there is none (the reflection pass cannot sample its own
 target). Cached per packet and image."""
 function _wet_terrain_bindings!(state::LavaBackend, packet::LuxelGraphics.GraphicsScenePacket,
-                                layers::TerrainLayerResources, reflection_texture)
+                                layers::TerrainLayerResources, shadow::ShadowResources, reflection_texture,
+                                point_lights::Union{Nothing,PointLightResources}=nothing,
+                                point_shadows::Union{Nothing,PointShadowResources}=nothing)
     key = (packet.content_sha256, reflection_texture === nothing ? UInt(0) : objectid(reflection_texture.view))
-    return get!(state.wet_terrain_bindings, key) do
+    cached = get!(state.wet_terrain_bindings, key) do
         ibl = _ibl_resources!(state, packet)
         slot16 = reflection_texture === nothing ? ibl.placeholder * ibl.sampler :
                  reflection_texture * Lava.LavaSampler(ctx=state.context, filter=:linear, wrap=:clamp)
-        Lava.bind_textures(Lava.SampledTexture[layers.textures..., slot16])
+        textures = Lava.SampledTexture[layers.textures..., slot16]
+        if shadow.far_texture !== nothing
+            push!(textures, (shadow.far_texture::Lava.LavaTexture2D{NTuple{4,Float32}}) * (shadow.far_sampler::Lava.LavaSampler))
+        end
+        _append_point_light_bindings!(textures, ibl, point_lights, point_shadows)
+        WetTerrainBindingResources(Lava.bind_textures(textures), point_lights)
     end
+    return cached.bindings
 end
 
 """The camera mirrored about the horizontal plane y = `plane_y`. Right, up
@@ -4113,6 +4658,8 @@ function _terrain_layer_resources!(
     state::LavaBackend,
     packet::LuxelGraphics.GraphicsScenePacket,
     shadow::ShadowResources,
+    point_lights::Union{Nothing,PointLightResources}=nothing,
+    point_shadows::Union{Nothing,PointShadowResources}=nothing,
 )::TerrainLayerResources
     current = state.terrain_layer_resources
     current !== nothing && current.cache_key == packet.content_sha256 && return current
@@ -4149,8 +4696,14 @@ function _terrain_layer_resources!(
         ibl.environment * ibl.sampler,
         ibl.brdf_lut * ibl.sampler,
     ]
-    bindings = Lava.bind_textures(textures)
-    created = TerrainLayerResources(packet.content_sha256, bindings, sampler, _terrain_layer_uniforms(packet), textures)
+    binding_textures = copy(textures)
+    if shadow.far_texture !== nothing
+        push!(binding_textures, ibl.placeholder * sampler)
+        push!(binding_textures, (shadow.far_texture::Lava.LavaTexture2D{NTuple{4,Float32}}) * (shadow.far_sampler::Lava.LavaSampler))
+    end
+    _append_point_light_bindings!(binding_textures, ibl, point_lights, point_shadows)
+    bindings = Lava.bind_textures(binding_textures)
+    created = TerrainLayerResources(packet.content_sha256, bindings, sampler, _terrain_layer_uniforms(packet), textures, point_lights)
     state.terrain_layer_resources = created
     return created
 end
@@ -4596,7 +5149,7 @@ function _resolve_resources!(
 )::ResolveResources
     source_size = (framebuffer.width, framebuffer.height)
     current = state.resolve_resources
-    current !== nothing && current.source_size == source_size && return current
+    current !== nothing && current.source_size == source_size && current.framebuffer === framebuffer && return current
     texture = _framebuffer_texture(framebuffer, state)
     sampler = Lava.LavaSampler(ctx=state.context, filter=:linear, wrap=:clamp)
     bindings = Lava.bind_textures([texture * sampler])
@@ -4641,11 +5194,198 @@ function _directional_lighting(
     throw(AdapterError("unsupported_light", "native material path currently requires a directional light"))
 end
 
+function _lighting_from_lights(lights::AbstractVector{LuxelGraphics.LightPacket})::DirectionalLighting
+    directionals = filter(light -> light.kind isa LuxelGraphics.DirectionalLightPacket, lights)
+    points = filter(light -> light.kind isa LuxelGraphics.PointLightPacket, lights)
+    length(directionals) == 1 || throw(AdapterError(
+        "unsupported_lighting", "native material path requires exactly one directional light"))
+    length(points) <= LuxelGraphics.MAX_POINT_LIGHTS || throw(AdapterError(
+        "unsupported_lighting", "native material path supports at most $(LuxelGraphics.MAX_POINT_LIGHTS) point lights"))
+    isempty(lights) && throw(AdapterError("unsupported_lighting", "native material path requires a light"))
+    ids = Set{String}()
+    for light in lights
+        !isempty(light.light_id) && !(light.light_id in ids) ||
+            throw(AdapterError("unsupported_lighting", "light identifiers must be non-empty and unique"))
+        push!(ids, light.light_id)
+        all(channel -> isfinite(channel) && 0.0f0 <= channel <= LuxelGraphics.MAX_NATIVE_COORDINATE_M, light.color_rgb) &&
+            isfinite(light.intensity) && 0.0f0 <= light.intensity <= LuxelGraphics.MAX_NATIVE_COORDINATE_M ||
+            throw(AdapterError("unsupported_lighting", "light $(light.light_id) has invalid energy"))
+        if light.kind isa LuxelGraphics.DirectionalLightPacket
+            direction_norm_squared = sum(abs2, light.kind.direction_xyz)
+            all(isfinite, light.kind.direction_xyz) && isfinite(direction_norm_squared) && direction_norm_squared > 1.0f-8 ||
+                throw(AdapterError("unsupported_lighting", "directional light $(light.light_id) has a degenerate direction"))
+        else
+            point = light.kind::LuxelGraphics.PointLightPacket
+            all(value -> isfinite(value) && abs(value) <= LuxelGraphics.MAX_NATIVE_COORDINATE_M, point.position_xyz_m) &&
+                isfinite(point.range_m) && 0.0f0 < point.range_m <= LuxelGraphics.MAX_NATIVE_COORDINATE_M ||
+                throw(AdapterError("unsupported_lighting", "point light $(light.light_id) has an invalid position or range"))
+        end
+    end
+    return _directional_lighting(only(directionals).kind, only(directionals).color_rgb, only(directionals).intensity)
+end
+
 function _lighting(packet::LuxelGraphics.GraphicsScenePacket)::DirectionalLighting
-    length(packet.lights) == 1 ||
-        throw(AdapterError("unsupported_lighting", "native material path requires exactly one light intent"))
-    light = only(packet.lights)
-    return _directional_lighting(light.kind, light.color_rgb, light.intensity)
+    return _lighting_from_lights(packet.lights)
+end
+
+function _point_light_table(packet::LuxelGraphics.GraphicsScenePacket)::Matrix{NTuple{4,Float32}}
+    _lighting(packet) # Validate directly constructed packets at the adapter boundary too.
+    policy = packet.render_policy.point_shadows
+    policy === nothing && return _point_light_table(packet.lights)
+    return _point_light_table(
+        packet.lights,
+        Float32(policy.map_size_px),
+        _bp(packet.render_policy.shadow.darkness_bp),
+        Float32(packet.render_policy.shadow.filter_radius_milli) / 1000.0f0,
+    )
+end
+
+function _point_light_table(
+    lights::AbstractVector{LuxelGraphics.LightPacket},
+    map_size::Float32=0.0f0,
+    darkness::Float32=0.0f0,
+    filter_texel::Float32=0.0f0,
+)::Matrix{NTuple{4,Float32}}
+    _lighting_from_lights(lights)
+    points = filter(light -> light.kind isa LuxelGraphics.PointLightPacket, lights)
+    table = Matrix{NTuple{4,Float32}}(undef, 1, 9)
+    table[1, 1] = (Float32(length(points)), darkness, map_size, filter_texel)
+    for index in 1:4
+        if index <= length(points)
+            light = points[index]
+            point = light.kind::LuxelGraphics.PointLightPacket
+            table[1, index + 1] = (point.position_xyz_m..., point.range_m)
+            table[1, index + 5] = (light.color_rgb..., light.intensity)
+        else
+            table[1, index + 1] = (0.0f0, 0.0f0, 0.0f0, 1.0f0)
+            table[1, index + 5] = (0.0f0, 0.0f0, 0.0f0, 0.0f0)
+        end
+    end
+    return table
+end
+
+function _point_light_resources!(state::LavaBackend, packet::LuxelGraphics.GraphicsScenePacket)
+    _lighting(packet)
+    has_points = any(light -> light.kind isa LuxelGraphics.PointLightPacket, packet.lights)
+    has_points || return nothing
+    current = state.point_light_resources
+    current !== nothing && current.cache_key == packet.content_sha256 && return current
+    state.upload_bytes += UInt64(9 * 16)
+    texture = _lava_texture2d!(state, [_point_light_table(packet)])
+    sampler = Lava.LavaSampler(ctx=state.context, filter=:nearest, wrap=:clamp)
+    created = PointLightResources(packet.content_sha256, texture, sampler)
+    state.point_light_resources = created
+    return created
+end
+
+function _dummy_point_shadows!(state::LavaBackend)::PointShadowResources
+    current = state.dummy_point_shadows
+    current !== nothing && return current
+    texture = _lava_texture2d!(state, [fill((1.0f0, 1.0f0, 1.0f0, 1.0f0), 1, 1)])
+    sampler = Lava.LavaSampler(ctx=state.context, filter=:nearest, wrap=:clamp)
+    created = PointShadowResources("dummy", texture, sampler, nothing, nothing, nothing, 0, false)
+    state.dummy_point_shadows = created
+    return created
+end
+
+function _assert_point_shadow_atlas_limits(context::Lava.VkContext, width::Int, height::Int)
+    properties = try
+        Vulkan.get_physical_device_properties(context.physical_device)
+    catch error
+        throw(AdapterError(
+            "unsupported_render_policy",
+            "render_policy.point_shadows requires a Vulkan image-limit probe; it failed with $(sprint(showerror, error))",
+        ))
+    end
+    max_dim = Int(properties.limits.max_image_dimension_2_d)
+    max(width, height) <= max_dim || throw(AdapterError(
+        "unsupported_render_policy",
+        "render_policy.point_shadows atlas $(width)x$(height) exceeds device 2D limit $(max_dim)",
+    ))
+    return nothing
+end
+
+function _blit_point_shadow_face!(
+    state::LavaBackend,
+    face_framebuffer::Lava.LavaFramebuffer,
+    atlas_framebuffer::Lava.LavaFramebuffer,
+    dest::Vec4f,
+    blit_pipeline,
+    ;
+    clear::Bool,
+)
+    face_texture = _framebuffer_texture(face_framebuffer, state)
+    sampler = Lava.LavaSampler(ctx=state.context, filter=:nearest, wrap=:clamp)
+    bindings = Lava.bind_textures([face_texture * sampler])
+    draw!(
+        state.queue,
+        blit_pipeline,
+        OffscreenTarget(atlas_framebuffer),
+        6;
+        args=(dest,),
+        descriptor_set_layout=bindings.layout,
+        descriptor_set=bindings.set,
+        clear_color=clear ? (1.0f0, 1.0f0, 1.0f0, 1.0f0) : nothing,
+        depth_clear=nothing,
+    )
+    state.draw_calls += 1
+    return nothing
+end
+
+function _point_shadow_resources!(state::LavaBackend, packet::LuxelGraphics.GraphicsScenePacket)::PointShadowResources
+    policy = packet.render_policy.point_shadows
+    policy === nothing && return _dummy_point_shadows!(state)
+    current = state.point_shadow_resources
+    map_size = Int(policy.map_size_px)
+    current !== nothing && current.enabled && current.cache_key == packet.content_sha256 &&
+        current.map_size == map_size && return current
+    atlas_width = map_size * POINT_SHADOW_FACE_COUNT
+    atlas_height = map_size * POINT_SHADOW_LIGHT_CAPACITY
+    _assert_point_shadow_atlas_limits(state.context, atlas_width, atlas_height)
+    atlas_framebuffer = _framebuffer!(state, atlas_width, atlas_height, false, :point_shadow_atlas)
+    face_framebuffer = _framebuffer!(state, map_size, map_size, true, :point_shadow_face)
+    blit_pipeline = current !== nothing && current.blit_pipeline !== nothing ? current.blit_pipeline :
+        GraphicsPipeline(;
+            vertex=_point_shadow_blit_vertex,
+            fragment=_point_shadow_blit_fragment,
+            blend=Opaque(),
+            cull=NoCull(),
+            depth=DepthOff(),
+        )
+    points = filter(light -> light.kind isa LuxelGraphics.PointLightPacket, packet.lights)
+    isempty(points) && return _dummy_point_shadows!(state)
+    terrain = _terrain_resources!(state, packet)
+    first_blit = true
+    for light_index in 1:length(points)
+        point = points[light_index].kind::LuxelGraphics.PointLightPacket
+        for face in 0:(POINT_SHADOW_FACE_COUNT - 1)
+            frame = _point_shadow_face_frame(point.position_xyz_m, point.range_m, face)
+            visibility = _mesh_visibility(packet, frame)
+            meshes = _mesh_resources!(state, packet, frame, visibility; shadow=true, cache=:shadow)
+            _render_shadow_map_to!(state, packet, face_framebuffer, frame, terrain, meshes)
+            dest = _point_shadow_blit_dest(light_index - 1, face)
+            _blit_point_shadow_face!(
+                state, face_framebuffer, atlas_framebuffer, dest, blit_pipeline; clear=first_blit,
+            )
+            first_blit = false
+        end
+    end
+    _transition_color_to_sampled!(state, atlas_framebuffer)
+    texture = _framebuffer_texture(atlas_framebuffer, state)
+    sampler = current !== nothing && current.enabled ? current.sampler :
+        Lava.LavaSampler(ctx=state.context, filter=:linear, wrap=:clamp)
+    created = PointShadowResources(
+        packet.content_sha256,
+        texture,
+        sampler,
+        atlas_framebuffer,
+        face_framebuffer,
+        blit_pipeline,
+        map_size,
+        true,
+    )
+    state.point_shadow_resources = created
+    return created
 end
 
 function _environment_lighting(environment::LuxelGraphics.EnvironmentPacket)::EnvironmentLighting
@@ -5138,6 +5878,8 @@ const BACKDROP_INSTANCE_PREFIX = "backdrop-"
 function _store_mesh_resources!(state::LavaBackend, cache::Symbol, resources::MeshResources)
     if cache === :shadow
         state.shadow_mesh_resources = resources
+    elseif cache === :shadow_far
+        state.cascade_far_mesh_resources = resources
     elseif cache === :reflection
         state.reflection_mesh_resources = resources
     else
@@ -5156,6 +5898,7 @@ function _mesh_resources!(
     cache::Symbol=shadow ? :shadow : :main,
 )::Union{Nothing,MeshResources}
     current = cache === :shadow ? state.shadow_mesh_resources :
+              cache === :shadow_far ? state.cascade_far_mesh_resources :
               cache === :reflection ? state.reflection_mesh_resources : state.mesh_resources
     reusable = current !== nothing && current.cache_key == packet.content_sha256
     reusable && current.frame == frame && return current
@@ -5354,10 +6097,26 @@ function _render_shadow_map!(
     shadow::ShadowResources,
     terrain::TerrainResources,
     mesh_resources::Union{Nothing,MeshResources},
+    ;
+    far::Bool=false,
 )
-    target = OffscreenTarget(shadow.framebuffer)
+    framebuffer = far ? (shadow.far_framebuffer::Lava.LavaFramebuffer) : shadow.framebuffer
+    frame = far ? (shadow.far_frame::CameraFrame) : shadow.light_frame
+    framebuffer === nothing && throw(AdapterError("shadow_cascade_state", "far shadow framebuffer is absent"))
+    frame === nothing && throw(AdapterError("shadow_cascade_state", "far shadow frame is absent"))
+    return _render_shadow_map_to!(state, packet, framebuffer, frame, terrain, mesh_resources)
+end
+
+function _render_shadow_map_to!(
+    state::LavaBackend,
+    packet::LuxelGraphics.GraphicsScenePacket,
+    framebuffer::Lava.LavaFramebuffer,
+    frame::CameraFrame,
+    terrain::TerrainResources,
+    mesh_resources::Union{Nothing,MeshResources},
+)
+    target = OffscreenTarget(framebuffer)
     terrain_vertices = 6 * (packet.terrain.resolution - 1)^2
-    frame = shadow.light_frame
     draw!(
         state.queue,
         state.terrain_shadow_pipeline,
@@ -5417,7 +6176,7 @@ function _render_shadow_map!(
             end
         end
     end
-    _transition_color_to_sampled!(state, shadow.framebuffer)
+    _transition_color_to_sampled!(state, framebuffer)
     return nothing
 end
 
@@ -5485,6 +6244,44 @@ function _shadow_resources!(
 )::ShadowResources
     current = state.shadow_resources
     reusable = current !== nothing && current.cache_key == packet.content_sha256
+    cascade_policy = packet.render_policy.shadow_cascades
+    if cascade_policy !== nothing
+        _assert_shadow_cascade_descriptor_limits(state.context, cascade_policy)
+        frames = _shadow_cascade_frames(view, lighting.direction, cascade_policy)
+        reusable && current.far_frame !== nothing && current.light_frame == frames.near &&
+            current.far_frame == frames.far && return current
+        near_size = Int(cascade_policy.near_map_size_px)
+        far_size = Int(cascade_policy.far_map_size_px)
+        near_framebuffer = reusable ? current.framebuffer : _framebuffer!(state, near_size, near_size, true, :shadow)
+        near_texture = reusable ? current.texture : _framebuffer_texture(near_framebuffer, state)
+        near_sampler = reusable ? current.sampler : Lava.LavaSampler(ctx=state.context, filter=:linear, wrap=:clamp)
+        far_framebuffer = reusable && current.far_framebuffer !== nothing ? current.far_framebuffer :
+            _framebuffer!(state, far_size, far_size, true, :shadow_far)
+        far_texture = reusable && current.far_texture !== nothing ? current.far_texture :
+            _framebuffer_texture(far_framebuffer, state)
+        far_sampler = reusable && current.far_sampler !== nothing ? current.far_sampler :
+            Lava.LavaSampler(ctx=state.context, filter=:linear, wrap=:clamp)
+        created = ShadowResources(
+            packet.content_sha256,
+            near_framebuffer,
+            near_texture,
+            near_sampler,
+            frames.near,
+            frames.far,
+            far_framebuffer,
+            far_texture,
+            far_sampler,
+        )
+        terrain = _terrain_resources!(state, packet)
+        near_visibility = _mesh_visibility(packet, frames.near)
+        near_meshes = _mesh_resources!(state, packet, frames.near, near_visibility; shadow=true, cache=:shadow)
+        _render_shadow_map!(state, packet, created, terrain, near_meshes)
+        far_visibility = _mesh_visibility(packet, frames.far)
+        far_meshes = _mesh_resources!(state, packet, frames.far, far_visibility; shadow=true, cache=:shadow_far,)
+        _render_shadow_map!(state, packet, created, terrain, far_meshes; far=true)
+        state.shadow_resources = created
+        return created
+    end
     # Whole-world shadows do not depend on the preview camera. Fitted shadows
     # must follow the actual view, including a presented camera override.
     reusable && packet.render_policy.shadow_fit === nothing && return current
@@ -5497,13 +6294,80 @@ function _shadow_resources!(
     # the typed shadow contract. Nearest filtering made hero-scale shadows
     # visibly stair-stepped in the native showcase.
     sampler = reusable ? current.sampler : Lava.LavaSampler(ctx=state.context, filter=:linear, wrap=:clamp)
-    created = ShadowResources(packet.content_sha256, framebuffer, texture, sampler, light_frame)
+    created = ShadowResources(packet.content_sha256, framebuffer, texture, sampler, light_frame, nothing, nothing, nothing, nothing)
     terrain = _terrain_resources!(state, packet)
     visibility = _mesh_visibility(packet, light_frame)
     mesh_resources = _mesh_resources!(state, packet, light_frame, visibility; shadow=true)
     _render_shadow_map!(state, packet, created, terrain, mesh_resources)
     state.shadow_resources = created
     return created
+end
+
+@inline function _mark_cascade_pipeline_compiled!(state::LavaBackend, index::Int)
+    if !state.cascade_pipeline_compiled[index]
+        state.cascade_pipeline_compiled[index] = true
+        state.pipeline_compilations += 1
+    end
+    return nothing
+end
+
+@inline function _mark_point_pipeline_compiled!(state::LavaBackend, index::Int)
+    if !state.point_pipeline_compiled[index]
+        state.point_pipeline_compiled[index] = true
+        state.pipeline_compilations += 1
+    end
+    return nothing
+end
+
+function _assert_shadow_cascade_descriptor_limits(
+    context::Lava.VkContext,
+    policy::LuxelGraphics.ShadowCascadesPolicy,
+)
+    properties = try
+        Vulkan.get_physical_device_properties(context.physical_device)
+    catch error
+        throw(AdapterError(
+            "unsupported_render_policy",
+            "render_policy.shadow_cascades requires a Vulkan descriptor-limit probe; it failed with $(sprint(showerror, error))",
+        ))
+    end
+    limits = properties.limits
+    required = 18
+    measured = (
+        per_stage_samplers=Int(limits.max_per_stage_descriptor_samplers),
+        per_stage_sampled_images=Int(limits.max_per_stage_descriptor_sampled_images),
+        set_samplers=Int(limits.max_descriptor_set_samplers),
+        set_sampled_images=Int(limits.max_descriptor_set_sampled_images),
+        max_image_dimension_2d=Int(limits.max_image_dimension_2_d),
+    )
+    descriptor_limits = (measured.per_stage_samplers, measured.per_stage_sampled_images,
+                         measured.set_samplers, measured.set_sampled_images)
+    all(value -> value >= required, descriptor_limits) || throw(AdapterError(
+        "unsupported_render_policy",
+        "render_policy.shadow_cascades requires descriptor binding 17 (18 sampled-image/sampler slots); device $(properties.device_name) reports limits $measured",
+    ))
+    max( policy.near_map_size_px, policy.far_map_size_px ) <= measured.max_image_dimension_2d ||
+        throw(AdapterError("unsupported_render_policy",
+            "render_policy.shadow_cascades requests map sizes $(policy.near_map_size_px)/$(policy.far_map_size_px) px, but device $(properties.device_name) supports only $(measured.max_image_dimension_2d) px 2D images"))
+    return measured
+end
+
+function _assert_point_light_descriptor_limits(context::Lava.VkContext)
+    properties = try
+        Vulkan.get_physical_device_properties(context.physical_device)
+    catch error
+        throw(AdapterError("unsupported_lighting",
+            "point lights require a Vulkan descriptor-limit probe; it failed with $(sprint(showerror, error))"))
+    end
+    limits = properties.limits
+    measured = (per_stage_samplers=Int(limits.max_per_stage_descriptor_samplers),
+        per_stage_sampled_images=Int(limits.max_per_stage_descriptor_sampled_images),
+        set_samplers=Int(limits.max_descriptor_set_samplers),
+        set_sampled_images=Int(limits.max_descriptor_set_sampled_images))
+    all(value -> value >= 20, values(measured)) || throw(AdapterError(
+        "unsupported_lighting",
+        "point lights require descriptor binding 19 (20 sampled-image/sampler slots); device $(properties.device_name) reports limits $measured"))
+    return measured
 end
 
 function _overlay_resources!(
@@ -5763,10 +6627,14 @@ function _record_scene_passes!(
     reflection_texture=nothing,
     shadow_camera_frame::CameraFrame=camera_frame,
 )
+    any(light -> light.kind isa LuxelGraphics.PointLightPacket, packet.lights) &&
+        _assert_point_light_descriptor_limits(state.context)
     prepare_started_ns = time_ns()
     prepare_gpu_timing_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.prepare)
     resources = _terrain_resources!(state, packet)
     shadow_resources = _shadow_resources!(state, packet, lighting, shadow_camera_frame)
+    point_lights = _point_light_resources!(state, packet)
+    point_shadows = point_lights === nothing ? nothing : _point_shadow_resources!(state, packet)
     # Refuse an unhonourable policy axis before any GPU work, so the failure is
     # a clean typed error rather than a frame that quietly ignored its policy.
     _assert_render_policy_supported(
@@ -5774,7 +6642,11 @@ function _record_scene_passes!(
         _probe_gpu_capabilities(state.context);
         layered_terrain=packet.terrain.layers !== nothing,
     )
-    shadow_uniform = _shadow_uniform(packet.render_policy, shadow_resources.light_frame)
+    cascade_policy = packet.render_policy.shadow_cascades
+    shadow_uniform = cascade_policy === nothing ?
+        _shadow_uniform(packet.render_policy, shadow_resources.light_frame) :
+        _cascade_shadow_uniform(packet.render_policy, cascade_policy)
+    cascade_vertex_arguments = _cascade_vertex_arguments(packet.render_policy, shadow_resources, shadow_camera_frame)
     sky_parameters = _sky_parameters(packet.render_policy, lighting, packet.environment)
     atmosphere_parameters = _atmosphere_parameters(packet.render_policy)
     surface_options = _surface_options(packet.render_policy)
@@ -5784,6 +6656,8 @@ function _record_scene_passes!(
         shadow_resources,
         material,
         _surface_sampler_spec(packet.render_policy, :terrain),
+        point_lights,
+        point_shadows,
     )
     visibility = _mesh_visibility(packet, camera_frame)
     mesh_resources = _mesh_resources!(state, packet, camera_frame, visibility; cache=reflection_pass ? :reflection : :main)
@@ -5872,57 +6746,91 @@ function _record_scene_passes!(
             surface_options,
     )
     if packet.terrain.layers === nothing
+        terrain_pipeline = if point_lights === nothing
+            cascade_policy === nothing ? state.terrain_pipeline : state.cascade_terrain_pipeline
+        else
+            cascade_policy === nothing ? state.point_pipelines[1] : state.point_pipelines[2]
+        end
         draw!(
             state.queue,
-            state.terrain_pipeline,
+            terrain_pipeline,
             scene_target,
             terrain_vertices;
-            args=terrain_arguments,
+            args=(terrain_arguments..., cascade_vertex_arguments...),
             descriptor_set_layout=texture_resources.bindings.layout,
             descriptor_set=texture_resources.bindings.set,
             clear_color=nothing,
         )
         state.draw_calls += 1
-        if !state.terrain_compiled
+        if point_lights !== nothing
+            _mark_point_pipeline_compiled!(state, cascade_policy === nothing ? 1 : 2)
+        elseif cascade_policy !== nothing
+            _mark_cascade_pipeline_compiled!(state, 1)
+        elseif !state.terrain_compiled
             state.terrain_compiled = true
             state.pipeline_compilations += 1
         end
     else
-        layer_resources = _terrain_layer_resources!(state, packet, shadow_resources)
         wet_zone = packet.terrain.wet_zone
+        layer_resources = _terrain_layer_resources!(
+            state, packet, shadow_resources,
+            wet_zone === nothing ? point_lights : nothing,
+            wet_zone === nothing ? point_shadows : nothing,
+        )
         if wet_zone === nothing
+            layered_pipeline = if point_lights === nothing
+                cascade_policy === nothing ? state.terrain_layered_pipeline : state.cascade_layered_pipeline
+            else
+                cascade_policy === nothing ? state.point_pipelines[3] : state.point_pipelines[4]
+            end
             draw!(
                 state.queue,
-                state.terrain_layered_pipeline,
+                layered_pipeline,
                 scene_target,
                 terrain_vertices;
-                args=(terrain_arguments..., layer_resources.uniforms...),
+                args=(terrain_arguments..., layer_resources.uniforms..., cascade_vertex_arguments...),
                 descriptor_set_layout=layer_resources.bindings.layout,
                 descriptor_set=layer_resources.bindings.set,
                 clear_color=nothing,
             )
-            if !state.terrain_layered_compiled
+            if point_lights !== nothing
+                _mark_point_pipeline_compiled!(state, cascade_policy === nothing ? 3 : 4)
+            elseif cascade_policy !== nothing
+                _mark_cascade_pipeline_compiled!(state, 2)
+            elseif !state.terrain_layered_compiled
                 state.terrain_layered_compiled = true
                 state.pipeline_compilations += 1
             end
         else
-            wet_bindings = _wet_terrain_bindings!(state, packet, layer_resources, reflection_pass ? nothing : reflection_texture)
+            wet_bindings = _wet_terrain_bindings!(
+                state, packet, layer_resources, shadow_resources,
+                reflection_pass ? nothing : reflection_texture, point_lights, point_shadows,
+            )
             # macro_parameters.zw: the target's inverse size, for the water's
             # screen-space lookup into the reflection image.
             m = layer_resources.uniforms[7]
             layer_uniforms = (layer_resources.uniforms[1:6]...,
                               Vec4f(m[1], m[2], 1.0f0 / Float32(scene_framebuffer.width), 1.0f0 / Float32(scene_framebuffer.height)))
+            wet_pipeline = if point_lights === nothing
+                cascade_policy === nothing ? state.terrain_wet_pipeline : state.cascade_wet_pipeline
+            else
+                cascade_policy === nothing ? state.point_pipelines[5] : state.point_pipelines[6]
+            end
             draw!(
                 state.queue,
-                state.terrain_wet_pipeline,
+                wet_pipeline,
                 scene_target,
                 terrain_vertices;
-                args=(terrain_arguments..., layer_uniforms..., _wet_zone_uniforms(wet_zone; reflection_pass=reflection_pass)...),
+                args=(terrain_arguments..., layer_uniforms..., _wet_zone_uniforms(wet_zone; reflection_pass=reflection_pass)..., cascade_vertex_arguments...),
                 descriptor_set_layout=wet_bindings.layout,
                 descriptor_set=wet_bindings.set,
                 clear_color=nothing,
             )
-            if !state.terrain_wet_compiled
+            if point_lights !== nothing
+                _mark_point_pipeline_compiled!(state, cascade_policy === nothing ? 5 : 6)
+            elseif cascade_policy !== nothing
+                _mark_cascade_pipeline_compiled!(state, 3)
+            elseif !state.terrain_wet_compiled
                 state.terrain_wet_compiled = true
                 state.pipeline_compilations += 1
             end
@@ -5938,6 +6846,8 @@ function _record_scene_passes!(
                 shadow_resources,
                 batch_material,
                 _surface_sampler_spec(packet.render_policy, :mesh),
+                point_lights,
+                point_shadows,
             )
             batch_texture_enabled = _material_texture_enabled(batch_material)
             cutout = _material_cutout(batch_material)
@@ -5945,9 +6855,18 @@ function _record_scene_passes!(
             # coverage instead of discarding (double-sided opaque ones have no
             # cutoff and stay on the cutout pipeline).
             coverage = cutout && scene_framebuffer.samples > 1 && batch_material.alpha_mode === :mask
+            selected_mesh_pipeline = if cascade_policy === nothing
+                point_lights === nothing ?
+                    (coverage ? state.mesh_coverage_pipeline : cutout ? state.mesh_cutout_pipeline : state.mesh_pipeline) :
+                    (coverage ? state.point_pipelines[11] : cutout ? state.point_pipelines[9] : state.point_pipelines[7])
+            else
+                point_lights === nothing ?
+                    (coverage ? state.cascade_mesh_coverage_pipeline : cutout ? state.cascade_mesh_cutout_pipeline : state.cascade_mesh_pipeline) :
+                    (coverage ? state.point_pipelines[12] : cutout ? state.point_pipelines[10] : state.point_pipelines[8])
+            end
             draw!(
                 state.queue,
-                coverage ? state.mesh_coverage_pipeline : cutout ? state.mesh_cutout_pipeline : state.mesh_pipeline,
+                selected_mesh_pipeline,
                 scene_target,
                 batch.vertex_count;
                 args=(
@@ -5988,6 +6907,7 @@ function _record_scene_passes!(
                     sky_parameters,
                     atmosphere_parameters,
                     surface_options,
+                    cascade_vertex_arguments...,
                 ),
                 instances=batch.instance_count,
                 descriptor_set_layout=batch_texture_resources.bindings.layout,
@@ -5996,7 +6916,11 @@ function _record_scene_passes!(
                 depth_clear=nothing,
             )
             state.draw_calls += 1
-            if coverage
+            if point_lights !== nothing
+                _mark_point_pipeline_compiled!(state, coverage ? (cascade_policy === nothing ? 11 : 12) : cutout ? (cascade_policy === nothing ? 9 : 10) : (cascade_policy === nothing ? 7 : 8))
+            elseif cascade_policy !== nothing
+                _mark_cascade_pipeline_compiled!(state, coverage ? 6 : cutout ? 5 : 4)
+            elseif coverage
                 if !state.mesh_coverage_compiled
                     state.mesh_coverage_compiled = true
                     state.pipeline_compilations += 1
@@ -6029,11 +6953,116 @@ presented-window path records exactly these draws, so what the window presents
 is the certified composite by construction rather than a second approximation
 of it.
 """
+function _contact_ao_resources!(state, packet, camera_frame, source_framebuffer)::ContactOcclusionResources
+    current = state.contact_ao_resources
+    if current !== nothing && current.packet_sha256 == packet.packet_sha256 &&
+       current.capture_id == packet.capture_id && current.camera_frame == camera_frame &&
+       current.source_framebuffer === source_framebuffer
+        return current
+    end
+    key = string(packet.packet_sha256, ":", packet.capture_id, ":", objectid(source_framebuffer), ":", camera_frame)
+    if current !== nothing && current.source_framebuffer === source_framebuffer
+        # The same HDR source and dimensions keep the attachments and sampled
+        # descriptor set valid. Camera/payload identity is metadata; the depth
+        # raster pass still runs for every completed capture.
+        created = ContactOcclusionResources(
+            key, packet.packet_sha256, packet.capture_id, camera_frame,
+            source_framebuffer, current.depth_framebuffer, current.depth_texture,
+            current.ao_framebuffer, current.ao_texture, current.color_sampler,
+            current.depth_sampler, current.bindings,
+        )
+        state.contact_ao_resources = created
+        return created
+    end
+    width, height = source_framebuffer.width, source_framebuffer.height
+    depth_framebuffer = _framebuffer!(state, width, height, true, :contact_depth)
+    ao_framebuffer = _framebuffer!(state, width, height, false, :contact_ao)
+    color_texture = _framebuffer_texture(source_framebuffer, state)
+    depth_texture = _framebuffer_texture(depth_framebuffer, state)
+    color_sampler = Lava.LavaSampler(ctx=state.context, filter=:linear, wrap=:clamp)
+    depth_sampler = Lava.LavaSampler(ctx=state.context, filter=:nearest, wrap=:clamp)
+    bindings = Lava.bind_textures([color_texture * color_sampler, depth_texture * depth_sampler])
+    created = ContactOcclusionResources(key, packet.packet_sha256, packet.capture_id, camera_frame,
+        source_framebuffer, depth_framebuffer, depth_texture, ao_framebuffer,
+        _framebuffer_texture(ao_framebuffer, state), color_sampler, depth_sampler, bindings)
+    state.contact_ao_resources = created
+    return created
+end
+
+function _record_contact_depth!(state, packet, camera_frame, resources::ContactOcclusionResources)
+    target = OffscreenTarget(resources.depth_framebuffer)
+    terrain = _terrain_resources!(state, packet)
+    mesh_resources = _mesh_resources!(state, packet, camera_frame)
+    draw!(state.queue, state.contact_depth_terrain_pipeline, target,
+        6 * (packet.terrain.resolution - 1)^2;
+        args=(terrain.heights, terrain.resolution, Float32(packet.terrain.width_m),
+            Float32(packet.terrain.length_m), camera_frame.position, camera_frame.right,
+            camera_frame.up, camera_frame.forward, camera_frame.projection, camera_frame.mode),
+        clear_color=(1.0f0, 1.0f0, 1.0f0, 1.0f0), depth_clear=1.0f0)
+    state.draw_calls += 1
+    if !state.contact_depth_terrain_compiled
+        state.contact_depth_terrain_compiled = true
+        state.pipeline_compilations += 1
+    end
+    if mesh_resources !== nothing
+        for batch in mesh_resources.batches
+            material = _material(packet, batch.material_id)
+            if material.alpha_mode == :mask
+                bindings = _cutout_shadow_bindings!(state, packet, material)
+                draw!(state.queue, state.contact_depth_cutout_pipeline, target, batch.vertex_count;
+                    args=(batch.positions, batch.uvs, batch.translations, batch.rotations, batch.scales,
+                        camera_frame.position, camera_frame.right, camera_frame.up, camera_frame.forward,
+                        camera_frame.projection, camera_frame.mode,
+                        Vec4f(material.base_color_rgba[4], _material_texture_enabled(material), material.alpha_cutoff, 0.0f0)),
+                    instances=batch.instance_count, descriptor_set_layout=bindings.layout,
+                    descriptor_set=bindings.set, clear_color=nothing, depth_clear=nothing)
+                state.draw_calls += 1
+                if !state.contact_depth_cutout_compiled
+                    state.contact_depth_cutout_compiled = true
+                    state.pipeline_compilations += 1
+                end
+                continue
+            end
+            draw!(state.queue, state.contact_depth_mesh_pipeline, target, batch.vertex_count;
+                args=(batch.positions, batch.translations, batch.rotations, batch.scales,
+                    camera_frame.position, camera_frame.right, camera_frame.up, camera_frame.forward,
+                    camera_frame.projection, camera_frame.mode),
+                instances=batch.instance_count, clear_color=nothing, depth_clear=nothing)
+            state.draw_calls += 1
+            if !state.contact_depth_mesh_compiled
+                state.contact_depth_mesh_compiled = true
+                state.pipeline_compilations += 1
+            end
+        end
+    end
+    _transition_color_to_sampled!(state, resources.depth_framebuffer)
+    return nothing
+end
+
+function _record_contact_ao!(state, packet, camera_frame, resources::ContactOcclusionResources,
+                             policy::LuxelGraphics.ContactAoPolicy)
+    width, height = resources.source_framebuffer.width, resources.source_framebuffer.height
+    parameters = Vec4f(Float32(policy.radius_cm) / 100.0f0,
+        Float32(policy.strength_bp) / 10_000.0f0, Float32(policy.bias_mm) / 1000.0f0, camera_frame.mode)
+    draw!(state.queue, state.contact_ao_pipeline, OffscreenTarget(resources.ao_framebuffer), 3;
+        args=(Vec2f(1.0f0 / Float32(width), 1.0f0 / Float32(height)), camera_frame.projection, parameters),
+        descriptor_set_layout=resources.bindings.layout, descriptor_set=resources.bindings.set,
+        clear_color=(0.0f0, 0.0f0, 0.0f0, 1.0f0))
+    state.draw_calls += 1
+    if !state.contact_ao_compiled
+        state.contact_ao_compiled = true
+        state.pipeline_compilations += 1
+    end
+    _transition_color_to_sampled!(state, resources.ao_framebuffer)
+    return nothing
+end
+
 function _composite_capture!(
     state::LavaBackend,
     packet::LuxelGraphics.GraphicsScenePacket,
     scene_framebuffer::Lava.LavaFramebuffer,
     overlay_resources::Union{Nothing,OverlayResources},
+    camera_frame::CameraFrame,
     width::Int,
     height::Int,
 )
@@ -6044,7 +7073,15 @@ function _composite_capture!(
     resolve_gpu_timing_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.resolve)
     capture_framebuffer = _framebuffer!(state, width, height, false, :capture)
     capture_target = OffscreenTarget(capture_framebuffer)
-    resolve_resources = _resolve_resources!(state, scene_framebuffer)
+    composite_source = scene_framebuffer
+    ao_policy = packet.render_policy.contact_ao
+    if ao_policy !== nothing
+        contact = _contact_ao_resources!(state, packet, camera_frame, scene_framebuffer)
+        _record_contact_depth!(state, packet, camera_frame, contact)
+        _record_contact_ao!(state, packet, camera_frame, contact, ao_policy)
+        composite_source = contact.ao_framebuffer
+    end
+    resolve_resources = _resolve_resources!(state, composite_source)
     resolve_policy = _resolve_policy(packet.render_policy)
     draw!(
         state.queue,
@@ -6143,6 +7180,7 @@ function _render_scene(
         packet,
         scene_framebuffer,
         overlay_resources,
+        camera_frame,
         width,
         height,
     )
@@ -6479,6 +7517,7 @@ function render_window_frames!(
             packet,
             scene_framebuffer,
             overlay_resources,
+            camera_frame,
             width,
             height,
         )

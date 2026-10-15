@@ -501,6 +501,102 @@ end
     @test absent.mesh_surface.wrap_repeat == false
 end
 
+@testset "optional cascade and contact AO policy axes" begin
+    policy_json(overrides) = JSON3.read(JSON3.write(Dict{String,Any}("render_policy" => overrides)))
+    cascades = Dict(
+        "near_distance_m" => 30,
+        "far_distance_m" => 250,
+        "blend_width_m" => 6,
+        "near_map_size_px" => 2048,
+        "far_map_size_px" => 4096,
+    )
+    ao = Dict("radius_cm" => 100, "strength_bp" => 5000, "bias_mm" => 20)
+
+    parsed = LuxelGraphics._parse_render_policy(policy_json(Dict("shadow_cascades" => cascades)))
+    @test parsed.shadow_cascades == LuxelGraphics.ShadowCascadesPolicy()
+    @test parsed.shadow_cascades.near_distance_m == 30
+    @test parsed.shadow_cascades.far_distance_m == 250
+    @test parsed.shadow_cascades.blend_width_m == 6
+    @test parsed.shadow_cascades.near_map_size_px == 2048
+    @test parsed.shadow_cascades.far_map_size_px == 4096
+    @test parsed.contact_ao === nothing
+
+    ao_parsed = LuxelGraphics._parse_render_policy(policy_json(Dict("contact_ao" => ao)))
+    @test ao_parsed.contact_ao == LuxelGraphics.ContactAoPolicy(100, 5000, 20)
+    absent = LuxelGraphics._parse_render_policy(policy_json(Dict{String,Any}()))
+    @test absent.shadow_cascades === nothing
+    @test absent.contact_ao === nothing
+
+    for bad in (
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("near_distance_m" => 7)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("far_distance_m" => 2001)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("blend_width_m" => 0)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("blend_width_m" => 60)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("far_distance_m" => 33)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("near_map_size_px" => 1536)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("far_map_size_px" => 256)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("unexpected" => 1)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("near_distance_m" => true)),
+        merge(Dict{String,Any}(cascades), Dict{String,Any}("near_map_size_px" => 2048.5)),
+    )
+        @test_throws LuxelGraphics.ProtocolError LuxelGraphics._parse_render_policy(
+            policy_json(Dict("shadow_cascades" => bad)),
+        )
+    end
+    @test_throws LuxelGraphics.ProtocolError LuxelGraphics._integer(2048.0, "test integer field")
+
+    for bad in (
+        merge(Dict{String,Any}(ao), Dict{String,Any}("radius_cm" => 0)),
+        merge(Dict{String,Any}(ao), Dict{String,Any}("radius_cm" => 201)),
+        merge(Dict{String,Any}(ao), Dict{String,Any}("strength_bp" => 10001)),
+        merge(Dict{String,Any}(ao), Dict{String,Any}("bias_mm" => 101)),
+        merge(Dict{String,Any}(ao), Dict{String,Any}("unexpected" => 1)),
+        merge(Dict{String,Any}(ao), Dict{String,Any}("strength_bp" => true)),
+    )
+        @test_throws LuxelGraphics.ProtocolError LuxelGraphics._parse_render_policy(
+            policy_json(Dict("contact_ao" => bad)),
+        )
+    end
+
+    @test_throws LuxelGraphics.ProtocolError LuxelGraphics._parse_render_policy(policy_json(Dict(
+        "shadow_cascades" => cascades,
+        "shadow_fit" => Dict("view_distance_m" => 60),
+    )))
+end
+
+@testset "RenderPolicy keeps legacy positional constructor forms" begin
+    grade = LuxelGraphics.GradePolicy()
+    bloom = LuxelGraphics.BloomPolicy()
+    vignette = LuxelGraphics.VignettePolicy()
+    dither = LuxelGraphics.DitherPolicy()
+    terrain = LuxelGraphics.TerrainSurfacePolicy()
+    sampler = LuxelGraphics.SamplerPolicy()
+    shadow = LuxelGraphics.ShadowPolicy()
+    mesh = LuxelGraphics.MeshSurfacePolicy()
+    fit = nothing
+    sky = nothing
+    atmosphere = nothing
+    debug = nothing
+    ibl = nothing
+    foliage = nothing
+
+    old_full = LuxelGraphics.RenderPolicy(
+        grade, bloom, vignette, dither, terrain, sampler, shadow, mesh,
+        fit, sky, atmosphere, debug, ibl, foliage,
+    )
+    old_thirteen = LuxelGraphics.RenderPolicy(
+        grade, bloom, vignette, dither, terrain, sampler, shadow, mesh,
+        fit, sky, atmosphere, debug, ibl,
+    )
+    old_ten = LuxelGraphics.RenderPolicy(grade, bloom, vignette, dither, terrain, sampler, shadow, mesh, fit, sky)
+    old_seven = LuxelGraphics.RenderPolicy(grade, bloom, vignette, dither, terrain, sampler, shadow)
+    for old in (old_full, old_thirteen, old_ten, old_seven)
+        @test old.shadow_cascades === nothing
+        @test old.contact_ao === nothing
+        @test old.point_shadows === nothing
+    end
+end
+
 @testset "mesh repeat wrap is its own axis (CONVERGE-0)" begin
     wrapped = LuxelGraphics.RenderPolicy(
         LuxelGraphics.GradePolicy(), LuxelGraphics.BloomPolicy(), LuxelGraphics.VignettePolicy(),

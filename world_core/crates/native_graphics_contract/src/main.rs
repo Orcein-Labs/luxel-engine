@@ -5,11 +5,12 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use luxel_native_graphics_contract::{
-    Campaign2Inputs, Campaign2LoweringInputs, Campaign2OutputResolution, Campaign2View,
+    Campaign2FeatureInputs, Campaign2Features, Campaign2Inputs, Campaign2LoweringInputs,
+    Campaign2OutputResolution, Campaign2View, ContactAoPolicy, ForestProfile,
     GraphicsWorkerSupervisor, ParityContent, ParityPolicyCandidate, QualityOutcome,
-    VisualQualityProfile, assess_campaign2_visual_evidence, assess_visual_quality,
-    deterministic_certification_frame_receipt, load_backdrop_set, load_kit_set,
-    load_terrain_layer_set, lower_campaign2_packet_with_resolution_inputs,
+    ShadowCascadesPolicy, VisualQualityProfile, assess_campaign2_visual_evidence,
+    assess_visual_quality, deterministic_certification_frame_receipt, load_backdrop_set,
+    load_kit_set, load_terrain_layer_set, lower_campaign2_packet_with_features,
     lower_dense_benchmark_packet, lower_objective_close_packet, lower_reference_world,
     lower_showcase_packet, lower_world_showcase_packet, sha256_prefixed,
     validate_campaign2_visual_evidence,
@@ -416,6 +417,16 @@ fn run() -> Result<(), String> {
                     value.to_str().ok_or_else(|| "LUXEL_CAPTURE_SCALE must be valid UTF-8 and exactly 1 or 2".to_owned())?,
                 )?,
             };
+            let features = Campaign2Features {
+                shadow_cascades: optional_feature("LUXEL_SHADOW_CASCADES")?.then_some(ShadowCascadesPolicy::CONVERGE4),
+                contact_ao: optional_feature("LUXEL_CONTACT_AO")?.then_some(ContactAoPolicy { radius_cm: 80, strength_bp: 3000, bias_mm: 20 }),
+                forest_profile: match env::var_os("LUXEL_FOREST_PROFILE") {
+                    None => None,
+                    Some(value) if value == "heartwood" => Some(ForestProfile::Heartwood),
+                    Some(value) if value == "none" => None,
+                    Some(_) => return Err("LUXEL_FOREST_PROFILE must be exactly heartwood or none".to_owned()),
+                },
+            };
             let layout = canonical_path(
                 PathBuf::from(
                     arguments
@@ -524,9 +535,9 @@ fn run() -> Result<(), String> {
                 kit: kit.as_ref(),
                 backdrop: backdrop.as_ref(),
             };
-            let lowering_inputs = Campaign2LoweringInputs {
-                campaign: &inputs,
-                output_resolution,
+            let lowering_inputs = Campaign2FeatureInputs {
+                resolution: Campaign2LoweringInputs { campaign: &inputs, output_resolution },
+                features,
             };
             let view_specs = [
                 ("close", Campaign2View::Close),
@@ -536,12 +547,12 @@ fn run() -> Result<(), String> {
             let mut view_summaries = Vec::with_capacity(view_specs.len());
             let mut failed_views = Vec::new();
             for (view_name, view) in view_specs {
-                let packet = lower_campaign2_packet_with_resolution_inputs(&reference_packet, view, &lowering_inputs)
+                let packet = lower_campaign2_packet_with_features(&reference_packet, view, &lowering_inputs)
                     .map_err(|error| format!("Campaign 2 {view_name} lowering failed: {error}"))?;
                 // Authorization re-derives from the same explicit inputs; the
                 // environment is read once, above, and never by the supervisor.
                 let promoted = supervisor
-                    .render_and_promote_campaign2_with_resolution(&packet, &world.world, &lowering_inputs)
+                    .render_and_promote_campaign2_with_features(&packet, &world.world, &lowering_inputs)
                     .map_err(|error| format!("Campaign 2 {view_name} render failed: {error}"))?;
                 let certification_receipt = deterministic_certification_frame_receipt(
                     &packet,
@@ -566,25 +577,17 @@ fn run() -> Result<(), String> {
                     Campaign2View::Medium => "medium-terrain-environment",
                     Campaign2View::Wide => "wide-world-composition",
                 };
-                let vector_evidence = assess_campaign2_visual_evidence(
-                    &packet,
-                    &certification_receipt,
-                    &promoted.receipt,
-                    &evidence,
-                    &promoted.capture_bytes,
-                    view_role,
-                );
-                validate_campaign2_visual_evidence(
-                    &vector_evidence,
-                    &packet,
-                    &certification_receipt,
-                    &promoted.receipt,
-                    &evidence,
-                    &promoted.capture_bytes,
-                )
-                .map_err(|error| {
-                    format!("Campaign 2 {view_name} vector evidence failed revalidation: {error}")
-                })?;
+                let vector_evidence = match &promoted.depth_capture {
+                    Some(depth) => luxel_native_graphics_contract::visual_quality::assess_campaign2_visual_evidence_with_depth(
+                        &packet, &certification_receipt, &promoted.receipt, &evidence, &promoted.capture_bytes, view_role, depth
+                    ).map_err(|error| format!("depth evidence failed: {error}"))?,
+                    None => assess_campaign2_visual_evidence(&packet, &certification_receipt, &promoted.receipt, &evidence, &promoted.capture_bytes, view_role),
+                };
+                match &promoted.depth_capture {
+                    Some(depth) => luxel_native_graphics_contract::visual_quality::validate_campaign2_visual_evidence_with_depth(
+                        &vector_evidence, &packet, &certification_receipt, &promoted.receipt, &evidence, &promoted.capture_bytes, depth),
+                    None => validate_campaign2_visual_evidence(&vector_evidence, &packet, &certification_receipt, &promoted.receipt, &evidence, &promoted.capture_bytes),
+                }.map_err(|error| format!("Campaign 2 {view_name} vector evidence failed revalidation: {error}"))?;
                 let view_dir = output_dir.join(view_name);
                 fs::create_dir_all(&view_dir).map_err(|error| {
                     format!("cannot create Campaign 2 {view_name} directory: {error}")
@@ -596,11 +599,28 @@ fn run() -> Result<(), String> {
                     &certification_receipt,
                 )?;
                 write_json_artifact(
+                    &view_dir.join("graphics_runtime_frame_receipt.json"),
+                    &promoted.receipt,
+                )?;
+                write_json_artifact(
                     &view_dir.join("graphics_renderer_attestation.json"),
                     &promoted.renderer_attestation,
                 )?;
                 fs::write(view_dir.join("native_capture.rgba"), &promoted.capture_bytes)
                     .map_err(|error| format!("cannot write Campaign 2 {view_name} RGBA: {error}"))?;
+                if let Some(depth) = &promoted.depth_capture {
+                    fs::write(view_dir.join("view_depth.f32le"), depth.bytes())
+                        .map_err(|error| format!("cannot write view depth: {error}"))?;
+                    let mut metadata = serde_json::to_value(depth.payload()).map_err(|error| error.to_string())?;
+                    metadata.as_object_mut().expect("depth payload object").remove("depth_base64");
+                    metadata["color_capture_sha256"] = serde_json::json!(promoted.frame.capture_sha256);
+                    metadata["diagnostic_readback_bytes"] = serde_json::json!(depth.bytes().len());
+                    metadata["reduction"] = serde_json::json!("nearest-positive-linear-depth-in-source-2x2");
+                    write_json_artifact(&view_dir.join("view_depth.json"), &metadata)?;
+                    let grounding = luxel_native_graphics_contract::depth_capture::measure_grounding(&packet, &promoted.capture_bytes, depth)
+                        .map_err(|error| format!("grounding measurement failed: {error}"))?;
+                    write_json_artifact(&view_dir.join("grounding_evidence.json"), &grounding)?;
+                }
                 let ppm = rgba8_to_ppm(
                     &promoted.capture_bytes,
                     promoted.frame.width_px,
@@ -646,6 +666,13 @@ fn run() -> Result<(), String> {
             });
             if output_resolution == Campaign2OutputResolution::Scale2 {
                 summary["capture_scale"] = serde_json::json!(2);
+            }
+            if features != Campaign2Features::default() {
+                summary["features"] = serde_json::json!({
+                    "shadow_cascades": features.shadow_cascades,
+                    "contact_ao": features.contact_ao,
+                    "forest_profile": features.forest_profile.map(|_| "heartwood"),
+                });
             }
             write_json_artifact(&output_dir.join("campaign2_summary.json"), &summary)?;
             println!(
@@ -1000,6 +1027,13 @@ fn run_render_calibration(arguments: Vec<String>) -> Result<(), String> {
             fs::write(dir.join("native_capture.ppm"), &ppm).map_err(|error| error.to_string())?;
             fs::write(dir.join("native_capture.rgba"), &promoted.capture_bytes)
                 .map_err(|error| error.to_string())?;
+            // Look development must be inspectable from the exact submitted
+            // material/light state, not only from a final image and digest.
+            write_json_artifact(&dir.join("graphics_scene_packet.json"), &packet)?;
+            write_json_artifact(
+                &dir.join("graphics_runtime_frame_receipt.json"),
+                &promoted.receipt,
+            )?;
             write_json_artifact(&dir.join("graphics_frame_receipt.json"), &certification)?;
             write_json_artifact(
                 &dir.join("graphics_renderer_attestation.json"),
@@ -1331,6 +1365,16 @@ fn sphere_probe(
         "upper_mean_linear_rgb": half_mean(upper),
         "lower_mean_linear_rgb": half_mean(lower),
     }))
+}
+
+/// Read each optional axis once before opening inputs or starting a worker.
+fn optional_feature(name: &str) -> Result<bool, String> {
+    match env::var_os(name) {
+        None => Ok(false),
+        Some(value) if value == "0" => Ok(false),
+        Some(value) if value == "1" => Ok(true),
+        Some(_) => Err(format!("{name} must be exactly 0 or 1")),
+    }
 }
 
 #[cfg(test)]

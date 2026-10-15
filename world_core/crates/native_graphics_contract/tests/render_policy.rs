@@ -538,6 +538,9 @@ fn a_full_policy_survives_serde_round_trip_and_revalidates() {
         // Disabled: an enabled axis needs the baked textures (tests/ibl.rs).
         ibl: Some(IblPolicy { enabled: false }),
         foliage_coverage: Some(FoliageCoveragePolicy { samples: 4 }),
+        shadow_cascades: None,
+        contact_ao: None,
+        point_shadows: None,
     });
     b.schema_version = SCENE_PACKET_SCHEMA.into();
     validate_render_policy(b.render_policy.as_ref().unwrap()).expect("full policy validates");
