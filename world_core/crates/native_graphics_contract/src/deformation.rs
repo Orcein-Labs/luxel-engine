@@ -223,7 +223,11 @@ fn validate_field(field: &DeformationField) -> Result<(), GraphicsContractError>
     Ok(())
 }
 
-fn buffer_len_matches(buffer: &BufferReference, expected: usize, role: &str) -> Result<(), GraphicsContractError> {
+fn buffer_len_matches(
+    buffer: &BufferReference,
+    expected: usize,
+    role: &str,
+) -> Result<(), GraphicsContractError> {
     if buffer.count != expected {
         return Err(deformation_error(
             DeformationRejection::BufferLengthMismatch,
@@ -257,7 +261,10 @@ pub fn validate_deformation(
     let Some(mesh) = body.meshes.iter().find(|m| m.mesh_id == intent.mesh_id) else {
         return Err(deformation_error(
             DeformationRejection::UnknownMesh,
-            format!("deformation names mesh_id {} which the packet does not carry", intent.mesh_id),
+            format!(
+                "deformation names mesh_id {} which the packet does not carry",
+                intent.mesh_id
+            ),
         ));
     };
 
@@ -275,7 +282,7 @@ pub fn validate_deformation(
     // elements: 12 floats per tetrahedron (4 corners x 3). Getting this wrong
     // is easy and silent — it is the same class as F-P0.3 — so the relation is
     // spelled out rather than implied.
-    if intent.cage.count == 0 || intent.cage.count % 12 != 0 {
+    if intent.cage.count == 0 || !intent.cage.count.is_multiple_of(12) {
         return Err(deformation_error(
             DeformationRejection::BufferLengthMismatch,
             format!(
@@ -326,7 +333,9 @@ pub fn validate_deformation(
 }
 
 /// Enforce the v6/v7 mutual exclusion. Called from the scene-packet validator.
-pub fn validate_schema_deformation(body: &GraphicsScenePacketBody) -> Result<(), GraphicsContractError> {
+pub fn validate_schema_deformation(
+    body: &GraphicsScenePacketBody,
+) -> Result<(), GraphicsContractError> {
     let is_v7 = body.schema_version == SCENE_PACKET_SCHEMA_V7;
     if !is_v7 && body.deformation.is_some() {
         return Err(deformation_error(

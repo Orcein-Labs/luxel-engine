@@ -133,22 +133,11 @@ impl Default for VignettePolicy {
 /// dither only — a hash-based or temporal dither would make the certified
 /// frame depend on a noise sequence, which is exactly the determinism this
 /// engine is built on.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct DitherPolicy {
     /// Peak amplitude in thousandths of a quantisation step. Range [0, 2000].
     pub amplitude_milli_lsb: i32,
-}
-
-impl Default for DitherPolicy {
-    fn default() -> Self {
-        // Default OFF, not on. The baseline captures are frozen and must stay
-        // byte-identical until a candidate deliberately changes them; a default
-        // that silently alters every frame is a default that lies in a receipt.
-        Self {
-            amplitude_milli_lsb: 0,
-        }
-    }
 }
 
 /// Terrain surface policy: the channel that ends whole-world 0..1 UVs.
@@ -257,17 +246,11 @@ impl Default for SamplerPolicy {
 /// carried one texture across ~24.5 m of circumference, a ~150:1 smear — audit
 /// MD-4). Metric UVs fix that, but metric UVs exceed 1.0 and therefore REQUIRE
 /// a repeat wrap; with clamp they would smear the border texel instead.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct MeshSurfacePolicy {
     /// `true` samples mesh materials with REPEAT, `false` with the baseline clamp.
     pub wrap_repeat: bool,
-}
-
-impl Default for MeshSurfacePolicy {
-    fn default() -> Self {
-        Self { wrap_repeat: false }
-    }
 }
 
 /// View-relative shadow frustum fit.
@@ -291,8 +274,73 @@ pub struct ShadowFitPolicy {
     pub map_size_px: Option<i32>,
 }
 
+/// Two view-relative shadow cascades (CONVERGE-4 L-1b).
+///
+/// `near_distance_m` is the centre of the transition. The near cascade fits
+/// through `near_distance_m + blend_width_m / 2`, while the far cascade starts
+/// at `near_distance_m - blend_width_m / 2` and ends at `far_distance_m`.
+/// This overlap lets the adapter cross-fade visibility rather than switching
+/// maps at a hard boundary. ABSENT leaves the existing single-map behavior
+/// untouched and is omitted from canonical JSON. Map sides are requests: the
+/// resulting world-units-per-texel depends on the camera frustum, so the
+/// adapter must verify the campaign's near-field density target at runtime.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ShadowCascadesPolicy {
+    /// Centre of the split in metres. Range [8, 2000].
+    pub near_distance_m: i32,
+    /// End of far cascade in metres. Range [8, 2000], beyond the split and
+    /// its near-fit extent.
+    pub far_distance_m: i32,
+    /// Width in metres of the cross-fade overlap. Range [1, 100].
+    pub blend_width_m: i32,
+    /// Near map side in texels. One of 512, 1024, 2048, 4096.
+    pub near_map_size_px: i32,
+    /// Far map side in texels. One of 512, 1024, 2048, 4096.
+    pub far_map_size_px: i32,
+}
+
+impl ShadowCascadesPolicy {
+    /// CONVERGE-4 profile: a detailed 30 m near cascade and 250 m far reach.
+    pub const CONVERGE4: Self = Self {
+        near_distance_m: 30,
+        far_distance_m: 250,
+        blend_width_m: 6,
+        near_map_size_px: 2048,
+        far_map_size_px: 4096,
+    };
+}
+
+/// Optional short-range contact occlusion control (L-1b support axis).
+///
+/// This is policy data only; the renderer owns the implementation. ABSENT is
+/// byte-identical to the existing renderer and is omitted from JSON.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ContactAoPolicy {
+    /// Sampling radius in centimetres. Range [1, 200].
+    pub radius_cm: i32,
+    /// AO contribution strength in basis points. Range [0, 10000].
+    pub strength_bp: i32,
+    /// Receiver depth bias in millimetres. Range [0, 100].
+    pub bias_mm: i32,
+}
+
+/// Omnidirectional point-light shadows packed as a 2D cube-face atlas.
+///
+/// ABSENT keeps unshadowed local lights and is omitted from canonical JSON.
+/// Present requests one 2D atlas of four lights by six axis-aligned faces.
+/// Face cameras reuse the existing shadow path; Lava has no cube textures.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PointShadowsPolicy {
+    /// Face map side in texels. 256 or 512.
+    pub map_size_px: i32,
+}
+
 /// Shadow map sides the renderer allocates.
 pub const SHADOW_MAP_SIZES_PX: [i32; 4] = [512, 1024, 2048, 4096];
+pub const POINT_SHADOW_MAP_SIZES_PX: [i32; 2] = [256, 512];
 
 /// View-direction sky.
 ///
@@ -460,6 +508,12 @@ pub struct RenderPolicy {
     pub ibl: Option<IblPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub foliage_coverage: Option<FoliageCoveragePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow_cascades: Option<ShadowCascadesPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contact_ao: Option<ContactAoPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub point_shadows: Option<PointShadowsPolicy>,
 }
 
 impl RenderPolicy {
@@ -482,6 +536,9 @@ impl RenderPolicy {
             debug: self.debug,
             ibl: self.ibl,
             foliage_coverage: self.foliage_coverage,
+            shadow_cascades: self.shadow_cascades,
+            contact_ao: self.contact_ao,
+            point_shadows: self.point_shadows,
         }
     }
 }
@@ -508,6 +565,9 @@ pub struct ResolvedRenderPolicy {
     pub debug: Option<DebugPolicy>,
     pub ibl: Option<IblPolicy>,
     pub foliage_coverage: Option<FoliageCoveragePolicy>,
+    pub shadow_cascades: Option<ShadowCascadesPolicy>,
+    pub contact_ao: Option<ContactAoPolicy>,
+    pub point_shadows: Option<PointShadowsPolicy>,
 }
 
 impl Default for ResolvedRenderPolicy {
@@ -516,12 +576,7 @@ impl Default for ResolvedRenderPolicy {
     }
 }
 
-fn bounded_i32(
-    value: i32,
-    low: i32,
-    high: i32,
-    label: &str,
-) -> Result<(), GraphicsContractError> {
+fn bounded_i32(value: i32, low: i32, high: i32, label: &str) -> Result<(), GraphicsContractError> {
     if value < low || value > high {
         return Err(GraphicsContractError::malformed(format!(
             "render policy {label} is {value}, outside [{low}, {high}]"
@@ -533,13 +588,13 @@ fn bounded_i32(
 /// Validate a policy. Every bound is stated, not implied: a policy a renderer
 /// silently clamps is a policy whose receipt lies about what was rendered.
 pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContractError> {
-    if let Some(coverage) = &policy.foliage_coverage {
-        if ![2, 4, 8].contains(&coverage.samples) {
-            return Err(GraphicsContractError::malformed(format!(
-                "render policy foliage_coverage.samples is {}, expected 2, 4 or 8",
-                coverage.samples
-            )));
-        }
+    if let Some(coverage) = &policy.foliage_coverage
+        && ![2, 4, 8].contains(&coverage.samples)
+    {
+        return Err(GraphicsContractError::malformed(format!(
+            "render policy foliage_coverage.samples is {}, expected 2, 4 or 8",
+            coverage.samples
+        )));
     }
     if let Some(grade) = &policy.grade {
         bounded_i32(grade.lift_r_bp, -1000, 1000, "grade.lift_r_bp")?;
@@ -552,7 +607,12 @@ pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContr
         bounded_i32(grade.saturation_bp, 0, 20000, "grade.saturation_bp")?;
     }
     if let Some(bloom) = &policy.bloom {
-        bounded_i32(bloom.threshold_bp, 0, POLICY_SCALE as i32, "bloom.threshold_bp")?;
+        bounded_i32(
+            bloom.threshold_bp,
+            0,
+            POLICY_SCALE as i32,
+            "bloom.threshold_bp",
+        )?;
         bounded_i32(bloom.intensity_bp, 0, 8000, "bloom.intensity_bp")?;
     }
     if let Some(vignette) = &policy.vignette {
@@ -580,7 +640,12 @@ pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContr
             32000,
             "terrain_surface.uv_repeat_scale_milli",
         )?;
-        bounded_i32(terrain.macro_variation_bp, 0, 5000, "terrain_surface.macro_variation_bp")?;
+        bounded_i32(
+            terrain.macro_variation_bp,
+            0,
+            5000,
+            "terrain_surface.macro_variation_bp",
+        )?;
         bounded_i32(
             terrain.macro_frequency_milli,
             1,
@@ -599,16 +664,21 @@ pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContr
             )));
         }
     }
-    if let Some(sampler) = &policy.sampler {
-        if sampler.anisotropy == 0 || sampler.anisotropy > 16 {
-            return Err(GraphicsContractError::malformed(format!(
-                "render policy sampler.anisotropy is {}, outside [1, 16]",
-                sampler.anisotropy
-            )));
-        }
+    if let Some(sampler) = &policy.sampler
+        && (sampler.anisotropy == 0 || sampler.anisotropy > 16)
+    {
+        return Err(GraphicsContractError::malformed(format!(
+            "render policy sampler.anisotropy is {}, outside [1, 16]",
+            sampler.anisotropy
+        )));
     }
     if let Some(shadow) = &policy.shadow {
-        bounded_i32(shadow.darkness_bp, 0, POLICY_SCALE as i32, "shadow.darkness_bp")?;
+        bounded_i32(
+            shadow.darkness_bp,
+            0,
+            POLICY_SCALE as i32,
+            "shadow.darkness_bp",
+        )?;
         bounded_i32(
             shadow.filter_radius_milli,
             100,
@@ -626,6 +696,67 @@ pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContr
             )));
         }
     }
+    if let Some(cascades) = &policy.shadow_cascades {
+        bounded_i32(
+            cascades.near_distance_m,
+            8,
+            2000,
+            "shadow_cascades.near_distance_m",
+        )?;
+        bounded_i32(
+            cascades.far_distance_m,
+            8,
+            2000,
+            "shadow_cascades.far_distance_m",
+        )?;
+        bounded_i32(
+            cascades.blend_width_m,
+            1,
+            100,
+            "shadow_cascades.blend_width_m",
+        )?;
+        if cascades.blend_width_m >= 2 * cascades.near_distance_m {
+            return Err(GraphicsContractError::malformed(
+                "shadow_cascades.blend_width_m must be less than twice near_distance_m",
+            ));
+        }
+        if cascades.far_distance_m <= cascades.near_distance_m + cascades.blend_width_m / 2 {
+            return Err(GraphicsContractError::malformed(
+                "shadow_cascades.far_distance_m must extend beyond the near cascade fit",
+            ));
+        }
+        if let Some(size) = [cascades.near_map_size_px, cascades.far_map_size_px]
+            .into_iter()
+            .find(|size| !SHADOW_MAP_SIZES_PX.contains(size))
+        {
+            return Err(GraphicsContractError::malformed(format!(
+                "render_policy.shadow_cascades map size {size} is not one of {SHADOW_MAP_SIZES_PX:?}"
+            )));
+        }
+        if policy.shadow_fit.is_some() {
+            return Err(GraphicsContractError::malformed(
+                "render_policy.shadow_fit and render_policy.shadow_cascades cannot both be set",
+            ));
+        }
+    }
+    if let Some(contact_ao) = &policy.contact_ao {
+        bounded_i32(contact_ao.radius_cm, 1, 200, "contact_ao.radius_cm")?;
+        bounded_i32(
+            contact_ao.strength_bp,
+            0,
+            POLICY_SCALE as i32,
+            "contact_ao.strength_bp",
+        )?;
+        bounded_i32(contact_ao.bias_mm, 0, 100, "contact_ao.bias_mm")?;
+    }
+    if let Some(point_shadows) = &policy.point_shadows
+        && !POINT_SHADOW_MAP_SIZES_PX.contains(&point_shadows.map_size_px)
+    {
+        return Err(GraphicsContractError::malformed(format!(
+            "render_policy.point_shadows.map_size_px {} is not one of {POINT_SHADOW_MAP_SIZES_PX:?}",
+            point_shadows.map_size_px
+        )));
+    }
     if let Some(sky) = &policy.sky {
         bounded_i32(
             sky.sun_disc_radius_milli_deg,
@@ -640,7 +771,12 @@ pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContr
         }
     }
     if let Some(debug) = &policy.debug {
-        bounded_i32(debug.albedo_override_bp, 0, POLICY_SCALE as i32, "debug.albedo_override_bp")?;
+        bounded_i32(
+            debug.albedo_override_bp,
+            0,
+            POLICY_SCALE as i32,
+            "debug.albedo_override_bp",
+        )?;
     }
     if let Some(atmosphere) = &policy.atmosphere {
         bounded_i32(
@@ -649,8 +785,18 @@ pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContr
             1000,
             "atmosphere.height_falloff_milli_per_m",
         )?;
-        bounded_i32(atmosphere.density_at_ground_bp, 0, 1000, "atmosphere.density_at_ground_bp")?;
-        bounded_i32(atmosphere.sun_scatter_gain_bp, 0, 20000, "atmosphere.sun_scatter_gain_bp")?;
+        bounded_i32(
+            atmosphere.density_at_ground_bp,
+            0,
+            1000,
+            "atmosphere.density_at_ground_bp",
+        )?;
+        bounded_i32(
+            atmosphere.sun_scatter_gain_bp,
+            0,
+            20000,
+            "atmosphere.sun_scatter_gain_bp",
+        )?;
         // The haze fades distance into the sky actually behind it, which needs
         // a per-pixel sky to fade into; the screen-space sky has no view ray.
         if policy.sky.is_none() {
@@ -674,7 +820,9 @@ pub fn validate_packet_render_policy(
         // Macro variation samples the layer set's macro noise texture; on a
         // single-material terrain there is nothing to sample, so the axis
         // would be decorative. Refuse rather than ignore.
-        if policy.terrain_surface.is_some_and(|terrain| terrain.macro_variation_bp > 0)
+        if policy
+            .terrain_surface
+            .is_some_and(|terrain| terrain.macro_variation_bp > 0)
             && body.terrain.layers.is_none()
         {
             return Err(GraphicsContractError::malformed(

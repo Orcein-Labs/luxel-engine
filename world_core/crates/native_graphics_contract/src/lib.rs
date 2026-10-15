@@ -47,6 +47,8 @@ pub mod asset_projection;
 pub mod backdrop;
 pub mod calibration;
 pub mod deformation;
+pub mod depth_capture;
+pub mod forest_profile;
 pub mod ibl;
 pub mod input_session;
 pub mod kit;
@@ -70,10 +72,11 @@ pub use deformation::{
 };
 
 pub use render_policy::{
-    AtmospherePolicy, BloomPolicy, DebugPolicy, DitherPolicy, FoliageCoveragePolicy, GradePolicy,
-    IblPolicy, MeshSurfacePolicy, POLICY_SCALE, RenderPolicy, ResolvedRenderPolicy, SamplerPolicy,
-    ShadowFitPolicy, ShadowPolicy, SkyModel, SkyPolicy, TerrainSurfacePolicy, VignettePolicy,
-    validate_packet_render_policy, validate_render_policy,
+    AtmospherePolicy, BloomPolicy, ContactAoPolicy, DebugPolicy, DitherPolicy,
+    FoliageCoveragePolicy, GradePolicy, IblPolicy, MeshSurfacePolicy, POINT_SHADOW_MAP_SIZES_PX,
+    POLICY_SCALE, PointShadowsPolicy, RenderPolicy, ResolvedRenderPolicy, SamplerPolicy,
+    ShadowCascadesPolicy, ShadowFitPolicy, ShadowPolicy, SkyModel, SkyPolicy, TerrainSurfacePolicy,
+    VignettePolicy, validate_packet_render_policy, validate_render_policy,
 };
 
 pub use asset_projection::{
@@ -82,6 +85,7 @@ pub use asset_projection::{
 };
 pub use backdrop::{BackdropSet, load_backdrop_set};
 pub use calibration::{CalibrationPlacement, CalibrationRig, CalibrationView};
+pub use forest_profile::{ForestProfile, ForestProfileReceipt, apply_forest_profile};
 pub use kit::{KitSet, load_kit_set};
 pub use scene_composition::{
     compose_bound_scene, compose_bound_scene_with_camera, compose_bound_scene_with_view,
@@ -562,6 +566,9 @@ pub struct EnvironmentIntent {
     pub exposure: f32,
 }
 
+/// Maximum number of unshadowed local lights in the native fragment path.
+pub const MAX_POINT_LIGHTS: usize = 4;
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LightKind {
@@ -740,10 +747,12 @@ fn validate_renderer_attestation_body(
         "project",
         "worker_script",
     ];
-    if body.source_digests.len() != required_sources.len()
-        || required_sources
-            .iter()
-            .any(|source| !body.source_digests.contains_key(*source))
+    if body.source_digests.keys().any(|key| {
+        !required_sources.contains(&key.as_str())
+            && !["contact_occlusion", "shadow_cascades", "local_shadows"].contains(&key.as_str())
+    }) || required_sources
+        .iter()
+        .any(|source| !body.source_digests.contains_key(*source))
     {
         return Err(GraphicsContractError::provenance(
             "renderer attestation source manifest is incomplete",
@@ -1090,6 +1099,18 @@ pub fn validate_scene_packet(packet: &GraphicsScenePacket) -> Result<(), Graphic
     if packet.body.lights.is_empty() {
         return Err(GraphicsContractError::malformed(
             "scene packet needs at least one light intent",
+        ));
+    }
+    let directional_count = packet
+        .body
+        .lights
+        .iter()
+        .filter(|light| matches!(light.kind, LightKind::Directional { .. }))
+        .count();
+    let point_count = packet.body.lights.len() - directional_count;
+    if directional_count != 1 || point_count > MAX_POINT_LIGHTS {
+        return Err(GraphicsContractError::malformed(
+            "native lighting requires exactly one directional light and at most four point lights",
         ));
     }
     let mut light_ids = BTreeSet::new();
@@ -1524,11 +1545,7 @@ pub fn world_void_fraction_bp(packet: &GraphicsScenePacket, stride_px: u32) -> u
             }
         }
     }
-    if sampled == 0 {
-        0
-    } else {
-        (void * 10_000 / sampled) as u32
-    }
+    (void * 10_000).checked_div(sampled).unwrap_or(0) as u32
 }
 
 fn camera_basis(camera: &GraphicsCamera) -> ([f32; 3], [f32; 3], [f32; 3]) {
@@ -4669,21 +4686,122 @@ pub struct Campaign2Inputs<'a> {
     pub backdrop: Option<&'a BackdropSet>,
 }
 
+/// Bounded output-resolution selection for R-2. The choice is applied only
+/// while lowering the existing camera and capture dimensions; it is not a
+/// serialized packet policy.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Campaign2OutputResolution {
+    #[default]
+    Native,
+    Scale2,
+}
+
+impl Campaign2OutputResolution {
+    /// Parse the bounded CLI scale selector. Absence is handled by the caller
+    /// as the native default; only the literal scales `1` and `2` are valid.
+    pub fn parse_capture_scale(value: &str) -> Result<Self, String> {
+        match value {
+            "1" => Ok(Self::Native),
+            "2" => Ok(Self::Scale2),
+            _ => Err(format!(
+                "LUXEL_CAPTURE_SCALE must be exactly 1 or 2, got `{value}`"
+            )),
+        }
+    }
+}
+
+/// Explicit Campaign 2 lowering inputs, including the R-2 output size.
+#[derive(Clone, Copy, Debug)]
+pub struct Campaign2LoweringInputs<'a> {
+    pub campaign: &'a Campaign2Inputs<'a>,
+    pub output_resolution: Campaign2OutputResolution,
+}
+
+/// Explicit opt-in rendering and content axes. Absent fields preserve the
+/// historical Campaign 2 packet, including its digest.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Campaign2Features {
+    pub shadow_cascades: Option<ShadowCascadesPolicy>,
+    pub contact_ao: Option<ContactAoPolicy>,
+    pub forest_profile: Option<ForestProfile>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Campaign2FeatureInputs<'a> {
+    pub resolution: Campaign2LoweringInputs<'a>,
+    pub features: Campaign2Features,
+}
+
+/// Lower and seal all selected axes from explicit inputs. The same values
+/// must be supplied to the supervisor for independent authorization.
+pub fn lower_campaign2_packet_with_features(
+    reference: &GraphicsScenePacket,
+    view: Campaign2View,
+    inputs: &Campaign2FeatureInputs<'_>,
+) -> Result<GraphicsScenePacket, GraphicsContractError> {
+    let base = lower_campaign2_packet_with_resolution_inputs(reference, view, &inputs.resolution)?;
+    if inputs.features == Campaign2Features::default() {
+        return Ok(base);
+    }
+    let mut body = base.body;
+    if inputs.features.shadow_cascades.is_some() || inputs.features.contact_ao.is_some() {
+        let policy = body.render_policy.get_or_insert_with(RenderPolicy::default);
+        if let Some(cascades) = inputs.features.shadow_cascades {
+            policy.shadow_fit = None;
+            policy.shadow_cascades = Some(cascades);
+        }
+        if let Some(ao) = inputs.features.contact_ao {
+            policy.contact_ao = Some(ao);
+        }
+    }
+    if let Some(profile) = inputs.features.forest_profile {
+        if inputs.resolution.campaign.candidate != ParityPolicyCandidate::Converge4 {
+            return Err(GraphicsContractError::provenance(
+                "Heartwood content requires the converge4 arm",
+            ));
+        }
+        let objective = reference
+            .body
+            .instances
+            .iter()
+            .find(|instance| instance.instance_id == "objective-beacon")
+            .ok_or_else(|| GraphicsContractError::provenance("missing objective beacon anchor"))?;
+        let [x, _, z] = objective.transform.translation_xyz_m;
+        let hero_x = x - 5.5;
+        let hero_z = z - 2.0;
+        let hero_y = campaign2_terrain_height(reference, f64::from(hero_x), f64::from(hero_z));
+        let surface = still_water::TerrainSurface::of(&body.terrain)?;
+        let anchor = [hero_x, surface.height(hero_x, hero_z), hero_z];
+        let cameras =
+            CAMPAIGN2_CAMERA_OFFSETS.map(|[dx, dy, dz]| [hero_x + dx, hero_y + dy, hero_z + dz]);
+        apply_forest_profile(&mut body, profile, anchor, &cameras)?;
+    }
+    seal_scene_packet(body)
+}
+
 /// `lower_campaign2_packet` with every input explicit (see `Campaign2Inputs`).
 pub fn lower_campaign2_packet_inputs(
     packet: &GraphicsScenePacket,
     view: Campaign2View,
     inputs: &Campaign2Inputs<'_>,
 ) -> Result<GraphicsScenePacket, GraphicsContractError> {
-    lower_campaign2_packet_impl(
+    lower_campaign2_packet_with_resolution_inputs(
         packet,
         view,
-        inputs.candidate,
-        inputs.content,
-        inputs.terrain_layers,
-        inputs.kit,
-        inputs.backdrop,
+        &Campaign2LoweringInputs {
+            campaign: inputs,
+            output_resolution: Campaign2OutputResolution::Native,
+        },
     )
+}
+
+/// Lower a Campaign 2 packet with a typed R-2 output-resolution selection.
+pub fn lower_campaign2_packet_with_resolution_inputs(
+    packet: &GraphicsScenePacket,
+    view: Campaign2View,
+    inputs: &Campaign2LoweringInputs<'_>,
+) -> Result<GraphicsScenePacket, GraphicsContractError> {
+    lower_campaign2_packet_impl(packet, view, inputs)
 }
 
 /// `lower_campaign2_packet` with the parity arm passed explicitly instead of
@@ -4696,26 +4814,34 @@ pub fn lower_campaign2_packet_with(
     parity_content: ParityContent,
     terrain_layers: Option<&TerrainLayerSet>,
 ) -> Result<GraphicsScenePacket, GraphicsContractError> {
+    let campaign = Campaign2Inputs {
+        candidate: parity_candidate,
+        content: parity_content,
+        terrain_layers,
+        kit: None,
+        backdrop: None,
+    };
     lower_campaign2_packet_impl(
         packet,
         view,
-        parity_candidate,
-        parity_content,
-        terrain_layers,
-        None,
-        None,
+        &Campaign2LoweringInputs {
+            campaign: &campaign,
+            output_resolution: Campaign2OutputResolution::Native,
+        },
     )
 }
 
 fn lower_campaign2_packet_impl(
     packet: &GraphicsScenePacket,
     view: Campaign2View,
-    parity_candidate: ParityPolicyCandidate,
-    parity_content: ParityContent,
-    terrain_layers: Option<&TerrainLayerSet>,
-    kit: Option<&KitSet>,
-    backdrop: Option<&BackdropSet>,
+    inputs: &Campaign2LoweringInputs<'_>,
 ) -> Result<GraphicsScenePacket, GraphicsContractError> {
+    let parity_candidate = inputs.campaign.candidate;
+    let parity_content = inputs.campaign.content;
+    let terrain_layers = inputs.campaign.terrain_layers;
+    let kit = inputs.campaign.kit;
+    let backdrop = inputs.campaign.backdrop;
+    let output_resolution = inputs.output_resolution;
     validate_scene_packet(packet)?;
     // N-5: the kit is content of the kit arms only.
     if kit.is_some() != parity_candidate.uses_kit() {
@@ -5521,7 +5647,7 @@ fn lower_campaign2_packet_impl(
         ]);
     }
 
-    let (target, position, fov_y_degrees, width_px, height_px) = match view {
+    let (target, position, fov_y_degrees, native_width_px, native_height_px) = match view {
         Campaign2View::Close => (
             [hero_x, hero_y + 2.45, hero_z],
             [
@@ -5530,8 +5656,8 @@ fn lower_campaign2_packet_impl(
                 hero_z + CAMPAIGN2_CAMERA_OFFSETS[0][2],
             ],
             46.0,
-            768,
-            512,
+            768u32,
+            512u32,
         ),
         Campaign2View::Medium => (
             [hero_x - 1.5, hero_y + 2.2, hero_z + 1.0],
@@ -5541,8 +5667,8 @@ fn lower_campaign2_packet_impl(
                 hero_z + CAMPAIGN2_CAMERA_OFFSETS[1][2],
             ],
             50.0,
-            960,
-            640,
+            960u32,
+            640u32,
         ),
         Campaign2View::Wide => (
             [hero_x - 8.0, hero_y + 1.5, hero_z - 10.0],
@@ -5552,10 +5678,22 @@ fn lower_campaign2_packet_impl(
                 hero_z + CAMPAIGN2_CAMERA_OFFSETS[2][2],
             ],
             50.0,
-            960,
-            640,
+            960u32,
+            640u32,
         ),
     };
+    let (width_px, height_px) = match output_resolution {
+        Campaign2OutputResolution::Native => (native_width_px, native_height_px),
+        Campaign2OutputResolution::Scale2 => (
+            native_width_px
+                .checked_mul(2)
+                .ok_or_else(|| GraphicsContractError::unsupported("R-2 scale 2 width overflows"))?,
+            native_height_px.checked_mul(2).ok_or_else(|| {
+                GraphicsContractError::unsupported("R-2 scale 2 height overflows")
+            })?,
+        ),
+    };
+    validate_dimensions(width_px, height_px, "Campaign 2 output resolution")?;
     let forward = normalize_vector3(
         [
             target[0] - position[0],

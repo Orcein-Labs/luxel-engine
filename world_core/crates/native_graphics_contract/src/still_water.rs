@@ -13,7 +13,8 @@
 //! carving and is grounded by construction.
 
 use crate::{
-    BufferPayload, GraphicsContractError, GraphicsScenePacketBody, StandingWater, TerrainPacket, TerrainWetZone,
+    BufferPayload, GraphicsContractError, GraphicsScenePacketBody, StandingWater, TerrainPacket,
+    TerrainWetZone,
 };
 
 /// The water surface's height: the mean rasterised ground height over the
@@ -110,7 +111,10 @@ impl TerrainSurface {
     /// Height of the rasterised surface at world (x, z); clamped to the grid.
     pub fn height(&self, x: f32, z: f32) -> f32 {
         let cells = (self.resolution - 1) as f32;
-        let (column, row) = ((x / self.width_m + 0.5) * cells, (0.5 - z / self.length_m) * cells);
+        let (column, row) = (
+            (x / self.width_m + 0.5) * cells,
+            (0.5 - z / self.length_m) * cells,
+        );
         let last = cells - 1.0;
         let c0 = column.floor().clamp(0.0, last);
         let r0 = row.floor().clamp(0.0, last);
@@ -131,7 +135,10 @@ impl TerrainSurface {
 
 /// Replace the converge2 pool (disc, rings, ripple albedo) with standing water
 /// painted by the terrain at the same place and size.
-pub fn apply_still_water(body: &mut GraphicsScenePacketBody, center: [f32; 2]) -> Result<(), GraphicsContractError> {
+pub fn apply_still_water(
+    body: &mut GraphicsScenePacketBody,
+    center: [f32; 2],
+) -> Result<(), GraphicsContractError> {
     let surface_y_m = surface_height(&TerrainSurface::of(&body.terrain)?, center, POOL_RADII_XZ_M);
     body.instances
         .retain(|instance| !REPLACED_INSTANCES.contains(&instance.instance_id.as_str()));
@@ -139,7 +146,8 @@ pub fn apply_still_water(body: &mut GraphicsScenePacketBody, center: [f32; 2]) -
         .retain(|mesh| !REPLACED_MESHES.contains(&mesh.mesh_id.as_str()));
     body.materials
         .retain(|material| material.material_id != REPLACED_MATERIAL);
-    body.textures.retain(|texture| texture.texture_id != REPLACED_TEXTURE);
+    body.textures
+        .retain(|texture| texture.texture_id != REPLACED_TEXTURE);
     body.terrain.wet_zone = Some(TerrainWetZone {
         center_xz_m: center,
         radii_xz_m: POOL_RADII_XZ_M,

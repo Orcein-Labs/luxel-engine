@@ -11,7 +11,9 @@ fn png(side: u32, rgb: [u8; 3]) -> Vec<u8> {
         *pixel = image::Rgb(rgb.map(|c| (c as f32 * shade) as u8));
     }
     let mut bytes = std::io::Cursor::new(Vec::new());
-    image.write_to(&mut bytes, image::ImageFormat::Png).expect("png encodes");
+    image
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .expect("png encodes");
     bytes.into_inner()
 }
 
@@ -28,7 +30,7 @@ pub fn backdrop_glb(tiles: usize, side: usize, span_m: f32, peak_m: f32) -> Vec<
     let mut nodes = Vec::new();
 
     let mut push_view = |binary: &mut Vec<u8>, data: &[u8], target: Option<u32>| -> usize {
-        while binary.len() % 4 != 0 {
+        while !binary.len().is_multiple_of(4) {
             binary.push(0);
         }
         let mut view = json!({"buffer": 0, "byteOffset": binary.len(), "byteLength": data.len()});
@@ -41,7 +43,8 @@ pub fn backdrop_glb(tiles: usize, side: usize, span_m: f32, peak_m: f32) -> Vec<
     };
 
     for tile in 0..tiles {
-        let (mut positions, mut normals, mut uvs, mut indices) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut positions, mut normals, mut uvs, mut indices) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let step = span_m / (side - 1) as f32;
         for row in 0..side {
             for column in 0..side {
@@ -50,7 +53,10 @@ pub fn backdrop_glb(tiles: usize, side: usize, span_m: f32, peak_m: f32) -> Vec<
                 let t = (column as f32 / (side - 1) as f32 - 0.5).abs() * 2.0;
                 positions.extend([x, peak_m * (1.0 - t), z]);
                 normals.extend([0.0f32, 1.0, 0.0]);
-                uvs.extend([column as f32 / (side - 1) as f32, row as f32 / (side - 1) as f32]);
+                uvs.extend([
+                    column as f32 / (side - 1) as f32,
+                    row as f32 / (side - 1) as f32,
+                ]);
             }
         }
         for row in 0..side - 1 {
@@ -60,21 +66,33 @@ pub fn backdrop_glb(tiles: usize, side: usize, span_m: f32, peak_m: f32) -> Vec<
                 indices.extend([a, c, b, b, c, d]);
             }
         }
-        let bytes = |values: &[f32]| values.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>();
-        let (min, max) = positions.chunks(3).fold(([f32::MAX; 3], [f32::MIN; 3]), |(mut lo, mut hi), p| {
-            for axis in 0..3 {
-                lo[axis] = lo[axis].min(p[axis]);
-                hi[axis] = hi[axis].max(p[axis]);
-            }
-            (lo, hi)
-        });
+        let bytes = |values: &[f32]| {
+            values
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect::<Vec<u8>>()
+        };
+        let (min, max) =
+            positions
+                .chunks(3)
+                .fold(([f32::MAX; 3], [f32::MIN; 3]), |(mut lo, mut hi), p| {
+                    for axis in 0..3 {
+                        lo[axis] = lo[axis].min(p[axis]);
+                        hi[axis] = hi[axis].max(p[axis]);
+                    }
+                    (lo, hi)
+                });
         let vertex_count = side * side;
         let p = push_view(&mut binary, &bytes(&positions), Some(34962));
         accessors.push(json!({"bufferView": p, "componentType": 5126, "count": vertex_count, "type": "VEC3", "min": min, "max": max}));
         let n = push_view(&mut binary, &bytes(&normals), Some(34962));
-        accessors.push(json!({"bufferView": n, "componentType": 5126, "count": vertex_count, "type": "VEC3"}));
+        accessors.push(
+            json!({"bufferView": n, "componentType": 5126, "count": vertex_count, "type": "VEC3"}),
+        );
         let u = push_view(&mut binary, &bytes(&uvs), Some(34962));
-        accessors.push(json!({"bufferView": u, "componentType": 5126, "count": vertex_count, "type": "VEC2"}));
+        accessors.push(
+            json!({"bufferView": u, "componentType": 5126, "count": vertex_count, "type": "VEC2"}),
+        );
         let index_bytes: Vec<u8> = indices.iter().flat_map(|v| v.to_le_bytes()).collect();
         let i = push_view(&mut binary, &index_bytes, Some(34963));
         accessors.push(json!({"bufferView": i, "componentType": 5125, "count": indices.len(), "type": "SCALAR"}));
@@ -93,7 +111,7 @@ pub fn backdrop_glb(tiles: usize, side: usize, span_m: f32, peak_m: f32) -> Vec<
         }));
         nodes.push(json!({"name": format!("backdrop_t{tile}"), "mesh": meshes.len() - 1}));
     }
-    while binary.len() % 4 != 0 {
+    while !binary.len().is_multiple_of(4) {
         binary.push(0);
     }
     let node_indices: Vec<usize> = (0..nodes.len()).collect();
@@ -112,7 +130,7 @@ pub fn backdrop_glb(tiles: usize, side: usize, span_m: f32, peak_m: f32) -> Vec<
         "buffers": [{"byteLength": binary.len()}],
     });
     let mut text = serde_json::to_vec(&document).expect("json");
-    while text.len() % 4 != 0 {
+    while !text.len().is_multiple_of(4) {
         text.push(b' ');
     }
     let total = 12 + 8 + text.len() + 8 + binary.len();

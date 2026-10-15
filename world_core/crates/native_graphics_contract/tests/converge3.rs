@@ -8,9 +8,9 @@ use std::path::PathBuf;
 
 use luxel_native_graphics_contract::still_water::{POOL_RADII_XZ_M, TerrainSurface};
 use luxel_native_graphics_contract::{
-    BufferPayload, Campaign2Inputs, Campaign2View, GraphicsScenePacket, KitSet, ParityContent, ParityPolicyCandidate,
-    StandingWater, TerrainWetZone, canonical_json, load_kit_set, lower_campaign2_packet_inputs, seal_scene_packet,
-    validate_scene_packet,
+    BufferPayload, Campaign2Inputs, Campaign2View, GraphicsScenePacket, KitSet, ParityContent,
+    ParityPolicyCandidate, StandingWater, TerrainWetZone, canonical_json, load_kit_set,
+    lower_campaign2_packet_inputs, seal_scene_packet, validate_scene_packet,
 };
 
 #[path = "support/synthetic_layers.rs"]
@@ -33,15 +33,22 @@ const CONVERGE: ParityContent = ParityContent {
 };
 
 fn kit_set(name: &str) -> KitSet {
-    load_kit_set(&repo_root().join(format!("tools/kit/{name}.lock.json")), &repo_root())
-        .unwrap_or_else(|e| panic!("built {name} loads (run tools/build_kit.py --set {name}): {e}"))
+    load_kit_set(
+        &repo_root().join(format!("tools/kit/{name}.lock.json")),
+        &repo_root(),
+    )
+    .unwrap_or_else(|e| panic!("built {name} loads (run tools/build_kit.py --set {name}): {e}"))
 }
 
 fn kit() -> KitSet {
     kit_set("kit2")
 }
 
-fn lower(candidate: ParityPolicyCandidate, kit: &KitSet, view: Campaign2View) -> GraphicsScenePacket {
+fn lower(
+    candidate: ParityPolicyCandidate,
+    kit: &KitSet,
+    view: Campaign2View,
+) -> GraphicsScenePacket {
     let layers = synthetic_set();
     lower_campaign2_packet_inputs(
         &reference(),
@@ -65,14 +72,20 @@ fn heights(packet: &GraphicsScenePacket) -> &[f32] {
 }
 
 fn ellipse(center: [f32; 2], x: f32, z: f32) -> f32 {
-    (((x - center[0]) / POOL_RADII_XZ_M[0]).powi(2) + ((z - center[1]) / POOL_RADII_XZ_M[1]).powi(2)).sqrt()
+    (((x - center[0]) / POOL_RADII_XZ_M[0]).powi(2)
+        + ((z - center[1]) / POOL_RADII_XZ_M[1]).powi(2))
+    .sqrt()
 }
 
 #[test]
 #[ignore = "needs the built kit (python3 tools/build_kit.py)"]
 fn w1_still_water_replaces_the_disc_and_its_rings() {
     let kit = kit();
-    for view in [Campaign2View::Close, Campaign2View::Medium, Campaign2View::Wide] {
+    for view in [
+        Campaign2View::Close,
+        Campaign2View::Medium,
+        Campaign2View::Wide,
+    ] {
         let packet = lower(ParityPolicyCandidate::Converge3, &kit, view);
         validate_scene_packet(&packet).expect("valid");
         let body = &packet.body;
@@ -84,7 +97,10 @@ fn w1_still_water_replaces_the_disc_and_its_rings() {
             "{view:?}: converge2 pool left"
         );
         assert!(
-            !body.meshes.iter().any(|m| m.mesh_id.starts_with("campaign2-wet")),
+            !body
+                .meshes
+                .iter()
+                .any(|m| m.mesh_id.starts_with("campaign2-wet")),
             "{view:?}: converge2 pool mesh left"
         );
         assert!(
@@ -94,7 +110,10 @@ fn w1_still_water_replaces_the_disc_and_its_rings() {
                 .any(|m| m.material_id == "campaign2-wet" || m.material_id == "campaign2-hero-glow")
         );
         assert!(
-            !body.textures.iter().any(|t| t.texture_id == "luxel-campaign2-wet-albedo"),
+            !body
+                .textures
+                .iter()
+                .any(|t| t.texture_id == "luxel-campaign2-wet-albedo"),
             "orphan ripple albedo"
         );
         assert!(
@@ -114,11 +133,16 @@ fn w1_still_water_replaces_the_disc_and_its_rings() {
         // converge2's render policy, camera and terrain heights are unchanged by W-1.
         let converge2 = lower(ParityPolicyCandidate::Converge2, &kit_set("kit1"), view);
         // L-2a: converge3's policy is converge2's plus foliage coverage.
-        let mut expected = converge2.body.render_policy.clone().expect("converge2 policy");
-        expected.foliage_coverage = Some(luxel_native_graphics_contract::FoliageCoveragePolicy { samples: 4 });
+        let mut expected = converge2.body.render_policy.expect("converge2 policy");
+        expected.foliage_coverage =
+            Some(luxel_native_graphics_contract::FoliageCoveragePolicy { samples: 4 });
         assert_eq!(body.render_policy, Some(expected));
         assert_eq!(body.camera, converge2.body.camera);
-        assert_eq!(heights(&packet), heights(&converge2), "W-1 does not move the ground");
+        assert_eq!(
+            heights(&packet),
+            heights(&converge2),
+            "W-1 does not move the ground"
+        );
         assert!(converge2.body.terrain.wet_zone.is_none());
         assert!(
             !String::from_utf8(canonical_json(&converge2).unwrap())
@@ -152,7 +176,10 @@ fn w1_the_kit_stands_on_the_rasterised_surface_and_out_of_the_water() {
         } else {
             ground
         };
-        assert!((y - expected).abs() < 1e-4, "{id}: y {y} vs ground {expected}");
+        assert!(
+            (y - expected).abs() < 1e-4,
+            "{id}: y {y} vs ground {expected}"
+        );
         // Rocks may sit on the shore, half in the water; plants stand dry.
         let e = ellipse(zone.center_xz_m, x, z);
         let dry_from = if id.starts_with("kit-rock") {
@@ -236,7 +263,8 @@ fn w1_wet_zone_needs_layers_and_sane_values() {
     }
     let mut body = layered.body.clone();
     body.terrain.wet_zone = Some(zone);
-    validate_scene_packet(&seal_scene_packet(body).unwrap()).expect("a sane zone on layered terrain is valid");
+    validate_scene_packet(&seal_scene_packet(body).unwrap())
+        .expect("a sane zone on layered terrain is valid");
 }
 
 #[test]
@@ -256,9 +284,11 @@ fn r1_each_kit_arm_renders_its_own_kit_set() {
             },
         )
     };
-    let error = lower_with(ParityPolicyCandidate::Converge3, &kit_set("kit1")).expect_err("converge3 refuses kit1");
+    let error = lower_with(ParityPolicyCandidate::Converge3, &kit_set("kit1"))
+        .expect_err("converge3 refuses kit1");
     assert!(error.to_string().contains("kit2"), "{error}");
-    let error = lower_with(ParityPolicyCandidate::Converge2, &kit_set("kit2")).expect_err("converge2 refuses kit2");
+    let error = lower_with(ParityPolicyCandidate::Converge2, &kit_set("kit2"))
+        .expect_err("converge2 refuses kit2");
     assert!(error.to_string().contains("kit1"), "{error}");
 }
 
@@ -266,8 +296,11 @@ fn r1_each_kit_arm_renders_its_own_kit_set() {
 #[ignore = "needs the built kits (python3 tools/build_kit.py --set kit1|kit2)"]
 fn r1_kit2_differs_from_kit1_only_in_the_ruin() {
     let lock = |name: &str| -> serde_json::Value {
-        serde_json::from_str(&std::fs::read_to_string(repo_root().join(format!("tools/kit/{name}.lock.json"))).unwrap())
-            .unwrap()
+        serde_json::from_str(
+            &std::fs::read_to_string(repo_root().join(format!("tools/kit/{name}.lock.json")))
+                .unwrap(),
+        )
+        .unwrap()
     };
     let (kit1, kit2) = (lock("kit1"), lock("kit2"));
     for asset in ["rock_a", "rock_b", "tree", "fern"] {
@@ -276,9 +309,13 @@ fn r1_kit2_differs_from_kit1_only_in_the_ruin() {
             "{asset} changed"
         );
     }
-    assert_ne!(kit1["assets"]["ruin"]["sha256"], kit2["assets"]["ruin"]["sha256"]);
+    assert_ne!(
+        kit1["assets"]["ruin"]["sha256"],
+        kit2["assets"]["ruin"]["sha256"]
+    );
     // Budget: the damaged ruin grows by <= 0.5 MB.
-    let grow = kit2["assets"]["ruin"]["bytes"].as_i64().unwrap() - kit1["assets"]["ruin"]["bytes"].as_i64().unwrap();
+    let grow = kit2["assets"]["ruin"]["bytes"].as_i64().unwrap()
+        - kit1["assets"]["ruin"]["bytes"].as_i64().unwrap();
     assert!(grow <= 500_000, "ruin grew {grow} bytes");
 }
 
@@ -324,7 +361,11 @@ fn r1_fallen_blocks_rest_on_the_ground() {
         let mut deepest_below = f32::NEG_INFINITY;
         let mut lowest_gap = f32::INFINITY;
         for p in &mesh.positions_m {
-            let r = rotate([p[0] * t.scale_xyz[0], p[1] * t.scale_xyz[1], p[2] * t.scale_xyz[2]]);
+            let r = rotate([
+                p[0] * t.scale_xyz[0],
+                p[1] * t.scale_xyz[1],
+                p[2] * t.scale_xyz[2],
+            ]);
             let world = [
                 r[0] + t.translation_xyz_m[0],
                 r[1] + t.translation_xyz_m[1],
@@ -345,14 +386,21 @@ fn r1_fallen_blocks_rest_on_the_ground() {
             instance.instance_id
         );
     }
-    assert!(blocks >= 3, "expected at least three fallen blocks, found {blocks}");
+    assert!(
+        blocks >= 3,
+        "expected at least three fallen blocks, found {blocks}"
+    );
 }
 
 #[test]
 #[ignore = "needs the built kits (python3 tools/build_kit.py --set kit1|kit2)"]
 fn n7_one_scattered_world_in_every_view_with_clear_sightlines() {
     let kit = kit();
-    let views = [Campaign2View::Close, Campaign2View::Medium, Campaign2View::Wide];
+    let views = [
+        Campaign2View::Close,
+        Campaign2View::Medium,
+        Campaign2View::Wide,
+    ];
     let packets: Vec<GraphicsScenePacket> = views
         .iter()
         .map(|v| lower(ParityPolicyCandidate::Converge3, &kit, *v))
@@ -366,10 +414,17 @@ fn n7_one_scattered_world_in_every_view_with_clear_sightlines() {
             .collect()
     };
     let world = scattered(&packets[0]);
-    let trees = world.iter().filter(|(id, _)| id.starts_with("kit-tree-s")).count();
+    let trees = world
+        .iter()
+        .filter(|(id, _)| id.starts_with("kit-tree-s"))
+        .count();
     assert!(trees > 50, "only {trees} tree instances");
     for p in &packets[1..] {
-        assert_eq!(scattered(p), world, "every view renders the same scattered world");
+        assert_eq!(
+            scattered(p),
+            world,
+            "every view renders the same scattered world"
+        );
     }
     // Every view's camera sees the ruin past no tree: no tree trunk within 3 m
     // of the camera-to-ruin segment.
@@ -385,7 +440,8 @@ fn n7_one_scattered_world_in_every_view_with_clear_sightlines() {
         let c = p.body.camera.position_xyz_m;
         for (id, t) in world.iter().filter(|(id, _)| id.starts_with("kit-tree-s")) {
             let d = [ruin[0] - c[0], ruin[2] - c[2]];
-            let s = (((t[0] - c[0]) * d[0] + (t[2] - c[2]) * d[1]) / (d[0] * d[0] + d[1] * d[1])).clamp(0.0, 1.0);
+            let s = (((t[0] - c[0]) * d[0] + (t[2] - c[2]) * d[1]) / (d[0] * d[0] + d[1] * d[1]))
+                .clamp(0.0, 1.0);
             let q = [c[0] + s * d[0], c[2] + s * d[1]];
             assert!(
                 (t[0] - q[0]).hypot(t[2] - q[1]) >= 3.0,
@@ -403,8 +459,18 @@ fn n7_one_scattered_world_in_every_view_with_clear_sightlines() {
             .filter(|i| i.instance_id.contains("-s0"))
             .all(|i| i.variation.is_some())
     );
-    let converge2 = lower(ParityPolicyCandidate::Converge2, &kit_set("kit1"), Campaign2View::Close);
-    assert!(converge2.body.instances.iter().all(|i| i.variation.is_none()));
+    let converge2 = lower(
+        ParityPolicyCandidate::Converge2,
+        &kit_set("kit1"),
+        Campaign2View::Close,
+    );
+    assert!(
+        converge2
+            .body
+            .instances
+            .iter()
+            .all(|i| i.variation.is_none())
+    );
     assert!(
         !String::from_utf8(canonical_json(&converge2).unwrap())
             .unwrap()

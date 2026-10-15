@@ -12,27 +12,27 @@
 //! that seam, authorized by ENUMERATION exactly like `Campaign2View`: a rig is
 //! a name, and its lights, environment and render policy are constants here.
 
-use serde::{Deserialize, Serialize};
 use luxel_asset_contract::{
     ASSET_RUNTIME_REQUEST_SCHEMA, AssetPreparationReceipt, AssetPreparationRequest, AssetUse,
     Axis as AssetAxis, CollisionMetadata, CollisionShape, LodMetadata, RenderAssetPackage,
     RenderConditioningRequest, RenderMipPolicy, RuntimeTarget,
 };
 use luxel_project_ledger::{
-    CollisionPolicy, MaterialAssignment, SCENE_ARTIFACT_SCHEMA, SCENE_OBJECT_SCHEMA,
-    SceneArtifact, SceneArtifactBody, SceneImportance, SceneLodLevel, SceneLodPolicy, SceneObject,
+    CollisionPolicy, MaterialAssignment, SCENE_ARTIFACT_SCHEMA, SCENE_OBJECT_SCHEMA, SceneArtifact,
+    SceneArtifactBody, SceneImportance, SceneLodLevel, SceneLodPolicy, SceneObject,
     SceneObjectProvenance, SceneProvenance, SceneTransform, SceneVisibilityPolicy,
     seal_scene_with_render_assets,
 };
 use luxel_reference_runtime::WorldArtifact;
+use serde::{Deserialize, Serialize};
 
+use crate::render_policy::{
+    DebugPolicy, FoliageCoveragePolicy, IblPolicy, MeshSurfacePolicy, PointShadowsPolicy,
+    RenderPolicy, ShadowFitPolicy, ShadowPolicy, SkyModel, SkyPolicy,
+};
 use crate::{
     CameraProjection, EnvironmentIntent, GraphicsCamera, GraphicsContractError,
     GraphicsScenePacketBody, LightIntent, LightKind, sha256_prefixed,
-};
-use crate::render_policy::{
-    DebugPolicy, FoliageCoveragePolicy, IblPolicy, MeshSurfacePolicy, RenderPolicy, ShadowFitPolicy, ShadowPolicy, SkyModel,
-    SkyPolicy,
 };
 
 /// The enumerated light rigs. Each is a fixed set of lights, environment and
@@ -61,6 +61,11 @@ pub enum CalibrationRig {
     SunCoverage,
     OvercastCoverage,
     SunIblCoverage,
+    /// Fixed dim environment with four warm or cool unshadowed local lights.
+    LocalWarm,
+    LocalCool,
+    /// Same environment and directional light, with local lights absent.
+    LocalOff,
 }
 
 impl CalibrationRig {
@@ -75,11 +80,24 @@ impl CalibrationRig {
         Self::SunAlbedoGreyIbl,
     ];
 
+    pub const LOCAL: [Self; 3] = [Self::LocalOff, Self::LocalWarm, Self::LocalCool];
+
+    pub fn local(self) -> bool {
+        Self::LOCAL.contains(&self)
+    }
+
     /// The rigs that carry the foliage-coverage policy.
-    pub const COVERAGE: [Self; 3] = [Self::SunCoverage, Self::OvercastCoverage, Self::SunIblCoverage];
+    pub const COVERAGE: [Self; 3] = [
+        Self::SunCoverage,
+        Self::OvercastCoverage,
+        Self::SunIblCoverage,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
+            Self::LocalOff => "local-off",
+            Self::LocalWarm => "local-warm",
+            Self::LocalCool => "local-cool",
             Self::SunCoverage => "sun-coverage",
             Self::OvercastCoverage => "overcast-coverage",
             Self::SunIblCoverage => "sun-ibl-coverage",
@@ -126,11 +144,15 @@ impl CalibrationRig {
 
     /// Rigs whose fixed exposure is set on the grey card (the ±5% gate).
     pub fn exposure_calibrated(self) -> bool {
-        matches!(self.lighting(), Self::Sun | Self::Overcast)
+        !self.local() && matches!(self.lighting(), Self::Sun | Self::Overcast)
     }
 
     pub fn parse(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().chain(Self::COVERAGE).find(|rig| rig.name() == name)
+        Self::ALL
+            .into_iter()
+            .chain(Self::COVERAGE)
+            .chain(Self::LOCAL)
+            .find(|rig| rig.name() == name)
     }
 
     /// Overwrite the body's lights, environment and render policy with this
@@ -138,19 +160,37 @@ impl CalibrationRig {
     /// Everything else in the body is untouched.
     pub fn apply(self, body: &mut GraphicsScenePacketBody) -> Result<(), GraphicsContractError> {
         let ibl = self.ibl();
-        let rig = self.lighting();
+        let rig = if self.local() {
+            Self::Overcast
+        } else {
+            self.lighting()
+        };
         let (direction_xyz, color_rgb, intensity) = match rig {
             // Toward the sun: camera-right (−X, the cameras look +Z) and toward
             // the camera (−Z), 35° up. The light travels the other way.
-            Self::Sun | Self::SunAlbedoGrey | Self::SunIbl | Self::SunAlbedoGreyIbl | Self::SunCoverage | Self::SunIblCoverage => {
-                ([0.579_228, -0.573_576, 0.579_228], [1.0, 0.96, 0.90], 3.0)
-            }
-            Self::Overcast | Self::OvercastIbl | Self::OvercastCoverage => ([0.0, -1.0, 0.0], [1.0, 1.0, 1.0], 0.0),
+            Self::Sun
+            | Self::SunAlbedoGrey
+            | Self::SunIbl
+            | Self::SunAlbedoGreyIbl
+            | Self::SunCoverage
+            | Self::SunIblCoverage => ([0.579_228, -0.573_576, 0.579_228], [1.0, 0.96, 0.90], 3.0),
+            Self::Overcast
+            | Self::OvercastIbl
+            | Self::OvercastCoverage
+            | Self::LocalOff
+            | Self::LocalWarm
+            | Self::LocalCool => ([0.0, -1.0, 0.0], [1.0, 1.0, 1.0], 0.0),
             // Toward the sun: behind the row (+Z), 15° to camera-right, 10° up.
-            Self::Grazing | Self::GrazingIbl => ([0.254_887, -0.173_648, -0.951_251], [1.0, 0.86, 0.70], 3.0),
+            Self::Grazing | Self::GrazingIbl => {
+                ([0.254_887, -0.173_648, -0.951_251], [1.0, 0.86, 0.70], 3.0)
+            }
         };
         body.lights = vec![LightIntent {
-            light_id: format!("calibration-{}", self.name()),
+            light_id: if self.local() {
+                "calibration-local-sun".into()
+            } else {
+                format!("calibration-{}", self.name())
+            },
             kind: LightKind::Directional { direction_xyz },
             color_rgb,
             intensity,
@@ -162,7 +202,11 @@ impl CalibrationRig {
                 ground_rgb: [0.14, 0.14, 0.14],
                 fog_color_rgb: OVERCAST_SKY_RGB,
                 fog_density: 0.0,
-                exposure: if ibl { OVERCAST_IBL_EXPOSURE } else { OVERCAST_EXPOSURE },
+                exposure: if ibl {
+                    OVERCAST_IBL_EXPOSURE
+                } else {
+                    OVERCAST_EXPOSURE
+                },
             },
             _ => EnvironmentIntent {
                 sky_top_rgb: [0.16, 0.30, 0.58],
@@ -184,7 +228,9 @@ impl CalibrationRig {
                 sun_disc_radius_milli_deg: 650,
                 sun_disc_gain_bp: 120_000,
                 sun_glow_gain_bp: 2_400,
-                model: Some(SkyModel::Analytic { turbidity_milli: 3000 }),
+                model: Some(SkyModel::Analytic {
+                    turbidity_milli: 3000,
+                }),
             },
         };
         // No bloom, vignette, grade or dither (all absent = off). Metric mesh
@@ -193,16 +239,81 @@ impl CalibrationRig {
         // is ~18 m from the row) at ~4 cm per shadow texel; the converge0 40 m
         // fit gave ~10 cm texels and rendered a 0.5 m ball's shadow as a blob.
         body.render_policy = Some(RenderPolicy {
-            shadow: Some(ShadowPolicy { darkness_bp: 9600, filter_radius_milli: 2400 }),
+            shadow: Some(ShadowPolicy {
+                darkness_bp: 9600,
+                filter_radius_milli: 2400,
+            }),
             mesh_surface: Some(MeshSurfacePolicy { wrap_repeat: true }),
-            shadow_fit: Some(ShadowFitPolicy { view_distance_m: CALIBRATION_SHADOW_DISTANCE_M, map_size_px: None }),
+            shadow_fit: Some(ShadowFitPolicy {
+                view_distance_m: CALIBRATION_SHADOW_DISTANCE_M,
+                map_size_px: None,
+            }),
             sky: Some(sky),
-            debug: (rig == Self::SunAlbedoGrey).then_some(DebugPolicy { albedo_override_bp: 5000 }),
+            debug: (rig == Self::SunAlbedoGrey).then_some(DebugPolicy {
+                albedo_override_bp: 5000,
+            }),
             ibl: ibl.then_some(IblPolicy { enabled: true }),
-            foliage_coverage: self.coverage().then_some(FoliageCoveragePolicy { samples: 4 }),
+            foliage_coverage: self
+                .coverage()
+                .then_some(FoliageCoveragePolicy { samples: 4 }),
             ..RenderPolicy::default()
         });
+        if self.local() {
+            self.apply_local_lights(body)?;
+        }
         crate::ibl::apply_ibl(body)
+    }
+    fn apply_local_lights(
+        self,
+        body: &mut GraphicsScenePacketBody,
+    ) -> Result<(), GraphicsContractError> {
+        // Use the sealed staging transform, never a preview camera or guessed Y.
+        let ground = body
+            .instances
+            .iter()
+            .find(|instance| instance.instance_id == "scene::calibration-ground_plane")
+            .ok_or_else(|| {
+                GraphicsContractError::provenance(
+                    "local calibration rig requires the bound calibration ground plane",
+                )
+            })?;
+        let anchor = ground.transform.translation_xyz_m;
+        if ground.transform.rotation_xyzw != [0.0, 1.0, 0.0, 0.0]
+            || ground.transform.scale_xyz != [1.0; 3]
+        {
+            return Err(GraphicsContractError::provenance(
+                "local calibration staging transform changed",
+            ));
+        }
+        body.environment = EnvironmentIntent {
+            sky_top_rgb: [0.012, 0.022, 0.045],
+            sky_horizon_rgb: [0.025, 0.035, 0.055],
+            ground_rgb: [0.008, 0.010, 0.015],
+            fog_color_rgb: [0.025, 0.035, 0.055],
+            fog_density: 0.0,
+            exposure: 1.0,
+        };
+        if self != Self::LocalOff {
+            let color_rgb = if self == Self::LocalWarm {
+                [1.0, 0.38, 0.10]
+            } else {
+                [0.12, 0.48, 1.0]
+            };
+            for (index, x) in [-10.0, -4.0, 2.0, 8.0].into_iter().enumerate() {
+                body.lights.push(LightIntent {
+                    light_id: format!("calibration-local-{index}"),
+                    kind: LightKind::Point {
+                        position_xyz_m: [anchor[0] - x, anchor[1] + 2.6, anchor[2] - 2.0],
+                        range_m: 5.5,
+                    },
+                    color_rgb,
+                    intensity: 18.0,
+                });
+            }
+            let policy = body.render_policy.get_or_insert_with(RenderPolicy::default);
+            policy.point_shadows = Some(PointShadowsPolicy { map_size_px: 512 });
+        }
+        Ok(())
     }
 }
 
@@ -226,7 +337,15 @@ pub const OVERCAST_SKY_RGB: [f32; 3] = [0.72, 0.73, 0.75];
 /// The scan-backed material columns, in row order, plus the calibration group
 /// (cards, balls, checker strip). Mesh ids are `{column}_{body}`.
 pub const CALIBRATION_COLUMNS: [&str; 9] = [
-    "metal", "rough_metal", "stone", "wet_stone", "bark", "wood", "painted", "terrain", "emissive",
+    "metal",
+    "rough_metal",
+    "stone",
+    "wet_stone",
+    "bark",
+    "wood",
+    "painted",
+    "terrain",
+    "emissive",
 ];
 
 /// Host placement in the riverwatch world. The 34 x 7 m footprint
@@ -272,7 +391,11 @@ pub fn runtime_request(
         schema_version: ASSET_RUNTIME_REQUEST_SCHEMA.into(),
         target: RuntimeTarget::Native,
         asset_use: AssetUse::StaticMesh,
-        expected_source_sha256: Some(sha256_prefixed(glb).trim_start_matches("sha256:").to_owned()),
+        expected_source_sha256: Some(
+            sha256_prefixed(glb)
+                .trim_start_matches("sha256:")
+                .to_owned(),
+        ),
         meters_per_unit: 1.0,
         vertical_axis: AssetAxis::Y,
         rig: None,
@@ -300,16 +423,22 @@ fn mesh_bounds(
         .meshes
         .iter()
         .find(|mesh| mesh.mesh_id == mesh_id)
-        .ok_or_else(|| GraphicsContractError::provenance(format!("calibration asset has no mesh {mesh_id}")))?;
-    bounds(mesh.positions_m.iter())
-        .ok_or_else(|| GraphicsContractError::provenance(format!("calibration mesh {mesh_id} is empty")))
+        .ok_or_else(|| {
+            GraphicsContractError::provenance(format!("calibration asset has no mesh {mesh_id}"))
+        })?;
+    bounds(mesh.positions_m.iter()).ok_or_else(|| {
+        GraphicsContractError::provenance(format!("calibration mesh {mesh_id} is empty"))
+    })
 }
 
 fn bounds<'a>(points: impl Iterator<Item = &'a [f32; 3]>) -> Option<([f32; 3], [f32; 3])> {
     points.fold(None, |acc, p| {
         Some(match acc {
             None => (*p, *p),
-            Some((lo, hi)) => ([0, 1, 2].map(|a| lo[a].min(p[a])), [0, 1, 2].map(|a| hi[a].max(p[a]))),
+            Some((lo, hi)) => (
+                [0, 1, 2].map(|a| lo[a].min(p[a])),
+                [0, 1, 2].map(|a| hi[a].max(p[a])),
+            ),
         })
     })
 }
@@ -328,14 +457,22 @@ impl CalibrationPlacement {
         let fields = &world.body.fields;
         let n = fields.resolution;
         if n < 2 || fields.heights_m.len() != n * n {
-            return Err(GraphicsContractError::provenance("calibration host world has no height grid"));
+            return Err(GraphicsContractError::provenance(
+                "calibration host world has no height grid",
+            ));
         }
         let [ax, az] = CALIBRATION_ANCHOR_XZ_M;
         // Yaw 180°: local x → −x, local z → −z.
         let (x0, x1) = (ax - GROUND_LOCAL_X_M[1], ax - GROUND_LOCAL_X_M[0]);
         let (z0, z1) = (az - GROUND_LOCAL_Z_M[1], az - GROUND_LOCAL_Z_M[0]);
-        if x0 < -layout.width_m / 2.0 || x1 > layout.width_m / 2.0 || z0 < -layout.length_m / 2.0 || z1 > layout.length_m / 2.0 {
-            return Err(GraphicsContractError::provenance("calibration footprint leaves the host world"));
+        if x0 < -layout.width_m / 2.0
+            || x1 > layout.width_m / 2.0
+            || z0 < -layout.length_m / 2.0
+            || z1 > layout.length_m / 2.0
+        {
+            return Err(GraphicsContractError::provenance(
+                "calibration footprint leaves the host world",
+            ));
         }
         let cells = (n - 1) as f64;
         let column = |x: f64| ((x / layout.width_m + 0.5) * cells).clamp(0.0, cells);
@@ -348,7 +485,9 @@ impl CalibrationPlacement {
                 highest = highest.max(fields.heights_m[r * n + c]);
             }
         }
-        Ok(Self { anchor_xyz_m: [ax, highest + GROUND_CLEARANCE_M, az] })
+        Ok(Self {
+            anchor_xyz_m: [ax, highest + GROUND_CLEARANCE_M, az],
+        })
     }
 
     fn point(&self, local: [f32; 3]) -> [f32; 3] {
@@ -368,10 +507,9 @@ pub fn calibration_scene(
     render_package: &RenderAssetPackage,
     placement: CalibrationPlacement,
 ) -> Result<SceneArtifact, GraphicsContractError> {
-    let runtime_package = runtime_receipt
-        .package
-        .as_ref()
-        .ok_or_else(|| GraphicsContractError::provenance("calibration runtime receipt is not ready"))?;
+    let runtime_package = runtime_receipt.package.as_ref().ok_or_else(|| {
+        GraphicsContractError::provenance("calibration runtime receipt is not ready")
+    })?;
     let objects = render_package
         .meshes
         .iter()
@@ -387,7 +525,11 @@ pub fn calibration_scene(
                 mesh_id: mesh.mesh_id.clone(),
                 render_package_id: Some(render_package.package_id.clone()),
                 render_mesh_id: Some(mesh.mesh_id.clone()),
-                semantic_role: if structural { "calibration staging".into() } else { "calibration specimen".into() },
+                semantic_role: if structural {
+                    "calibration staging".into()
+                } else {
+                    "calibration specimen".into()
+                },
                 gameplay_refs: Vec::new(),
                 transform: SceneTransform {
                     translation_xyz_m: placement.anchor_xyz_m,
@@ -395,7 +537,9 @@ pub fn calibration_scene(
                     scale_xyz: [1.0, 1.0, 1.0],
                 },
                 collision: if mesh.mesh_id == "ground_plane" {
-                    CollisionPolicy::Static { shape: luxel_project_ledger::SceneCollisionShape::Box }
+                    CollisionPolicy::Static {
+                        shape: luxel_project_ledger::SceneCollisionShape::Box,
+                    }
                 } else {
                     CollisionPolicy::None
                 },
@@ -405,9 +549,17 @@ pub fn calibration_scene(
                     material_artifact_id: None,
                     material_sha256: None,
                 }],
-                importance: if structural { SceneImportance::Background } else { SceneImportance::Landmark },
+                importance: if structural {
+                    SceneImportance::Background
+                } else {
+                    SceneImportance::Landmark
+                },
                 lod: SceneLodPolicy {
-                    levels: vec![SceneLodLevel { level: 0, mesh_id: mesh.mesh_id.clone(), switch_below_fraction: 0.0 }],
+                    levels: vec![SceneLodLevel {
+                        level: 0,
+                        mesh_id: mesh.mesh_id.clone(),
+                        switch_below_fraction: 0.0,
+                    }],
                 },
                 visibility: SceneVisibilityPolicy {
                     renderable: true,
@@ -417,7 +569,10 @@ pub fn calibration_scene(
                 },
                 provenance: SceneObjectProvenance {
                     authoring_id: "calibration1".into(),
-                    source_refs: vec!["tools/build_calibration_glb.py".into(), "tools/calibration_materials/calibration1.json".into()],
+                    source_refs: vec![
+                        "tools/build_calibration_glb.py".into(),
+                        "tools/calibration_materials/calibration1.json".into(),
+                    ],
                     provider_job_id: None,
                 },
             }
@@ -433,13 +588,22 @@ pub fn calibration_scene(
             construction_plan_id: "calibration1".into(),
             authoring_digest: format!(
                 "sha256:{}",
-                runtime_receipt.source_identity.source_sha256.trim_start_matches("sha256:")
+                runtime_receipt
+                    .source_identity
+                    .source_sha256
+                    .trim_start_matches("sha256:")
             ),
             source_refs: vec!["calibration1.glb".into()],
         },
     };
-    seal_scene_with_render_assets(body, std::slice::from_ref(runtime_receipt), std::slice::from_ref(render_package))
-        .map_err(|error| GraphicsContractError::provenance(format!("calibration scene does not seal: {error}")))
+    seal_scene_with_render_assets(
+        body,
+        std::slice::from_ref(runtime_receipt),
+        std::slice::from_ref(render_package),
+    )
+    .map_err(|error| {
+        GraphicsContractError::provenance(format!("calibration scene does not seal: {error}"))
+    })
 }
 
 /// The derived inspection views. Cameras are presentation, not scene state:
@@ -476,7 +640,12 @@ impl CalibrationView {
     pub fn all() -> Vec<Self> {
         let mut views = vec![Self::Row, Self::Close("calibration".into())];
         views.extend(CALIBRATION_COLUMNS.iter().map(|c| Self::Close((*c).into())));
-        views.extend(CALIBRATION_COLUMNS.iter().filter(|c| **c != "emissive").map(|c| Self::Grazing((*c).into())));
+        views.extend(
+            CALIBRATION_COLUMNS
+                .iter()
+                .filter(|c| **c != "emissive")
+                .map(|c| Self::Grazing((*c).into())),
+        );
         views.extend(FOLIAGE_VIEW_DISTANCES_M.map(Self::Foliage));
         views
     }
@@ -501,7 +670,11 @@ impl CalibrationView {
                 let slab = format!("{column}_slab");
                 let (lo, hi) = mesh_bounds(package, &slab)?;
                 let lean = SLAB_LEAN_DEG.to_radians();
-                let center = [(lo[0] + hi[0]) * 0.5, PLINTH_TOP_M + 0.5 * lean.cos(), -0.6 - 0.5 * lean.sin()];
+                let center = [
+                    (lo[0] + hi[0]) * 0.5,
+                    PLINTH_TOP_M + 0.5 * lean.cos(),
+                    -0.6 - 0.5 * lean.sin(),
+                ];
                 let normal = [0.0, lean.sin(), lean.cos()];
                 let graze = 10f32.to_radians();
                 let distance = 1.6;
@@ -517,7 +690,13 @@ impl CalibrationView {
                 let norm = (1.0 + rise * rise).sqrt();
                 let d = f32::from(*distance);
                 let c = FOLIAGE_CENTER_LOCAL_M;
-                ([c[0], c[1] + d * rise / norm, c[2] + d / norm], c, 45.0, 960, 640)
+                (
+                    [c[0], c[1] + d * rise / norm, c[2] + d / norm],
+                    c,
+                    45.0,
+                    960,
+                    640,
+                )
             }
         };
         let world_position = placement.point(position);
@@ -539,13 +718,18 @@ impl CalibrationView {
     }
 }
 
-fn column_center_x(package: &RenderAssetPackage, column: &str) -> Result<f32, GraphicsContractError> {
+fn column_center_x(
+    package: &RenderAssetPackage,
+    column: &str,
+) -> Result<f32, GraphicsContractError> {
     let prefixes: Vec<String> = if column == "calibration" {
         vec!["card_".into(), "ball_".into(), "checker_".into()]
     } else if CALIBRATION_COLUMNS.contains(&column) {
         vec![format!("{column}_")]
     } else {
-        return Err(GraphicsContractError::malformed(format!("unknown calibration column {column}")));
+        return Err(GraphicsContractError::malformed(format!(
+            "unknown calibration column {column}"
+        )));
     };
     let points = package
         .meshes
@@ -558,13 +742,19 @@ fn column_center_x(package: &RenderAssetPackage, column: &str) -> Result<f32, Gr
         })
         .flat_map(|mesh| mesh.positions_m.iter());
     let (lo, hi) = bounds(points).ok_or_else(|| {
-        GraphicsContractError::provenance(format!("calibration asset has no meshes for column {column}"))
+        GraphicsContractError::provenance(format!(
+            "calibration asset has no meshes for column {column}"
+        ))
     })?;
     Ok((lo[0] + hi[0]) * 0.5)
 }
 
 fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 
 fn normalize(v: [f32; 3]) -> [f32; 3] {
@@ -603,10 +793,16 @@ pub fn project_local_point(
 
 /// The 18% grey card's centre in the local frame: x is the calibration group's
 /// centre, the card leans back 15° from its bottom edge at z = −0.6.
-pub fn grey_card_local_center(package: &RenderAssetPackage) -> Result<[f32; 3], GraphicsContractError> {
+pub fn grey_card_local_center(
+    package: &RenderAssetPackage,
+) -> Result<[f32; 3], GraphicsContractError> {
     let (lo, hi) = mesh_bounds(package, "card_grey_018")?;
     let lean = SLAB_LEAN_DEG.to_radians();
-    Ok([(lo[0] + hi[0]) * 0.5, PLINTH_TOP_M + 0.45 * lean.cos(), -0.6 - 0.45 * lean.sin()])
+    Ok([
+        (lo[0] + hi[0]) * 0.5,
+        PLINTH_TOP_M + 0.45 * lean.cos(),
+        -0.6 - 0.45 * lean.sin(),
+    ])
 }
 
 /// Middle grey on screen: 0.18 linear before tone mapping, through the
@@ -615,9 +811,15 @@ pub fn grey_card_local_center(package: &RenderAssetPackage) -> Result<[f32; 3], 
 pub const GREY_CARD_TARGET_SRGB8: f32 = 141.1;
 
 /// A sphere's centre and radius in the local frame, from its conditioned mesh.
-pub fn local_sphere(package: &RenderAssetPackage, mesh_id: &str) -> Result<([f32; 3], f32), GraphicsContractError> {
+pub fn local_sphere(
+    package: &RenderAssetPackage,
+    mesh_id: &str,
+) -> Result<([f32; 3], f32), GraphicsContractError> {
     let (lo, hi) = mesh_bounds(package, mesh_id)?;
-    Ok(([0, 1, 2].map(|a| (lo[a] + hi[a]) * 0.5), (hi[0] - lo[0]) * 0.5))
+    Ok((
+        [0, 1, 2].map(|a| (lo[a] + hi[a]) * 0.5),
+        (hi[0] - lo[0]) * 0.5,
+    ))
 }
 
 /// Screen-space centre and radius (pixels) of a local-frame sphere.
@@ -633,7 +835,9 @@ pub fn project_local_sphere(
     let (px, py) = project_local_point(camera, placement, center)?;
     let p = placement.point(center);
     let rel = [0, 1, 2].map(|a| p[a] - camera.position_xyz_m[a]);
-    let depth = rel[0] * camera.forward_xyz[0] + rel[1] * camera.forward_xyz[1] + rel[2] * camera.forward_xyz[2];
+    let depth = rel[0] * camera.forward_xyz[0]
+        + rel[1] * camera.forward_xyz[1]
+        + rel[2] * camera.forward_xyz[2];
     let tan_y = (fov_y_degrees.to_radians() * 0.5).tan();
     let r_px = radius / (depth * tan_y) * 0.5 * camera.height_px as f32;
     Some((px as f32 + 0.5, py as f32 + 0.5, r_px))

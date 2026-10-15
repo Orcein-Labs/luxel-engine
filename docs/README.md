@@ -1,6 +1,13 @@
 # Luxel Engine docs
 
-Start with [roadmap.md](roadmap.md). The engine's name and the internal `luxel` prefix: [adr/0001-luxel-engine-name.md](adr/0001-luxel-engine-name.md). Docs are filed by roadmap layer; closed
+Start with [roadmap.md](roadmap.md). For the October 12 continuation, read the
+[active materials and lighting campaign](world/converge/2026-10-12-materials-lighting-campaign.md), then the
+[engine readiness reset](platform/2026-10-12-engine-readiness-reset.md), then the
+[development recovery](world/converge/2026-10-12-development-recovery.md) and
+[camera continuity contract](world/converge/2026-10-12-camera-continuity.md), followed by
+[camera-relative shadows](world/converge/2026-10-12-shadow-continuity.md) and
+[resolution attribution](world/converge/2026-10-12-crispness-attribution.md).
+The engine's name and the internal `luxel` prefix: [adr/0001-luxel-engine-name.md](adr/0001-luxel-engine-name.md). Docs are filed by roadmap layer; closed
 handoffs and reports live in `archive/`, bundled by month and topic, each with
 a `SUMMARY.md`.
 
@@ -21,6 +28,14 @@ a `SUMMARY.md`.
 Code still lives where it was. It moves into per-layer homes when that layer
 becomes the active campaign, so a move never lands in the middle of
 someone else's sprint; this table is the map until then.
+
+## World: materials and lighting
+
+- [Native graphics strict lint cleanup](platform/2026-10-12-native-graphics-lints.md) — bounded Clippy repair and retained formatting backlog.
+- [Cascades, contact, and Heartwood development](world/converge/2026-10-12-cascades-contact-heartwood.md) — opt-in implementation and verification frontier.
+- [Local point-light shadows](world/converge/2026-10-12-local-shadows.md) — optional cube-atlas occlusion on the four local lights.
+- [CONVERGE-4 IBL comparison](world/converge/converge4-ibl-comparison-contract.md) · [receipt](world/converge/converge4-ibl-receipt-20261009.md) — rejected; the `converge4-ibl` arm stays for re-measurement.
+- [Lighting structural audit](world/converge/lighting-rpdo-audit-20261009.md) — October 9 RPDO pass that put moving-camera correctness ahead of beauty work.
 
 ## Characters
 

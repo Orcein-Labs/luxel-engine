@@ -17,17 +17,17 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use serde::Deserialize;
 use luxel_asset_contract::{RenderPreparationStatus, condition_render_asset};
+use serde::Deserialize;
 
 use crate::asset_projection::{
     GraphicsAssetProjection, project_render_asset, validate_graphics_asset_projection,
 };
-use crate::scene_composition::{AssetNamespace, append_asset_resources};
 use crate::scatter::Placement;
+use crate::scene_composition::{AssetNamespace, append_asset_resources};
 use crate::{
-    GraphicsContractError, GraphicsScenePacketBody, InstanceImportance, InstancePacket, InstanceVariation, Transform3d,
-    sha256_prefixed,
+    GraphicsContractError, GraphicsScenePacketBody, InstanceImportance, InstancePacket,
+    InstanceVariation, Transform3d, sha256_prefixed,
 };
 
 pub const KIT_LOCK_SCHEMA: &str = "luxel.kit-lock/v1";
@@ -71,19 +71,32 @@ impl KitSet {
         self.assets
             .iter()
             .find(|asset| asset.name == name)
-            .ok_or_else(|| GraphicsContractError::provenance(format!("kit {} has no asset {name}", self.set_id)))
+            .ok_or_else(|| {
+                GraphicsContractError::provenance(format!(
+                    "kit {} has no asset {name}",
+                    self.set_id
+                ))
+            })
     }
 }
 
 /// Load and verify a kit from its lock. `repo_root` resolves the lock's
 /// repo-relative GLB paths.
 pub fn load_kit_set(lock_path: &Path, repo_root: &Path) -> Result<KitSet, GraphicsContractError> {
-    let text = std::fs::read(lock_path)
-        .map_err(|error| GraphicsContractError::provenance(format!("kit lock {}: {error}", lock_path.display())))?;
-    let lock: Lock = serde_json::from_slice(&text)
-        .map_err(|error| GraphicsContractError::malformed(format!("kit lock {} is malformed: {error}", lock_path.display())))?;
+    let text = std::fs::read(lock_path).map_err(|error| {
+        GraphicsContractError::provenance(format!("kit lock {}: {error}", lock_path.display()))
+    })?;
+    let lock: Lock = serde_json::from_slice(&text).map_err(|error| {
+        GraphicsContractError::malformed(format!(
+            "kit lock {} is malformed: {error}",
+            lock_path.display()
+        ))
+    })?;
     if lock.schema_version != KIT_LOCK_SCHEMA {
-        return Err(GraphicsContractError::malformed(format!("kit lock schema {} is unsupported", lock.schema_version)));
+        return Err(GraphicsContractError::malformed(format!(
+            "kit lock schema {} is unsupported",
+            lock.schema_version
+        )));
     }
     let names: BTreeSet<&str> = lock.assets.keys().map(String::as_str).collect();
     if names != KIT_ASSETS.into_iter().collect() {
@@ -112,27 +125,46 @@ pub fn load_kit_set(lock_path: &Path, repo_root: &Path) -> Result<KitSet, Graphi
                 entry.sha256
             )));
         }
-        let receipt = condition_render_asset(&glb, &crate::calibration::render_request())
-            .map_err(|error| GraphicsContractError::provenance(format!("kit asset {name} conditioning: {error}")))?;
+        let receipt = condition_render_asset(&glb, &crate::calibration::render_request()).map_err(
+            |error| {
+                GraphicsContractError::provenance(format!("kit asset {name} conditioning: {error}"))
+            },
+        )?;
         if receipt.status != RenderPreparationStatus::Ready || !receipt.findings.is_empty() {
             return Err(GraphicsContractError::provenance(format!(
                 "kit asset {name} failed render conditioning: {:?}",
                 receipt.findings
             )));
         }
-        let package = receipt.package.as_ref().expect("a ready receipt has a package");
+        let package = receipt
+            .package
+            .as_ref()
+            .expect("a ready receipt has a package");
         let projection = project_render_asset(package)?;
         validate_graphics_asset_projection(&projection)?;
-        assets.push(KitAsset { name: name.to_owned(), glb_sha256: digest, projection });
+        assets.push(KitAsset {
+            name: name.to_owned(),
+            glb_sha256: digest,
+            projection,
+        });
     }
-    Ok(KitSet { set_id: lock.set_id, lock_sha256: sha256_prefixed(&text), assets })
+    Ok(KitSet {
+        set_id: lock.set_id,
+        lock_sha256: sha256_prefixed(&text),
+        assets,
+    })
 }
 
 /// Instance ids of the procedural content the kit replaces.
-const REPLACED_INSTANCE_PREFIXES: [&str; 4] =
-    ["campaign2-hero-", "campaign2-trunk-", "campaign2-crown-", "campaign2-lobe-"];
+const REPLACED_INSTANCE_PREFIXES: [&str; 4] = [
+    "campaign2-hero-",
+    "campaign2-trunk-",
+    "campaign2-crown-",
+    "campaign2-lobe-",
+];
 /// Resources that only the replaced instances use; pruned when unreferenced.
-const REPLACED_RESOURCE_PREFIXES: [&str; 3] = ["campaign2-hero", "campaign2-foliage", "campaign2-bark"];
+const REPLACED_RESOURCE_PREFIXES: [&str; 3] =
+    ["campaign2-hero", "campaign2-foliage", "campaign2-bark"];
 
 /// Ruin: scale 0.8 (the gate is ~5.7 m tall), yawed so the arch faces the
 /// close / medium / wide cameras, which all look from the same quadrant, and
@@ -172,7 +204,11 @@ const FALLEN_SINK_FRACTION: f32 = 0.15;
 /// Rotate `v` by the unit quaternion `q` (x, y, z, w).
 fn rotate(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
     let [x, y, z, w] = q;
-    let t = [2.0 * (y * v[2] - z * v[1]), 2.0 * (z * v[0] - x * v[2]), 2.0 * (x * v[1] - y * v[0])];
+    let t = [
+        2.0 * (y * v[2] - z * v[1]),
+        2.0 * (z * v[0] - x * v[2]),
+        2.0 * (x * v[1] - y * v[0]),
+    ];
     [
         v[0] + w * t[0] + (y * t[2] - z * t[1]),
         v[1] + w * t[1] + (z * t[0] - x * t[2]),
@@ -224,7 +260,9 @@ pub fn apply_kit(
     ground: impl Fn(f32, f32) -> f32,
 ) -> Result<(), GraphicsContractError> {
     body.instances.retain(|instance| {
-        !REPLACED_INSTANCE_PREFIXES.iter().any(|prefix| instance.instance_id.starts_with(prefix))
+        !REPLACED_INSTANCE_PREFIXES
+            .iter()
+            .any(|prefix| instance.instance_id.starts_with(prefix))
     });
     prune_replaced_resources(body);
 
@@ -236,7 +274,14 @@ pub fn apply_kit(
     }
     // The ruin is placed first, so its meshes' instances start here.
     let ruin_start = body.instances.len();
-    let mut place = |name: &str, tag: String, importance: InstanceImportance, translation: [f32; 3], rotation: [f32; 4], scale: f32, variation: Option<InstanceVariation>| -> Result<(), GraphicsContractError> {
+    let mut place = |name: &str,
+                     tag: String,
+                     importance: InstanceImportance,
+                     translation: [f32; 3],
+                     rotation: [f32; 4],
+                     scale: f32,
+                     variation: Option<InstanceVariation>|
+     -> Result<(), GraphicsContractError> {
         let asset = kit.asset(name)?;
         let namespace = &namespaces[name];
         for (k, mesh) in asset.projection.meshes.iter().enumerate() {
@@ -245,39 +290,103 @@ pub fn apply_kit(
                 mesh_id: namespace.mesh(&mesh.packet.mesh_id)?.clone(),
                 material_id: namespace.material(&mesh.packet.material_id)?.clone(),
                 importance,
-                transform: Transform3d { translation_xyz_m: translation, rotation_xyzw: rotation, scale_xyz: [scale; 3] },
+                transform: Transform3d {
+                    translation_xyz_m: translation,
+                    rotation_xyzw: rotation,
+                    scale_xyz: [scale; 3],
+                },
                 variation,
             });
         }
         Ok(())
     };
     let [ax, _, az] = anchor;
-    place("ruin", "ruin".into(), InstanceImportance::Landmark, anchor, yaw(RUIN_YAW_DEG), RUIN_SCALE, None)?;
+    place(
+        "ruin",
+        "ruin".into(),
+        InstanceImportance::Landmark,
+        anchor,
+        yaw(RUIN_YAW_DEG),
+        RUIN_SCALE,
+        None,
+    )?;
     match layout {
         KitLayout::Authored { trees } => {
             for (index, (x, z, scale)) in trees.iter().copied().enumerate() {
                 let spin = index as f32 * 137.5;
-                place("tree", format!("tree-{index:02}"), InstanceImportance::Background, [x, ground(x, z), z], yaw(spin), scale, None)?;
+                place(
+                    "tree",
+                    format!("tree-{index:02}"),
+                    InstanceImportance::Background,
+                    [x, ground(x, z), z],
+                    yaw(spin),
+                    scale,
+                    None,
+                )?;
             }
             for (index, (dx, dz, asset, spin, scale)) in ROCKS.into_iter().enumerate() {
                 let (x, z) = (ax + dx, az + dz);
-                place(asset, format!("rock-{index:02}"), InstanceImportance::Background, [x, ground(x, z) - ROCK_SINK_M * scale, z], yaw(spin), scale, None)?;
+                place(
+                    asset,
+                    format!("rock-{index:02}"),
+                    InstanceImportance::Background,
+                    [x, ground(x, z) - ROCK_SINK_M * scale, z],
+                    yaw(spin),
+                    scale,
+                    None,
+                )?;
             }
             for (index, (dx, dz, spin)) in FERNS.into_iter().enumerate() {
                 let (x, z) = (ax + dx, az + dz);
-                place("fern", format!("fern-{index:02}"), InstanceImportance::Background, [x, ground(x, z), z], yaw(spin), 1.0, None)?;
+                place(
+                    "fern",
+                    format!("fern-{index:02}"),
+                    InstanceImportance::Background,
+                    [x, ground(x, z), z],
+                    yaw(spin),
+                    1.0,
+                    None,
+                )?;
             }
         }
         KitLayout::Scattered(scattered) => {
-            let tinted = |p: &Placement| Some(InstanceVariation { tint_rgb: p.tint_rgb });
+            let tinted = |p: &Placement| {
+                Some(InstanceVariation {
+                    tint_rgb: p.tint_rgb,
+                })
+            };
             for (index, p) in scattered.trees.iter().enumerate() {
-                place("tree", format!("tree-s{index:04}"), InstanceImportance::Background, p.translation, p.rotation_xyzw, p.scale, tinted(p))?;
+                place(
+                    "tree",
+                    format!("tree-s{index:04}"),
+                    InstanceImportance::Background,
+                    p.translation,
+                    p.rotation_xyzw,
+                    p.scale,
+                    tinted(p),
+                )?;
             }
             for (index, (asset, p)) in scattered.rocks.iter().enumerate() {
-                place(asset, format!("rock-s{index:04}"), InstanceImportance::Background, p.translation, p.rotation_xyzw, p.scale, tinted(p))?;
+                place(
+                    asset,
+                    format!("rock-s{index:04}"),
+                    InstanceImportance::Background,
+                    p.translation,
+                    p.rotation_xyzw,
+                    p.scale,
+                    tinted(p),
+                )?;
             }
             for (index, p) in scattered.ferns.iter().enumerate() {
-                place("fern", format!("fern-s{index:04}"), InstanceImportance::Background, p.translation, p.rotation_xyzw, p.scale, tinted(p))?;
+                place(
+                    "fern",
+                    format!("fern-s{index:04}"),
+                    InstanceImportance::Background,
+                    p.translation,
+                    p.rotation_xyzw,
+                    p.scale,
+                    tinted(p),
+                )?;
             }
         }
     }
@@ -295,13 +404,32 @@ pub fn apply_kit(
             .positions_m
             .iter()
             .map(|p| {
-                let r = rotate(t.rotation_xyzw, [p[0] * t.scale_xyz[0], p[1] * t.scale_xyz[1], p[2] * t.scale_xyz[2]]);
-                [r[0] + t.translation_xyz_m[0], r[1] + t.translation_xyz_m[1], r[2] + t.translation_xyz_m[2]]
+                let r = rotate(
+                    t.rotation_xyzw,
+                    [
+                        p[0] * t.scale_xyz[0],
+                        p[1] * t.scale_xyz[1],
+                        p[2] * t.scale_xyz[2],
+                    ],
+                );
+                [
+                    r[0] + t.translation_xyz_m[0],
+                    r[1] + t.translation_xyz_m[1],
+                    r[2] + t.translation_xyz_m[2],
+                ]
             })
             .collect();
-        let lowest_gap = world.iter().map(|w| w[1] - ground(w[0], w[2])).fold(f32::INFINITY, f32::min);
-        let (low, high) = world.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), w| (lo.min(w[1]), hi.max(w[1])));
-        instance.transform.translation_xyz_m[1] += -FALLEN_SINK_FRACTION * (high - low) - lowest_gap;
+        let lowest_gap = world
+            .iter()
+            .map(|w| w[1] - ground(w[0], w[2]))
+            .fold(f32::INFINITY, f32::min);
+        let (low, high) = world
+            .iter()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), w| {
+                (lo.min(w[1]), hi.max(w[1]))
+            });
+        instance.transform.translation_xyz_m[1] +=
+            -FALLEN_SINK_FRACTION * (high - low) - lowest_gap;
     }
     Ok(())
 }
@@ -310,22 +438,38 @@ pub fn apply_kit(
 /// references any more. Only resources under `REPLACED_RESOURCE_PREFIXES` are
 /// candidates, so shared content (terrain, pool, beacon) is never touched.
 fn prune_replaced_resources(body: &mut GraphicsScenePacketBody) {
-    let candidate = |id: &str| REPLACED_RESOURCE_PREFIXES.iter().any(|prefix| id.starts_with(prefix));
+    let candidate = |id: &str| {
+        REPLACED_RESOURCE_PREFIXES
+            .iter()
+            .any(|prefix| id.starts_with(prefix))
+    };
     let used_meshes: BTreeSet<String> = body.instances.iter().map(|i| i.mesh_id.clone()).collect();
-    body.meshes.retain(|mesh| !candidate(&mesh.mesh_id) || used_meshes.contains(&mesh.mesh_id));
-    let mut used_materials: BTreeSet<String> = body.instances.iter().map(|i| i.material_id.clone()).collect();
+    body.meshes
+        .retain(|mesh| !candidate(&mesh.mesh_id) || used_meshes.contains(&mesh.mesh_id));
+    let mut used_materials: BTreeSet<String> = body
+        .instances
+        .iter()
+        .map(|i| i.material_id.clone())
+        .collect();
     used_materials.extend(body.meshes.iter().map(|m| m.material_id.clone()));
     used_materials.insert(body.terrain.material_id.clone());
     if let Some(layers) = &body.terrain.layers {
         used_materials.extend(layers.layers.iter().map(|layer| layer.material_id.clone()));
     }
-    body.materials.retain(|material| !candidate(&material.material_id) || used_materials.contains(&material.material_id));
+    body.materials.retain(|material| {
+        !candidate(&material.material_id) || used_materials.contains(&material.material_id)
+    });
     let mut used_textures = BTreeSet::new();
     for material in &body.materials {
         used_textures.extend(material.texture_ids.iter().cloned());
-        for id in [&material.normal_texture_id, &material.roughness_texture_id, &material.occlusion_texture_id, &material.emissive_texture_id]
-            .into_iter()
-            .flatten()
+        for id in [
+            &material.normal_texture_id,
+            &material.roughness_texture_id,
+            &material.occlusion_texture_id,
+            &material.emissive_texture_id,
+        ]
+        .into_iter()
+        .flatten()
         {
             used_textures.insert(id.clone());
         }
@@ -333,5 +477,7 @@ fn prune_replaced_resources(body: &mut GraphicsScenePacketBody) {
     if let Some(layers) = &body.terrain.layers {
         used_textures.insert(layers.macro_texture_id.clone());
     }
-    body.textures.retain(|texture| !candidate(&texture.texture_id) || used_textures.contains(&texture.texture_id));
+    body.textures.retain(|texture| {
+        !candidate(&texture.texture_id) || used_textures.contains(&texture.texture_id)
+    });
 }

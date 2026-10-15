@@ -124,24 +124,35 @@ pub fn validate_terrain_layers(
         )));
     }
     let texture = |id: &str| textures.iter().find(|texture| texture.texture_id == id);
-    let mipped = |id: &str, space: TextureColorSpace, label: &str| -> Result<(), GraphicsContractError> {
-        let found = texture(id)
-            .ok_or_else(|| GraphicsContractError::provenance(format!("{label} texture {id} is absent")))?;
-        if found.color_space != space {
-            return Err(malformed(format!("{label} texture {id} must be {space:?}")));
-        }
-        // EDGE-1: unmipped scanned ground is aliasing, not detail.
-        if found.mip_levels < 2 {
-            return Err(malformed(format!("{label} texture {id} carries no mip chain")));
-        }
-        Ok(())
-    };
-    mipped(&layers.macro_texture_id, TextureColorSpace::Data, "terrain macro")?;
+    let mipped =
+        |id: &str, space: TextureColorSpace, label: &str| -> Result<(), GraphicsContractError> {
+            let found = texture(id).ok_or_else(|| {
+                GraphicsContractError::provenance(format!("{label} texture {id} is absent"))
+            })?;
+            if found.color_space != space {
+                return Err(malformed(format!("{label} texture {id} must be {space:?}")));
+            }
+            // EDGE-1: unmipped scanned ground is aliasing, not detail.
+            if found.mip_levels < 2 {
+                return Err(malformed(format!(
+                    "{label} texture {id} carries no mip chain"
+                )));
+            }
+            Ok(())
+        };
+    mipped(
+        &layers.macro_texture_id,
+        TextureColorSpace::Data,
+        "terrain macro",
+    )?;
     let mut seen = Vec::new();
     for (index, layer) in layers.layers.iter().enumerate() {
         crate::valid_id(&layer.layer_id, "terrain layer_id")?;
         if seen.contains(&layer.layer_id) {
-            return Err(malformed(format!("terrain layer {} is duplicated", layer.layer_id)));
+            return Err(malformed(format!(
+                "terrain layer {} is duplicated",
+                layer.layer_id
+            )));
         }
         seen.push(layer.layer_id.clone());
         if !(100..=100_000).contains(&layer.metres_per_repeat_milli) {
@@ -151,28 +162,54 @@ pub fn validate_terrain_layers(
             )));
         }
         match (index, &layer.coverage) {
-            (0, Some(_)) => return Err(malformed("terrain layer 0 is the base and cannot carry coverage")),
+            (0, Some(_)) => {
+                return Err(malformed(
+                    "terrain layer 0 is the base and cannot carry coverage",
+                ));
+            }
             (0, None) => {}
             (_, None) => {
-                return Err(malformed(format!("terrain layer {} needs a coverage rule", layer.layer_id)));
+                return Err(malformed(format!(
+                    "terrain layer {} needs a coverage rule",
+                    layer.layer_id
+                )));
             }
             (_, Some(coverage)) => {
-                if coverage.slope_bp.is_none() && coverage.height_mm.is_none() && coverage.macro_ramp.is_none() {
+                if coverage.slope_bp.is_none()
+                    && coverage.height_mm.is_none()
+                    && coverage.macro_ramp.is_none()
+                {
                     return Err(malformed(format!(
                         "terrain layer {} coverage has no terms; it would cover everything",
                         layer.layer_id
                     )));
                 }
-                if coverage.slope_bp.is_some_and(|ramp| !ramp_is_valid(ramp, 0, 10_000)) {
-                    return Err(malformed(format!("terrain layer {} slope ramp is invalid", layer.layer_id)));
+                if coverage
+                    .slope_bp
+                    .is_some_and(|ramp| !ramp_is_valid(ramp, 0, 10_000))
+                {
+                    return Err(malformed(format!(
+                        "terrain layer {} slope ramp is invalid",
+                        layer.layer_id
+                    )));
                 }
-                if coverage.height_mm.is_some_and(|ramp| !ramp_is_valid(ramp, -1_000_000_000, 1_000_000_000)) {
-                    return Err(malformed(format!("terrain layer {} height ramp is invalid", layer.layer_id)));
+                if coverage
+                    .height_mm
+                    .is_some_and(|ramp| !ramp_is_valid(ramp, -1_000_000_000, 1_000_000_000))
+                {
+                    return Err(malformed(format!(
+                        "terrain layer {} height ramp is invalid",
+                        layer.layer_id
+                    )));
                 }
                 if let Some(ramp) = coverage.macro_ramp
-                    && (!(0..=10_000).contains(&ramp.threshold_bp) || !(1..=5_000).contains(&ramp.softness_bp))
+                    && (!(0..=10_000).contains(&ramp.threshold_bp)
+                        || !(1..=5_000).contains(&ramp.softness_bp))
                 {
-                    return Err(malformed(format!("terrain layer {} macro ramp is invalid", layer.layer_id)));
+                    return Err(malformed(format!(
+                        "terrain layer {} macro ramp is invalid",
+                        layer.layer_id
+                    )));
                 }
             }
         }
@@ -199,15 +236,32 @@ pub fn validate_terrain_layers(
             )));
         }
         let [albedo] = material.texture_ids.as_slice() else {
-            return Err(malformed(format!("terrain layer material {} needs exactly one albedo", material.material_id)));
+            return Err(malformed(format!(
+                "terrain layer material {} needs exactly one albedo",
+                material.material_id
+            )));
         };
         mipped(albedo, TextureColorSpace::Srgb, "terrain layer albedo")?;
         for (id, space, label) in [
-            (&material.normal_texture_id, TextureColorSpace::NormalMap, "terrain layer normal"),
-            (&material.roughness_texture_id, TextureColorSpace::Data, "terrain layer roughness"),
-            (&material.occlusion_texture_id, TextureColorSpace::Data, "terrain layer occlusion"),
+            (
+                &material.normal_texture_id,
+                TextureColorSpace::NormalMap,
+                "terrain layer normal",
+            ),
+            (
+                &material.roughness_texture_id,
+                TextureColorSpace::Data,
+                "terrain layer roughness",
+            ),
+            (
+                &material.occlusion_texture_id,
+                TextureColorSpace::Data,
+                "terrain layer occlusion",
+            ),
         ] {
-            let id = id.as_deref().ok_or_else(|| malformed(format!("{label} map is missing")))?;
+            let id = id
+                .as_deref()
+                .ok_or_else(|| malformed(format!("{label} map is missing")))?;
             mipped(id, space, label)?;
         }
     }
@@ -267,7 +321,11 @@ enum MapKind {
 fn srgb_decode_table() -> [f32; 256] {
     std::array::from_fn(|value| {
         let c = value as f32 / 255.0;
-        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
     })
 }
 
@@ -281,7 +339,11 @@ fn srgb_encode(table: &[f32; 256], linear: f32) -> u8 {
     if index >= 256 {
         return 255;
     }
-    if (linear - table[index - 1]) <= (table[index] - linear) { (index - 1) as u8 } else { index as u8 }
+    if (linear - table[index - 1]) <= (table[index] - linear) {
+        (index - 1) as u8
+    } else {
+        index as u8
+    }
 }
 
 /// Box-filtered pyramid from `image` down to 1×1. Albedo is averaged in linear
@@ -308,10 +370,18 @@ fn pyramid(image: &SquareRgba8, kind: MapKind) -> Vec<Vec<u8>> {
             let rgb = match kind {
                 MapKind::Srgb => value.map(|channel| srgb_encode(&table, channel)),
                 MapKind::Normal => {
-                    let length = (value[0] * value[0] + value[1] * value[1] + value[2] * value[2]).sqrt().max(1e-6);
-                    value.map(|channel| ((channel / length * 0.5 + 0.5) * 255.0).round().clamp(0.0, 255.0) as u8)
+                    let length = (value[0] * value[0] + value[1] * value[1] + value[2] * value[2])
+                        .sqrt()
+                        .max(1e-6);
+                    value.map(|channel| {
+                        ((channel / length * 0.5 + 0.5) * 255.0)
+                            .round()
+                            .clamp(0.0, 255.0) as u8
+                    })
                 }
-                MapKind::Data => value.map(|channel| (channel * 255.0).round().clamp(0.0, 255.0) as u8),
+                MapKind::Data => {
+                    value.map(|channel| (channel * 255.0).round().clamp(0.0, 255.0) as u8)
+                }
             };
             out.extend([rgb[0], rgb[1], rgb[2], 255]);
         }
@@ -349,8 +419,11 @@ fn mipped_texture(
     kind: MapKind,
     space: TextureColorSpace,
 ) -> Result<TextureReference, GraphicsContractError> {
-    if !image.side.is_power_of_two() || image.bytes.len() != (image.side * image.side * 4) as usize {
-        return Err(malformed(format!("{texture_id}: source must be a square power-of-two RGBA8 image")));
+    if !image.side.is_power_of_two() || image.bytes.len() != (image.side * image.side * 4) as usize
+    {
+        return Err(malformed(format!(
+            "{texture_id}: source must be a square power-of-two RGBA8 image"
+        )));
     }
     if !target_side.is_power_of_two() || target_side > image.side {
         return Err(malformed(format!(
@@ -365,7 +438,11 @@ fn mipped_texture(
     let mut side = target_side;
     for level in &levels {
         all.extend_from_slice(level);
-        mip_levels.push(TextureMipLevel { width_px: side, height_px: side, base64: STANDARD.encode(level) });
+        mip_levels.push(TextureMipLevel {
+            width_px: side,
+            height_px: side,
+            base64: STANDARD.encode(level),
+        });
         side = (side / 2).max(1);
     }
     Ok(TextureReference {
@@ -414,10 +491,38 @@ pub fn build_terrain_layer_set(
         let stem = format!("terrain-layer-{set_id}-{}", source.layer_id);
         let map = |suffix: &str| format!("{stem}-{suffix}");
         let provenance = |suffix: &str| format!("{}-{suffix}", source.source);
-        let albedo = mipped_texture(map("albedo"), provenance("albedo"), &source.albedo, sizes.albedo, MapKind::Srgb, TextureColorSpace::Srgb)?;
-        let normal = mipped_texture(map("normal"), provenance("normal_gl"), &source.normal, sizes.normal_gl, MapKind::Normal, TextureColorSpace::NormalMap)?;
-        let roughness = mipped_texture(map("roughness"), provenance("roughness"), &source.roughness, sizes.roughness, MapKind::Data, TextureColorSpace::Data)?;
-        let occlusion = mipped_texture(map("occlusion"), provenance("ao"), &source.occlusion, sizes.ao, MapKind::Data, TextureColorSpace::Data)?;
+        let albedo = mipped_texture(
+            map("albedo"),
+            provenance("albedo"),
+            &source.albedo,
+            sizes.albedo,
+            MapKind::Srgb,
+            TextureColorSpace::Srgb,
+        )?;
+        let normal = mipped_texture(
+            map("normal"),
+            provenance("normal_gl"),
+            &source.normal,
+            sizes.normal_gl,
+            MapKind::Normal,
+            TextureColorSpace::NormalMap,
+        )?;
+        let roughness = mipped_texture(
+            map("roughness"),
+            provenance("roughness"),
+            &source.roughness,
+            sizes.roughness,
+            MapKind::Data,
+            TextureColorSpace::Data,
+        )?;
+        let occlusion = mipped_texture(
+            map("occlusion"),
+            provenance("ao"),
+            &source.occlusion,
+            sizes.ao,
+            MapKind::Data,
+            TextureColorSpace::Data,
+        )?;
         materials.push(MaterialIntent {
             material_id: stem.clone(),
             base_color_rgba: [1.0, 1.0, 1.0, 1.0],
@@ -463,22 +568,48 @@ pub fn build_terrain_layer_set(
         "texture_sha256": textures.iter().map(|t| &t.sha256).collect::<Vec<_>>(),
     });
     let set_sha256 = sha256_prefixed(&canonical_json(&digest_input)?);
-    let layers = TerrainLayers { set_id: set_id.into(), set_sha256, layers, macro_texture_id };
+    let layers = TerrainLayers {
+        set_id: set_id.into(),
+        set_sha256,
+        layers,
+        macro_texture_id,
+    };
     validate_terrain_layers(&layers, &materials, &textures)?;
-    Ok(TerrainLayerSet { layers, textures, materials })
+    Ok(TerrainLayerSet {
+        layers,
+        textures,
+        materials,
+    })
 }
 
 /// Attach a layer set to a packet body. Refuses id collisions rather than
 /// shadowing existing textures or materials.
-pub fn apply_terrain_layers(body: &mut GraphicsScenePacketBody, set: &TerrainLayerSet) -> Result<(), GraphicsContractError> {
+pub fn apply_terrain_layers(
+    body: &mut GraphicsScenePacketBody,
+    set: &TerrainLayerSet,
+) -> Result<(), GraphicsContractError> {
     for texture in &set.textures {
-        if body.textures.iter().any(|existing| existing.texture_id == texture.texture_id) {
-            return Err(GraphicsContractError::provenance(format!("terrain layer texture {} collides", texture.texture_id)));
+        if body
+            .textures
+            .iter()
+            .any(|existing| existing.texture_id == texture.texture_id)
+        {
+            return Err(GraphicsContractError::provenance(format!(
+                "terrain layer texture {} collides",
+                texture.texture_id
+            )));
         }
     }
     for material in &set.materials {
-        if body.materials.iter().any(|existing| existing.material_id == material.material_id) {
-            return Err(GraphicsContractError::provenance(format!("terrain layer material {} collides", material.material_id)));
+        if body
+            .materials
+            .iter()
+            .any(|existing| existing.material_id == material.material_id)
+        {
+            return Err(GraphicsContractError::provenance(format!(
+                "terrain layer material {} collides",
+                material.material_id
+            )));
         }
     }
     body.textures.extend(set.textures.iter().cloned());
@@ -552,7 +683,11 @@ enum Channel {
     Red,
 }
 
-fn decode_verified(path: &Path, file: &ManifestFile, channel: Channel) -> Result<SquareRgba8, GraphicsContractError> {
+fn decode_verified(
+    path: &Path,
+    file: &ManifestFile,
+    channel: Channel,
+) -> Result<SquareRgba8, GraphicsContractError> {
     let bytes = std::fs::read(path).map_err(|error| {
         GraphicsContractError::provenance(format!(
             "terrain layer file {} is not available ({error}); run tools/fetch_terrain_layers.py",
@@ -567,10 +702,18 @@ fn decode_verified(path: &Path, file: &ManifestFile, channel: Channel) -> Result
         )));
     }
     let image = image::load_from_memory(&bytes)
-        .map_err(|error| malformed(format!("terrain layer file {} does not decode: {error}", path.display())))?
+        .map_err(|error| {
+            malformed(format!(
+                "terrain layer file {} does not decode: {error}",
+                path.display()
+            ))
+        })?
         .to_rgba8();
     if image.width() != image.height() || !image.width().is_power_of_two() {
-        return Err(malformed(format!("terrain layer file {} must be square power-of-two", path.display())));
+        return Err(malformed(format!(
+            "terrain layer file {} must be square power-of-two",
+            path.display()
+        )));
     }
     let mut out = image.into_raw();
     for texel in out.chunks_exact_mut(4) {
@@ -592,14 +735,27 @@ fn decode_verified(path: &Path, file: &ManifestFile, channel: Channel) -> Result
 ///
 /// `repo_root` resolves the manifest's `cache_dir`. Every file's byte size and
 /// sha256 are checked before decoding; a missing or altered file is refused.
-pub fn load_terrain_layer_set(manifest_path: &Path, repo_root: &Path) -> Result<TerrainLayerSet, GraphicsContractError> {
+pub fn load_terrain_layer_set(
+    manifest_path: &Path,
+    repo_root: &Path,
+) -> Result<TerrainLayerSet, GraphicsContractError> {
     let text = std::fs::read_to_string(manifest_path).map_err(|error| {
-        GraphicsContractError::provenance(format!("terrain layer manifest {}: {error}", manifest_path.display()))
+        GraphicsContractError::provenance(format!(
+            "terrain layer manifest {}: {error}",
+            manifest_path.display()
+        ))
     })?;
-    let manifest: Manifest = serde_json::from_str(&text)
-        .map_err(|error| malformed(format!("terrain layer manifest {} is malformed: {error}", manifest_path.display())))?;
+    let manifest: Manifest = serde_json::from_str(&text).map_err(|error| {
+        malformed(format!(
+            "terrain layer manifest {} is malformed: {error}",
+            manifest_path.display()
+        ))
+    })?;
     if manifest.schema_version != TERRAIN_LAYER_MANIFEST_SCHEMA {
-        return Err(malformed(format!("terrain layer manifest schema {} is unsupported", manifest.schema_version)));
+        return Err(malformed(format!(
+            "terrain layer manifest schema {} is unsupported",
+            manifest.schema_version
+        )));
     }
     if manifest.license != "CC0-1.0" {
         return Err(GraphicsContractError::provenance(format!(
@@ -611,10 +767,16 @@ pub fn load_terrain_layer_set(manifest_path: &Path, repo_root: &Path) -> Result<
     for layer in &manifest.layers {
         let file_path = |file: &ManifestFile| {
             let name = file.url.rsplit('/').next().unwrap_or_default().to_owned();
-            repo_root.join(&manifest.cache_dir).join(&layer.layer_id).join(name)
+            repo_root
+                .join(&manifest.cache_dir)
+                .join(&layer.layer_id)
+                .join(name)
         };
         if (layer.dimensions_mm[0] - layer.dimensions_mm[1]).abs() > 1.0 {
-            return Err(malformed(format!("terrain layer {} scan is not square", layer.layer_id)));
+            return Err(malformed(format!(
+                "terrain layer {} scan is not square",
+                layer.layer_id
+            )));
         }
         sources.push(LayerSource {
             layer_id: layer.layer_id.clone(),
@@ -626,9 +788,21 @@ pub fn load_terrain_layer_set(manifest_path: &Path, repo_root: &Path) -> Result<
                 height_mm: coverage.height_mm,
                 macro_ramp: coverage.macro_ramp,
             }),
-            albedo: decode_verified(&file_path(&layer.maps.albedo), &layer.maps.albedo, Channel::All)?,
-            normal: decode_verified(&file_path(&layer.maps.normal_gl), &layer.maps.normal_gl, Channel::All)?,
-            roughness: decode_verified(&file_path(&layer.maps.roughness), &layer.maps.roughness, Channel::Green)?,
+            albedo: decode_verified(
+                &file_path(&layer.maps.albedo),
+                &layer.maps.albedo,
+                Channel::All,
+            )?,
+            normal: decode_verified(
+                &file_path(&layer.maps.normal_gl),
+                &layer.maps.normal_gl,
+                Channel::All,
+            )?,
+            roughness: decode_verified(
+                &file_path(&layer.maps.roughness),
+                &layer.maps.roughness,
+                Channel::Green,
+            )?,
             occlusion: decode_verified(&file_path(&layer.maps.ao), &layer.maps.ao, Channel::Red)?,
         });
     }
@@ -646,7 +820,10 @@ mod tests {
     use super::*;
 
     fn flat(side: u32, rgba: [u8; 4]) -> SquareRgba8 {
-        SquareRgba8 { side, bytes: rgba.repeat((side * side) as usize) }
+        SquareRgba8 {
+            side,
+            bytes: rgba.repeat((side * side) as usize),
+        }
     }
 
     #[test]
@@ -663,7 +840,13 @@ mod tests {
         // encoding of 50% linear light (188), not the byte average (128).
         let image = SquareRgba8 {
             side: 2,
-            bytes: [[0, 0, 0, 255], [255, 255, 255, 255], [255, 255, 255, 255], [0, 0, 0, 255]].concat(),
+            bytes: [
+                [0, 0, 0, 255],
+                [255, 255, 255, 255],
+                [255, 255, 255, 255],
+                [0, 0, 0, 255],
+            ]
+            .concat(),
         };
         let levels = pyramid(&image, MapKind::Srgb);
         assert_eq!(levels.len(), 2);
@@ -677,7 +860,13 @@ mod tests {
         // Two opposite tilts average to straight up, renormalised.
         let image = SquareRgba8 {
             side: 2,
-            bytes: [[218, 128, 218, 255], [38, 128, 218, 255], [218, 128, 218, 255], [38, 128, 218, 255]].concat(),
+            bytes: [
+                [218, 128, 218, 255],
+                [38, 128, 218, 255],
+                [218, 128, 218, 255],
+                [38, 128, 218, 255],
+            ]
+            .concat(),
         };
         let level = &pyramid(&image, MapKind::Normal)[1];
         assert_eq!(&level[0..3], &[128, 128, 255]);
@@ -685,8 +874,26 @@ mod tests {
 
     #[test]
     fn target_size_selects_the_matching_level() {
-        let texture = mipped_texture("t".into(), "s".into(), &flat(64, [10, 20, 30, 255]), 16, MapKind::Data, TextureColorSpace::Data).unwrap();
+        let texture = mipped_texture(
+            "t".into(),
+            "s".into(),
+            &flat(64, [10, 20, 30, 255]),
+            16,
+            MapKind::Data,
+            TextureColorSpace::Data,
+        )
+        .unwrap();
         assert_eq!((texture.width_px, texture.mip_levels), (16, 5));
-        assert!(mipped_texture("t".into(), "s".into(), &flat(64, [0; 4]), 128, MapKind::Data, TextureColorSpace::Data).is_err());
+        assert!(
+            mipped_texture(
+                "t".into(),
+                "s".into(),
+                &flat(64, [0; 4]),
+                128,
+                MapKind::Data,
+                TextureColorSpace::Data
+            )
+            .is_err()
+        );
     }
 }
