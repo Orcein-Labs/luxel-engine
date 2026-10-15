@@ -1,6 +1,8 @@
 # Luxel Engine docs
 
 Start with [roadmap.md](roadmap.md). For the October 12 continuation, read the
+[active materials and lighting campaign](world/converge/2026-10-12-materials-lighting-campaign.md), then the
+[engine readiness reset](platform/2026-10-12-engine-readiness-reset.md), then the
 [development recovery](world/converge/2026-10-12-development-recovery.md) and
 [camera continuity contract](world/converge/2026-10-12-camera-continuity.md), followed by
 [camera-relative shadows](world/converge/2026-10-12-shadow-continuity.md) and
@@ -27,3 +29,6 @@ becomes the active campaign, so a move never lands in the middle of
 someone else's sprint; this table is the map until then.
 
 - [Native graphics strict lint cleanup](platform/2026-10-12-native-graphics-lints.md) — bounded Clippy repair and retained formatting backlog.
+
+- [Cascades, contact, and Heartwood development](world/converge/2026-10-12-cascades-contact-heartwood.md) — opt-in implementation and verification frontier.
+- [Local point-light shadows](world/converge/2026-10-12-local-shadows.md) — optional cube-atlas occlusion on the four local lights.

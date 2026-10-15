@@ -10,11 +10,26 @@ engines required dependencies. A UE5-class photorealistic cinematic mode is
 a future Luxel quality tier. Multiple art styles remain a requirement across
 these applications, with explicit quality and runtime budgets for each.
 
+Following the October 12 visual review, the next priority is the
+[engine readiness reset](platform/2026-10-12-engine-readiness-reset.md): reusable
+material/foliage inspection, material and lighting foundations, then proof
+across different scenes and styles. The first Heartwood profile failed visual
+review despite successful rendering. Immediate forest beauty iteration is
+superseded by this foundational work; correctness receipts retain their
+bounded scope.
+
+The user has now selected **materials and lighting** as the sole active
+development campaign. Follow the
+[campaign contract](world/converge/2026-10-12-materials-lighting-campaign.md).
+Motion/runtime and broader authoring/application development are parked
+while material response, useful variation, controllable lighting and actual
+scene appearance are developed and verified.
+
 The [October 12 development recovery](world/converge/2026-10-12-development-recovery.md)
-reconstructs Claude's checkpoint and the later experiments. The current
-bounded continuation is [moving-camera resource correctness](world/converge/2026-10-12-camera-continuity.md),
-before resuming shadow consistency/cascades, crispness, contact grounding and
-the redwood forest settlement.
+reconstructs Claude's checkpoint and the later experiments. Completed bounded foundations include [moving-camera resource correctness](world/converge/2026-10-12-camera-continuity.md)
+and focused cascade/contact controls. Their receipts do not establish scene
+quality. The active continuation is the materials and lighting campaign above;
+the rejected forest remains a later integration target.
 
 ```text
 WORLD          terrain → atmosphere → materials → lighting → vegetation → architecture
@@ -52,7 +67,7 @@ Grizzly Hills, the Pacific Northwest).
 | Terrain | Gaea-driven landform (`docs/integrations/gaea-programme.md`), scanned terrain layers (N-4), km-scale backdrop (CONVERGE-4 N-3) |
 | Atmosphere | analytic sky + aerial perspective (N-1); km-scale haze (N-3) |
 | Materials | scanned PBR sets, IBL (N-2); wear/wetness layers not yet |
-| Lighting | one view-fitted shadow map; cascades next (CONVERGE-4 L-1); contact AO (N-8); local lights, light shafts not yet |
+| Lighting | two-map cascades and contact AO execute; up to four unshadowed local point lights verified on material specimens; local shadows, useful key/fill balance and light shafts remain |
 | Vegetation | alpha-to-coverage foliage, scatter + forest (N-7); one tree species, regular spacing, wrong biome (B-1) |
 | Architecture | one imported ruin kit (N-5, R-1) |
 
