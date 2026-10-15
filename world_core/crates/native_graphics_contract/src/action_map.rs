@@ -226,7 +226,7 @@ impl InputBinding {
     fn validate(&self) -> Result<(), GraphicsWorkerError> {
         match self {
             Self::Key { code } => {
-                if *code == 0 || *code < 0 {
+                if *code <= 0 {
                     return Err(GraphicsWorkerError::protocol(
                         "action map key codes must be positive GLFW keys",
                     ));

@@ -759,12 +759,11 @@ fn decode_animation(
         for key in 0..values.count {
             let mut sample = [0.0; 4];
             for (component, slot) in sample.iter_mut().enumerate().take(component_count) {
-                *slot =
-                    read_component(binary, &values, key, component).ok_or_else(|| {
-                        CharacterEvaluationError::InvalidAnimation(
-                            "sampler output is unreadable".into(),
-                        )
-                    })?;
+                *slot = read_component(binary, &values, key, component).ok_or_else(|| {
+                    CharacterEvaluationError::InvalidAnimation(
+                        "sampler output is unreadable".into(),
+                    )
+                })?;
             }
             if !sample
                 .iter()
