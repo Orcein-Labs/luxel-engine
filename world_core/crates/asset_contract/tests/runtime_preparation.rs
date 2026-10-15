@@ -2,12 +2,13 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+use luxel_asset_contract::{
+    AssetPreparationReceipt, AssetPreparationRequest, CharacterEvaluationError, CharacterSelection,
+    CpuCharacterPose, PreparationStatus, RuntimeFindingCode, decode_character_glb, inspect_glb,
+    prepare_asset,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use luxel_asset_contract::{
-    AssetPreparationReceipt, AssetPreparationRequest, PreparationStatus, RuntimeFindingCode,
-    inspect_glb, prepare_asset,
-};
 
 #[derive(Debug, Deserialize)]
 struct RuntimeFixture {
@@ -213,6 +214,230 @@ fn make_glb(source: &SourceFixture) -> Vec<u8> {
     let mut json_bytes = serde_json::to_vec(&document).expect("fixture glTF JSON serializes");
     json_bytes.resize((json_bytes.len() + 3) & !3, b' ');
     binary.resize((binary.len() + 3) & !3, 0);
+    let total = 12 + 8 + json_bytes.len() + 8 + binary.len();
+    let mut glb = Vec::with_capacity(total);
+    glb.extend_from_slice(b"glTF");
+    glb.extend_from_slice(&2u32.to_le_bytes());
+    glb.extend_from_slice(&(total as u32).to_le_bytes());
+    glb.extend_from_slice(&(json_bytes.len() as u32).to_le_bytes());
+    glb.extend_from_slice(&0x4e4f_534au32.to_le_bytes());
+    glb.extend_from_slice(&json_bytes);
+    glb.extend_from_slice(&(binary.len() as u32).to_le_bytes());
+    glb.extend_from_slice(&0x004e_4942u32.to_le_bytes());
+    glb.extend_from_slice(&binary);
+    glb
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CpuFault {
+    None,
+    Joint,
+    Weight,
+    Buffer,
+    NoInverseBind,
+    PositiveQuaternion,
+    Cubic,
+    Morph,
+    MorphChannel,
+    ExtraInfluence,
+    Sparse,
+    External,
+    RequiredExtension,
+    DuplicateNode,
+    Hierarchy,
+    SingularMesh,
+    DeepHierarchy,
+    TooManyNodes,
+}
+
+fn cpu_character_glb(fault: CpuFault) -> Vec<u8> {
+    let mut binary = Vec::new();
+    for value in [1.0f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
+        binary.extend_from_slice(&value.to_le_bytes());
+    }
+    for (vertex, joints) in [[0u16, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+        .into_iter()
+        .enumerate()
+    {
+        for (component, joint) in joints.into_iter().enumerate() {
+            let joint = if fault == CpuFault::Joint && vertex == 0 && component == 0 {
+                2
+            } else {
+                joint
+            };
+            binary.extend_from_slice(&joint.to_le_bytes());
+        }
+    }
+    let vertex_weights = if fault == CpuFault::Weight {
+        [
+            [0.5f32, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+        ]
+    } else {
+        [
+            [0.5f32, 0.5, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+        ]
+    };
+    for vertex in vertex_weights {
+        for value in vertex {
+            binary.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    for translation in [3.0f32, 2.0] {
+        for value in [
+            1.0f32,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            translation,
+            0.0,
+            0.0,
+            1.0,
+        ] {
+            binary.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    for value in [0.0f32, 1.0] {
+        binary.extend_from_slice(&value.to_le_bytes());
+    }
+    let end_rotation = if fault == CpuFault::PositiveQuaternion {
+        [0.0f32, 0.0, 0.70710677, 0.70710677]
+    } else {
+        [0.0f32, 0.0, -0.70710677, -0.70710677]
+    };
+    for value in [0.0f32, 0.0, 0.0, 1.0].into_iter().chain(end_rotation) {
+        binary.extend_from_slice(&value.to_le_bytes());
+    }
+    for value in [
+        10.0f32, 0.0, 0.0, 12.0, 0.0, 0.0, 10.0, 0.0, 0.0, 12.0, 0.0, 0.0,
+    ] {
+        binary.extend_from_slice(&value.to_le_bytes());
+    }
+    assert_eq!(binary.len(), 324);
+    let mut primitive = json!({"attributes": {"POSITION": 0, "JOINTS_0": 1, "WEIGHTS_0": 2}});
+    if fault == CpuFault::ExtraInfluence {
+        primitive["attributes"]["JOINTS_1"] = json!(1);
+        primitive["attributes"]["WEIGHTS_1"] = json!(2);
+    }
+    if fault == CpuFault::Morph {
+        primitive["targets"] = json!([{}]);
+    }
+    let mut nodes = json!([
+        {"name":"scene_parent", "translation":[10,0,0], "children":[1,3,5]},
+        {"name":"root", "children":[2]},
+        {"name":"hand_r", "translation":[1,0,0], "children":[4]},
+        {"name":"body_lod0_node", "mesh":0, "skin":0, "translation":[3,0,0]},
+        {"name":"weapon_mount", "translation":[0,2,0], "extras":{"luxel_socket":true}},
+        {"name":"body_lod1_node", "mesh":1, "skin":0}
+    ]);
+    if fault == CpuFault::DuplicateNode {
+        nodes[5]["name"] = json!("body_lod0_node");
+    }
+    if fault == CpuFault::Hierarchy {
+        nodes[2]["children"] = json!([1, 4]);
+    }
+    if fault == CpuFault::SingularMesh {
+        nodes[3]["scale"] = json!([0, 1, 1]);
+    }
+    if matches!(fault, CpuFault::DeepHierarchy | CpuFault::TooManyNodes) {
+        let count = if fault == CpuFault::DeepHierarchy {
+            luxel_asset_contract::MAX_CPU_CHARACTER_HIERARCHY_DEPTH
+        } else {
+            luxel_asset_contract::MAX_CPU_CHARACTER_NODES
+        };
+        let first = nodes.as_array().unwrap().len();
+        nodes[0]["children"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(first));
+        for index in 0..count {
+            let mut node = json!({"name": format!("depth_guard_{index}")});
+            if index + 1 < count {
+                node["children"] = json!([first + index + 1]);
+            }
+            nodes.as_array_mut().unwrap().push(node);
+        }
+    }
+    let mut pose = json!({
+        "name":"pose",
+        "samplers":[
+            {"input":4,"output":5,"interpolation":"LINEAR"},
+            {"input":4,"output":6,"interpolation":"LINEAR"}
+        ],
+        "channels":[
+            {"sampler":0,"target":{"node":2,"path":"rotation"}},
+            {"sampler":1,"target":{"node":0,"path":"translation"}}
+        ]
+    });
+    if fault == CpuFault::Cubic {
+        pose["samplers"][0]["interpolation"] = json!("CUBICSPLINE");
+    }
+    if fault == CpuFault::MorphChannel {
+        pose["channels"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"sampler":0,"target":{"node":2,"path":"weights"}}));
+    }
+    let mut document = json!({
+        "asset":{"version":"2.0"}, "scene":0, "scenes":[{"nodes":[0]}], "nodes":nodes,
+        "meshes":[
+            {"name":"body_lod0","primitives":[primitive.clone()]},
+            {"name":"body_lod1","primitives":[primitive]}
+        ],
+        "skins":[{"inverseBindMatrices":3,"skeleton":1,"joints":[1,2]}],
+        "animations":[pose,{
+            "name":"step","samplers":[{"input":4,"output":7,"interpolation":"STEP"}],
+            "channels":[{"sampler":0,"target":{"node":0,"path":"translation"}}]
+        }],
+        "buffers":[{"byteLength":324}],
+        "bufferViews":[
+            {"buffer":0,"byteOffset":0,"byteLength":36}, {"buffer":0,"byteOffset":36,"byteLength":24},
+            {"buffer":0,"byteOffset":60,"byteLength":48}, {"buffer":0,"byteOffset":108,"byteLength":128},
+            {"buffer":0,"byteOffset":236,"byteLength":8}, {"buffer":0,"byteOffset":244,"byteLength":32},
+            {"buffer":0,"byteOffset":276,"byteLength":24}, {"buffer":0,"byteOffset":300,"byteLength":24}
+        ],
+        "accessors":[
+            {"bufferView":0,"componentType":5126,"count":3,"type":"VEC3"},
+            {"bufferView":1,"componentType":5123,"count":3,"type":"VEC4"},
+            {"bufferView":2,"componentType":5126,"count":3,"type":"VEC4"},
+            {"bufferView":3,"componentType":5126,"count":2,"type":"MAT4"},
+            {"bufferView":4,"componentType":5126,"count":2,"type":"SCALAR"},
+            {"bufferView":5,"componentType":5126,"count":2,"type":"VEC4"},
+            {"bufferView":6,"componentType":5126,"count":2,"type":"VEC3"},
+            {"bufferView":7,"componentType":5126,"count":2,"type":"VEC3"}
+        ]
+    });
+    if fault == CpuFault::Sparse {
+        document["accessors"][0]["sparse"] = json!({});
+    }
+    if fault == CpuFault::External {
+        document["buffers"][0]["uri"] = json!("external.bin");
+    }
+    if fault == CpuFault::Buffer {
+        document["bufferViews"][0]["byteLength"] = json!(400);
+    }
+    if fault == CpuFault::RequiredExtension {
+        document["extensionsRequired"] = json!(["EXT_unimplemented_cpu_test"]);
+    }
+    if fault == CpuFault::NoInverseBind {
+        document["skins"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("inverseBindMatrices");
+    }
+    let mut json_bytes = serde_json::to_vec(&document).unwrap();
+    json_bytes.resize((json_bytes.len() + 3) & !3, b' ');
     let total = 12 + 8 + json_bytes.len() + 8 + binary.len();
     let mut glb = Vec::with_capacity(total);
     glb.extend_from_slice(b"glTF");
@@ -469,5 +694,167 @@ fn fixtures_are_not_accidentally_empty() {
     ] {
         let fixture = fixture(name);
         assert_eq!(fixture.schema_version, "luxel.asset-runtime-test-fixture/v1");
+    }
+}
+
+fn cpu_selection(clip: &str) -> CharacterSelection {
+    CharacterSelection::new("body_lod0_node", clip, vec!["weapon_mount".into()])
+}
+
+fn assert_vector_close(actual: &[f64], expected: &[f64]) {
+    assert_eq!(actual.len(), expected.len());
+    for (actual, expected) in actual.iter().zip(expected) {
+        assert!(
+            (*actual - *expected).abs() <= 1e-6,
+            "{actual} != {expected}"
+        );
+    }
+}
+
+fn assert_pose_close(left: &CpuCharacterPose, right: &CpuCharacterPose) {
+    assert_eq!(left.sample_time_seconds, right.sample_time_seconds);
+    assert_eq!(
+        left.positions_mesh_local.len(),
+        right.positions_mesh_local.len()
+    );
+    for (left, right) in left
+        .positions_mesh_local
+        .iter()
+        .zip(&right.positions_mesh_local)
+    {
+        assert_vector_close(left, right);
+    }
+    assert_eq!(left.sockets.len(), right.sockets.len());
+    for (left, right) in left.sockets.iter().zip(&right.sockets) {
+        assert_eq!(left.name, right.name);
+        assert_vector_close(&left.scene_from_node, &right.scene_from_node);
+    }
+    assert_vector_close(&left.bounds_mesh_local.min, &right.bounds_mesh_local.min);
+    assert_vector_close(&left.bounds_mesh_local.max, &right.bounds_mesh_local.max);
+}
+
+#[test]
+fn cpu_character_evaluates_real_glb_bytes_without_claiming_production_readiness() {
+    let bytes = cpu_character_glb(CpuFault::None);
+    let mut request = fixture("good_character").request;
+    request.expected_source_sha256 = Some(inspect_glb(&bytes).unwrap().identity.source_sha256);
+    let receipt = prepare_asset(&bytes, &request).unwrap();
+    assert_eq!(receipt.status, PreparationStatus::Rejected);
+    assert!(receipt.package.is_none());
+    assert!(
+        receipt
+            .findings
+            .iter()
+            .any(|finding| { finding.code == RuntimeFindingCode::MissingRequiredAnimation })
+    );
+
+    let character = decode_character_glb(&bytes, &cpu_selection("pose")).unwrap();
+    assert_eq!(character.joint_node_indices(), &[1, 2]);
+    assert_eq!(
+        character.source_sha256(),
+        inspect_glb(&bytes).unwrap().identity.source_sha256
+    );
+    assert_eq!(character.selection(), &cpu_selection("pose"));
+    let rest = character.evaluate(0.0).unwrap();
+    for (actual, expected) in
+        rest.positions_mesh_local
+            .iter()
+            .zip([[1.0, 0.0, 0.0], [0.0; 3], [0.0, 1.0, 0.0]])
+    {
+        assert_vector_close(actual, &expected);
+    }
+    assert_vector_close(&rest.sockets[0].scene_from_node[12..14], &[11.0, 2.0]);
+    let before_start = character.evaluate(-2.0).unwrap();
+    assert_eq!(before_start.sample_time_seconds, 0.0);
+    assert_pose_close(&rest, &before_start);
+
+    let middle = character.evaluate(0.5).unwrap();
+    let diagonal = 3.0 / (2.0 * 2.0f64.sqrt());
+    assert_vector_close(
+        &middle.positions_mesh_local[0],
+        &[diagonal - 0.5, diagonal, 0.0],
+    );
+    assert_vector_close(
+        &middle.sockets[0].scene_from_node[12..14],
+        &[12.0 - 2.0f64.sqrt(), 2.0f64.sqrt()],
+    );
+    assert_eq!(middle, character.evaluate(0.5).unwrap());
+
+    let end = character.evaluate(3.0).unwrap();
+    assert_eq!(end.sample_time_seconds, 1.0);
+    assert_vector_close(&end.positions_mesh_local[0], &[-0.5, 1.5, 0.0]);
+    assert_vector_close(&end.bounds_mesh_local.min, &[-0.5, 0.0, 0.0]);
+    assert_vector_close(&end.bounds_mesh_local.max, &[0.0, 1.5, 0.0]);
+    assert_vector_close(&end.sockets[0].scene_from_node[12..14], &[11.0, 0.0]);
+    assert!(matches!(
+        character.evaluate(f64::NAN),
+        Err(CharacterEvaluationError::NonFiniteTime)
+    ));
+    assert_pose_close(&middle, &character.evaluate(0.5).unwrap());
+
+    let positive_sign = decode_character_glb(
+        &cpu_character_glb(CpuFault::PositiveQuaternion),
+        &cpu_selection("pose"),
+    )
+    .unwrap();
+    assert_pose_close(&middle, &positive_sign.evaluate(0.5).unwrap());
+
+    let step = decode_character_glb(&bytes, &cpu_selection("step")).unwrap();
+    assert_vector_close(
+        &step.evaluate(0.75).unwrap().sockets[0].scene_from_node[12..14],
+        &[11.0, 2.0],
+    );
+    let no_inverse_bind = decode_character_glb(
+        &cpu_character_glb(CpuFault::NoInverseBind),
+        &cpu_selection("pose"),
+    )
+    .unwrap();
+    assert_vector_close(
+        &no_inverse_bind.evaluate(0.0).unwrap().positions_mesh_local[0],
+        &[-1.5, 0.0, 0.0],
+    );
+}
+
+#[test]
+fn cpu_character_rejects_unsupported_or_corrupt_glb_profiles() {
+    for (fault, expected) in [
+        (CpuFault::Joint, "joint"),
+        (CpuFault::Weight, "weight"),
+        (CpuFault::Buffer, "buffer"),
+        (CpuFault::Cubic, "cubic"),
+        (CpuFault::Morph, "morph"),
+        (CpuFault::MorphChannel, "morph channel"),
+        (CpuFault::ExtraInfluence, "extra influence"),
+        (CpuFault::Sparse, "sparse"),
+        (CpuFault::External, "external buffer"),
+        (CpuFault::RequiredExtension, "extension"),
+        (CpuFault::DuplicateNode, "ambiguous selection"),
+        (CpuFault::Hierarchy, "hierarchy"),
+        (CpuFault::SingularMesh, "singular mesh"),
+        (CpuFault::DeepHierarchy, "hierarchy depth limit"),
+        (CpuFault::TooManyNodes, "node limit"),
+    ] {
+        let result = decode_character_glb(&cpu_character_glb(fault), &cpu_selection("pose"));
+        let rejected = match (expected, &result) {
+            ("joint", Err(CharacterEvaluationError::InvalidJointIndex(_))) => true,
+            ("weight", Err(CharacterEvaluationError::InvalidWeights(_))) => true,
+            ("buffer", Err(CharacterEvaluationError::InvalidGlb(_))) => true,
+            ("cubic", Err(CharacterEvaluationError::UnsupportedCubicSpline)) => true,
+            ("morph", Err(CharacterEvaluationError::UnsupportedMorphTargets)) => true,
+            ("morph channel", Err(CharacterEvaluationError::UnsupportedMorphChannel)) => true,
+            ("extra influence", Err(CharacterEvaluationError::UnsupportedInfluenceSet)) => true,
+            ("sparse", Err(CharacterEvaluationError::SparseAccessor(_))) => true,
+            ("external buffer", Err(CharacterEvaluationError::ExternalBuffer)) => true,
+            ("extension", Err(CharacterEvaluationError::UnsupportedRequiredExtension(_))) => true,
+            ("ambiguous selection", Err(CharacterEvaluationError::AmbiguousSelection(_))) => true,
+            ("hierarchy", Err(CharacterEvaluationError::InvalidHierarchy(_))) => true,
+            ("singular mesh", Err(CharacterEvaluationError::InvalidTransform(_))) => true,
+            (
+                "hierarchy depth limit" | "node limit",
+                Err(CharacterEvaluationError::UnsupportedFeature(detail)),
+            ) => detail.contains(expected),
+            _ => false,
+        };
+        assert!(rejected, "{expected}: {result:?}");
     }
 }

@@ -1,0 +1,208 @@
+{
+  "schema": "luxel.assembly-guide/v1",
+  "project": "ornith_chibi",
+  "source_digest": "11351b19b28d29f86e2de1abd674aa6f3888649929a0bdbaf50d70cfff7952e0",
+  "label": "Ornith concealed neckline / edge-grip study",
+  "groups": [
+    {
+      "id": "head",
+      "label": "Complete head into hood",
+      "parts": [
+        "face",
+        "eye_window_left",
+        "eye_left",
+        "iris_left",
+        "closed_left",
+        "eye_window_right",
+        "eye_right",
+        "iris_right",
+        "closed_right",
+        "beak_interior",
+        "beak_lower",
+        "beak_upper",
+        "sunglasses"
+      ],
+      "nodes": [
+        "head"
+      ],
+      "anchor": "head_seat",
+      "target": "hood_seat",
+      "offset": [
+        0,
+        0
+      ],
+      "scale": 1
+    },
+    {
+      "id": "left_hand",
+      "label": "Left sleeve / grip",
+      "parts": [
+        "paw_left"
+      ],
+      "nodes": [],
+      "anchor": "left_wrist",
+      "target": "left_cuff",
+      "offset": [
+        0,
+        0
+      ],
+      "scale": 1
+    },
+    {
+      "id": "right_hand",
+      "label": "Right sleeve / grip",
+      "parts": [
+        "paw_right"
+      ],
+      "nodes": [],
+      "anchor": "right_wrist",
+      "target": "right_cuff",
+      "offset": [
+        0,
+        0
+      ],
+      "scale": 1
+    }
+  ],
+  "landmarks": [
+    {
+      "id": "head_seat",
+      "label": "Head inside hoodie",
+      "part": "face",
+      "point": [
+        300,
+        414
+      ]
+    },
+    {
+      "id": "hood_seat",
+      "label": "Concealed hood seat",
+      "part": "hoodie",
+      "point": [
+        300,
+        445
+      ]
+    },
+    {
+      "id": "left_wrist",
+      "label": "Left wrist",
+      "part": "paw_left",
+      "point": [
+        192,
+        662
+      ]
+    },
+    {
+      "id": "right_wrist",
+      "label": "Right wrist",
+      "part": "paw_right",
+      "point": [
+        425,
+        662
+      ]
+    },
+    {
+      "id": "left_cuff",
+      "label": "Left sleeve cuff",
+      "part": "hoodie",
+      "point": [
+        170,
+        575
+      ]
+    },
+    {
+      "id": "right_cuff",
+      "label": "Right sleeve cuff",
+      "part": "hoodie",
+      "point": [
+        433,
+        575
+      ]
+    },
+    {
+      "id": "left_grip",
+      "label": "Left bezel grip",
+      "part": "laptop",
+      "point": [
+        170,
+        575
+      ]
+    },
+    {
+      "id": "right_grip",
+      "label": "Right bezel grip",
+      "part": "laptop",
+      "point": [
+        433,
+        575
+      ]
+    }
+  ],
+  "contacts": [
+    {
+      "label": "Head / hood overlap anchor",
+      "a": "head_seat",
+      "b": "hood_seat",
+      "max_distance": 4
+    },
+    {
+      "label": "Left wrist / cuff",
+      "a": "left_wrist",
+      "b": "left_cuff",
+      "max_distance": 5
+    },
+    {
+      "label": "Right wrist / cuff",
+      "a": "right_wrist",
+      "b": "right_cuff",
+      "max_distance": 5
+    },
+    {
+      "label": "Left wrist / bezel",
+      "a": "left_wrist",
+      "b": "left_grip",
+      "max_distance": 5
+    },
+    {
+      "label": "Right wrist / bezel",
+      "a": "right_wrist",
+      "b": "right_grip",
+      "max_distance": 5
+    }
+  ],
+  "ratios": [],
+  "occlusion": [
+    {
+      "part": "hoodie",
+      "order": 25
+    },
+    {
+      "part": "paw_left",
+      "order": 85
+    },
+    {
+      "part": "paw_right",
+      "order": 85
+    }
+  ],
+  "joints": [
+    {
+      "node": "head",
+      "landmark": "head_seat"
+    }
+  ],
+  "findings": [
+    {
+      "id": "matte_cleanup",
+      "detail": "Colored/transparent atlas edges need authored silhouette cleanup."
+    },
+    {
+      "id": "feature_closure",
+      "detail": "Opacity-blended blink/mouth midpoints still ghost; textured deformation is unsupported."
+    },
+    {
+      "id": "reference_gesture",
+      "detail": "Raised glasses-touch sleeve/arm and articulated keyboard hand are absent. The lid hides overlapping paw pixels; visible side portions are a placement study, not an articulated grip or that reference pose."
+    }
+  ]
+}

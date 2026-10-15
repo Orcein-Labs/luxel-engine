@@ -1,0 +1,2242 @@
+{
+  "schema": "luxel.layered-character/v1",
+  "id": "cyan",
+  "label": "Cyan \u2014 vector study",
+  "canvas": [
+    600,
+    700
+  ],
+  "parameters": [
+    {
+      "id": "head",
+      "label": "Head tilt",
+      "min": -1,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "body",
+      "label": "Body lean",
+      "min": -1,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "gazeX",
+      "label": "Look left / right",
+      "min": -1,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "gazeY",
+      "label": "Look up / down",
+      "min": -1,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "blinkL",
+      "label": "Left blink",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "blinkR",
+      "label": "Right blink",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "speech",
+      "label": "Mouth / beak open",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "sway",
+      "label": "Secondary sway",
+      "min": -1,
+      "max": 1,
+      "default": 0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "body",
+      "parent": null,
+      "pivot": [
+        300,
+        600
+      ],
+      "channels": [
+        {
+          "parameter": "body",
+          "property": "rotate",
+          "gain": 3
+        }
+      ]
+    },
+    {
+      "id": "head",
+      "parent": "body",
+      "pivot": [
+        300,
+        420
+      ],
+      "channels": [
+        {
+          "parameter": "head",
+          "property": "rotate",
+          "gain": 9
+        },
+        {
+          "parameter": "head",
+          "property": "x",
+          "gain": 8
+        }
+      ]
+    },
+    {
+      "id": "prop",
+      "parent": null,
+      "pivot": [
+        300,
+        600
+      ],
+      "channels": []
+    }
+  ],
+  "parts": [
+    {
+      "id": "hair_back",
+      "label": "Hair back",
+      "node": "head",
+      "pivot": [
+        300,
+        210
+      ],
+      "order": 0,
+      "visible": true,
+      "fill": "#23354e",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          155,
+          245
+        ],
+        [
+          "C",
+          142,
+          107,
+          453,
+          105,
+          448,
+          260
+        ],
+        [
+          "L",
+          466,
+          488
+        ],
+        [
+          "Q",
+          398,
+          529,
+          351,
+          476
+        ],
+        [
+          "L",
+          249,
+          477
+        ],
+        [
+          "Q",
+          185,
+          519,
+          135,
+          481
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "sway",
+          "property": "rotate",
+          "gain": 2
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "neck",
+      "label": "Neck",
+      "node": "body",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 5,
+      "visible": true,
+      "fill": "#e9b19c",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          259,
+          374
+        ],
+        [
+          "L",
+          342,
+          374
+        ],
+        [
+          "L",
+          352,
+          484
+        ],
+        [
+          "Q",
+          300,
+          520,
+          246,
+          484
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "coat",
+      "label": "Coat",
+      "node": "body",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 8,
+      "visible": true,
+      "fill": "#e7edf0",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          240,
+          470
+        ],
+        [
+          "Q",
+          163,
+          472,
+          129,
+          519
+        ],
+        [
+          "L",
+          89,
+          672
+        ],
+        [
+          "Q",
+          300,
+          698,
+          512,
+          672
+        ],
+        [
+          "L",
+          474,
+          520
+        ],
+        [
+          "Q",
+          436,
+          474,
+          359,
+          470
+        ],
+        [
+          "Q",
+          300,
+          513,
+          240,
+          470
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "shirt",
+      "label": "Shirt",
+      "node": "body",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 9,
+      "visible": true,
+      "fill": "#254453",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          249,
+          468
+        ],
+        [
+          "Q",
+          300,
+          493,
+          350,
+          468
+        ],
+        [
+          "L",
+          380,
+          681
+        ],
+        [
+          "L",
+          218,
+          681
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "collar_left",
+      "label": "Collar left",
+      "node": "body",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 10,
+      "visible": true,
+      "fill": "#ffffff",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          246,
+          464
+        ],
+        [
+          "L",
+          279,
+          498
+        ],
+        [
+          "L",
+          255,
+          575
+        ],
+        [
+          "L",
+          202,
+          494
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "collar_right",
+      "label": "Collar right",
+      "node": "body",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 10,
+      "visible": true,
+      "fill": "#ffffff",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          354,
+          464
+        ],
+        [
+          "L",
+          322,
+          498
+        ],
+        [
+          "L",
+          346,
+          575
+        ],
+        [
+          "L",
+          397,
+          494
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "coat_seam_left",
+      "label": "Coat seam left",
+      "node": "body",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 11,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#8198a4",
+      "strokeWidth": 2,
+      "path": [
+        [
+          "M",
+          184,
+          552
+        ],
+        [
+          "L",
+          164,
+          671
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "coat_seam_right",
+      "label": "Coat seam right",
+      "node": "body",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 11,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#8198a4",
+      "strokeWidth": 2,
+      "path": [
+        [
+          "M",
+          416,
+          552
+        ],
+        [
+          "L",
+          437,
+          671
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "badge",
+      "label": "Badge",
+      "node": "body",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 12,
+      "visible": true,
+      "fill": "#57c9bc",
+      "stroke": "#172738",
+      "strokeWidth": 2,
+      "path": [
+        [
+          "M",
+          393,
+          562
+        ],
+        [
+          "L",
+          423,
+          562
+        ],
+        [
+          "L",
+          423,
+          593
+        ],
+        [
+          "L",
+          393,
+          593
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "ear_left",
+      "label": "Ear left",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 18,
+      "visible": true,
+      "fill": "#f1c1aa",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          202,
+          330
+        ],
+        [
+          "C",
+          202,
+          348.22539675,
+          193.045695,
+          363,
+          182,
+          363
+        ],
+        [
+          "C",
+          170.954305,
+          363,
+          162,
+          348.22539675,
+          162,
+          330
+        ],
+        [
+          "C",
+          162,
+          311.77460325,
+          170.954305,
+          297,
+          182,
+          297
+        ],
+        [
+          "C",
+          193.045695,
+          297,
+          202,
+          311.77460325,
+          202,
+          330
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "ear_right",
+      "label": "Ear right",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 18,
+      "visible": true,
+      "fill": "#f1c1aa",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          438,
+          330
+        ],
+        [
+          "C",
+          438,
+          348.22539675,
+          429.045695,
+          363,
+          418,
+          363
+        ],
+        [
+          "C",
+          406.954305,
+          363,
+          398,
+          348.22539675,
+          398,
+          330
+        ],
+        [
+          "C",
+          398,
+          311.77460325,
+          406.954305,
+          297,
+          418,
+          297
+        ],
+        [
+          "C",
+          429.045695,
+          297,
+          438,
+          311.77460325,
+          438,
+          330
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "face",
+      "label": "Face",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 20,
+      "visible": true,
+      "fill": "#f4cbb5",
+      "stroke": "#172738",
+      "strokeWidth": 3.5,
+      "path": [
+        [
+          "M",
+          192,
+          245
+        ],
+        [
+          "C",
+          193,
+          178,
+          409,
+          178,
+          409,
+          245
+        ],
+        [
+          "L",
+          408,
+          339
+        ],
+        [
+          "C",
+          398,
+          390,
+          343,
+          438,
+          301,
+          446
+        ],
+        [
+          "C",
+          258,
+          438,
+          201,
+          391,
+          192,
+          339
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "face_light",
+      "label": "Face light",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 21,
+      "visible": true,
+      "fill": "#f9dcc5",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          212,
+          272
+        ],
+        [
+          "Q",
+          250,
+          232,
+          285,
+          258
+        ],
+        [
+          "L",
+          274,
+          365
+        ],
+        [
+          "Q",
+          227,
+          369,
+          212,
+          337
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "cheek_left",
+      "label": "Cheek left",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 25,
+      "visible": true,
+      "fill": "#e9a79f",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          241,
+          357
+        ],
+        [
+          "C",
+          241,
+          360.86599325,
+          232.49341025,
+          364,
+          222,
+          364
+        ],
+        [
+          "C",
+          211.50658975,
+          364,
+          203,
+          360.86599325,
+          203,
+          357
+        ],
+        [
+          "C",
+          203,
+          353.13400675,
+          211.50658975,
+          350,
+          222,
+          350
+        ],
+        [
+          "C",
+          232.49341025,
+          350,
+          241,
+          353.13400675,
+          241,
+          357
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "cheek_right",
+      "label": "Cheek right",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 25,
+      "visible": true,
+      "fill": "#e9a79f",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          397,
+          357
+        ],
+        [
+          "C",
+          397,
+          360.86599325,
+          388.49341025,
+          364,
+          378,
+          364
+        ],
+        [
+          "C",
+          367.50658975,
+          364,
+          359,
+          360.86599325,
+          359,
+          357
+        ],
+        [
+          "C",
+          359,
+          353.13400675,
+          367.50658975,
+          350,
+          378,
+          350
+        ],
+        [
+          "C",
+          388.49341025,
+          350,
+          397,
+          353.13400675,
+          397,
+          357
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "eye_left",
+      "label": "Eye left",
+      "node": "head",
+      "pivot": [
+        241,
+        316
+      ],
+      "order": 40,
+      "visible": true,
+      "fill": "#fffaf1",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          271,
+          316
+        ],
+        [
+          "C",
+          271,
+          327.045695,
+          257.5685425,
+          336,
+          241,
+          336
+        ],
+        [
+          "C",
+          224.4314575,
+          336,
+          211,
+          327.045695,
+          211,
+          316
+        ],
+        [
+          "C",
+          211,
+          304.954305,
+          224.4314575,
+          296,
+          241,
+          296
+        ],
+        [
+          "C",
+          257.5685425,
+          296,
+          271,
+          304.954305,
+          271,
+          316
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "blinkL",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "iris_left",
+      "label": "Iris left",
+      "node": "head",
+      "pivot": [
+        241,
+        316
+      ],
+      "order": 41,
+      "visible": true,
+      "fill": "#32a8ab",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          252,
+          316
+        ],
+        [
+          "C",
+          252,
+          324.28427125,
+          247.07513225,
+          331,
+          241,
+          331
+        ],
+        [
+          "C",
+          234.92486775,
+          331,
+          230,
+          324.28427125,
+          230,
+          316
+        ],
+        [
+          "C",
+          230,
+          307.71572875,
+          234.92486775,
+          301,
+          241,
+          301
+        ],
+        [
+          "C",
+          247.07513225,
+          301,
+          252,
+          307.71572875,
+          252,
+          316
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "gazeX",
+          "property": "x",
+          "gain": 8
+        },
+        {
+          "parameter": "gazeY",
+          "property": "y",
+          "gain": 5
+        },
+        {
+          "parameter": "blinkL",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": "eye_left"
+    },
+    {
+      "id": "pupil_left",
+      "label": "Pupil left",
+      "node": "head",
+      "pivot": [
+        241,
+        316
+      ],
+      "order": 42,
+      "visible": true,
+      "fill": "#172738",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          246,
+          317
+        ],
+        [
+          "C",
+          246,
+          322.5228475,
+          243.76142375,
+          327,
+          241,
+          327
+        ],
+        [
+          "C",
+          238.23857625,
+          327,
+          236,
+          322.5228475,
+          236,
+          317
+        ],
+        [
+          "C",
+          236,
+          311.4771525,
+          238.23857625,
+          307,
+          241,
+          307
+        ],
+        [
+          "C",
+          243.76142375,
+          307,
+          246,
+          311.4771525,
+          246,
+          317
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "gazeX",
+          "property": "x",
+          "gain": 8
+        },
+        {
+          "parameter": "gazeY",
+          "property": "y",
+          "gain": 5
+        },
+        {
+          "parameter": "blinkL",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": "eye_left"
+    },
+    {
+      "id": "glint_left",
+      "label": "Glint left",
+      "node": "head",
+      "pivot": [
+        241,
+        316
+      ],
+      "order": 43,
+      "visible": true,
+      "fill": "#ffffff",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          241,
+          311
+        ],
+        [
+          "C",
+          241,
+          313.209139,
+          239.65685425,
+          315,
+          238,
+          315
+        ],
+        [
+          "C",
+          236.34314575,
+          315,
+          235,
+          313.209139,
+          235,
+          311
+        ],
+        [
+          "C",
+          235,
+          308.790861,
+          236.34314575,
+          307,
+          238,
+          307
+        ],
+        [
+          "C",
+          239.65685425,
+          307,
+          241,
+          308.790861,
+          241,
+          311
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "gazeX",
+          "property": "x",
+          "gain": 8
+        },
+        {
+          "parameter": "gazeY",
+          "property": "y",
+          "gain": 5
+        },
+        {
+          "parameter": "blinkL",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": "eye_left"
+    },
+    {
+      "id": "lash_left",
+      "label": "Lash left",
+      "node": "head",
+      "pivot": [
+        241,
+        316
+      ],
+      "order": 44,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          208,
+          309
+        ],
+        [
+          "Q",
+          241,
+          287,
+          274,
+          309
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "blinkL",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "brow_left",
+      "label": "Brow left",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 45,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          211,
+          278
+        ],
+        [
+          "Q",
+          241,
+          270,
+          271,
+          277
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "eye_right",
+      "label": "Eye right",
+      "node": "head",
+      "pivot": [
+        359,
+        316
+      ],
+      "order": 40,
+      "visible": true,
+      "fill": "#fffaf1",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          389,
+          316
+        ],
+        [
+          "C",
+          389,
+          327.045695,
+          375.5685425,
+          336,
+          359,
+          336
+        ],
+        [
+          "C",
+          342.4314575,
+          336,
+          329,
+          327.045695,
+          329,
+          316
+        ],
+        [
+          "C",
+          329,
+          304.954305,
+          342.4314575,
+          296,
+          359,
+          296
+        ],
+        [
+          "C",
+          375.5685425,
+          296,
+          389,
+          304.954305,
+          389,
+          316
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "blinkR",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "iris_right",
+      "label": "Iris right",
+      "node": "head",
+      "pivot": [
+        359,
+        316
+      ],
+      "order": 41,
+      "visible": true,
+      "fill": "#32a8ab",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          370,
+          316
+        ],
+        [
+          "C",
+          370,
+          324.28427125,
+          365.07513225,
+          331,
+          359,
+          331
+        ],
+        [
+          "C",
+          352.92486775,
+          331,
+          348,
+          324.28427125,
+          348,
+          316
+        ],
+        [
+          "C",
+          348,
+          307.71572875,
+          352.92486775,
+          301,
+          359,
+          301
+        ],
+        [
+          "C",
+          365.07513225,
+          301,
+          370,
+          307.71572875,
+          370,
+          316
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "gazeX",
+          "property": "x",
+          "gain": 8
+        },
+        {
+          "parameter": "gazeY",
+          "property": "y",
+          "gain": 5
+        },
+        {
+          "parameter": "blinkR",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": "eye_right"
+    },
+    {
+      "id": "pupil_right",
+      "label": "Pupil right",
+      "node": "head",
+      "pivot": [
+        359,
+        316
+      ],
+      "order": 42,
+      "visible": true,
+      "fill": "#172738",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          364,
+          317
+        ],
+        [
+          "C",
+          364,
+          322.5228475,
+          361.76142375,
+          327,
+          359,
+          327
+        ],
+        [
+          "C",
+          356.23857625,
+          327,
+          354,
+          322.5228475,
+          354,
+          317
+        ],
+        [
+          "C",
+          354,
+          311.4771525,
+          356.23857625,
+          307,
+          359,
+          307
+        ],
+        [
+          "C",
+          361.76142375,
+          307,
+          364,
+          311.4771525,
+          364,
+          317
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "gazeX",
+          "property": "x",
+          "gain": 8
+        },
+        {
+          "parameter": "gazeY",
+          "property": "y",
+          "gain": 5
+        },
+        {
+          "parameter": "blinkR",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": "eye_right"
+    },
+    {
+      "id": "glint_right",
+      "label": "Glint right",
+      "node": "head",
+      "pivot": [
+        359,
+        316
+      ],
+      "order": 43,
+      "visible": true,
+      "fill": "#ffffff",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          359,
+          311
+        ],
+        [
+          "C",
+          359,
+          313.209139,
+          357.65685425,
+          315,
+          356,
+          315
+        ],
+        [
+          "C",
+          354.34314575,
+          315,
+          353,
+          313.209139,
+          353,
+          311
+        ],
+        [
+          "C",
+          353,
+          308.790861,
+          354.34314575,
+          307,
+          356,
+          307
+        ],
+        [
+          "C",
+          357.65685425,
+          307,
+          359,
+          308.790861,
+          359,
+          311
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "gazeX",
+          "property": "x",
+          "gain": 8
+        },
+        {
+          "parameter": "gazeY",
+          "property": "y",
+          "gain": 5
+        },
+        {
+          "parameter": "blinkR",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": "eye_right"
+    },
+    {
+      "id": "lash_right",
+      "label": "Lash right",
+      "node": "head",
+      "pivot": [
+        359,
+        316
+      ],
+      "order": 44,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          326,
+          309
+        ],
+        [
+          "Q",
+          359,
+          287,
+          392,
+          309
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "blinkR",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "brow_right",
+      "label": "Brow right",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 45,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          329,
+          278
+        ],
+        [
+          "Q",
+          359,
+          270,
+          389,
+          277
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "nose",
+      "label": "Nose",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 46,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#b87669",
+      "strokeWidth": 2,
+      "path": [
+        [
+          "M",
+          300,
+          326
+        ],
+        [
+          "L",
+          293,
+          351
+        ],
+        [
+          "Q",
+          300,
+          357,
+          306,
+          351
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "mouth",
+      "label": "Mouth",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 47,
+      "visible": true,
+      "fill": "#833e50",
+      "stroke": "#172738",
+      "strokeWidth": 2,
+      "path": [
+        [
+          "M",
+          278,
+          383
+        ],
+        [
+          "Q",
+          300,
+          390,
+          322,
+          383
+        ],
+        [
+          "Q",
+          300,
+          390,
+          278,
+          383
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [
+        {
+          "parameter": "speech",
+          "negative": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "positive": [
+            0,
+            0,
+            0,
+            -3,
+            0,
+            0,
+            0,
+            17,
+            0,
+            0
+          ]
+        }
+      ],
+      "mask": null
+    },
+    {
+      "id": "hair_cap",
+      "label": "Hair cap",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 60,
+      "visible": true,
+      "fill": "#263950",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          171,
+          277
+        ],
+        [
+          "C",
+          157,
+          175,
+          220,
+          147,
+          294,
+          152
+        ],
+        [
+          "C",
+          393,
+          138,
+          447,
+          204,
+          426,
+          277
+        ],
+        [
+          "Q",
+          406,
+          242,
+          369,
+          225
+        ],
+        [
+          "Q",
+          339,
+          263,
+          297,
+          278
+        ],
+        [
+          "L",
+          315,
+          229
+        ],
+        [
+          "Q",
+          257,
+          265,
+          210,
+          261
+        ],
+        [
+          "L",
+          190,
+          298
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "hair_shine",
+      "label": "Hair shine",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 61,
+      "visible": true,
+      "fill": "#53738c",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          196,
+          226
+        ],
+        [
+          "Q",
+          241,
+          176,
+          303,
+          181
+        ],
+        [
+          "Q",
+          264,
+          194,
+          235,
+          226
+        ],
+        [
+          "L",
+          251,
+          213
+        ],
+        [
+          "Q",
+          221,
+          242,
+          196,
+          243
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "hair_left",
+      "label": "Hair left",
+      "node": "head",
+      "pivot": [
+        190,
+        260
+      ],
+      "order": 62,
+      "visible": true,
+      "fill": "#263950",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          180,
+          254
+        ],
+        [
+          "Q",
+          163,
+          338,
+          190,
+          427
+        ],
+        [
+          "L",
+          217,
+          459
+        ],
+        [
+          "Q",
+          185,
+          424,
+          206,
+          273
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "sway",
+          "property": "rotate",
+          "gain": 5
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "hair_right",
+      "label": "Hair right",
+      "node": "head",
+      "pivot": [
+        409,
+        260
+      ],
+      "order": 62,
+      "visible": true,
+      "fill": "#263950",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          417,
+          252
+        ],
+        [
+          "Q",
+          442,
+          339,
+          412,
+          443
+        ],
+        [
+          "L",
+          386,
+          469
+        ],
+        [
+          "Q",
+          411,
+          389,
+          394,
+          267
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "sway",
+          "property": "rotate",
+          "gain": -5
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "hair_clip",
+      "label": "Hair clip",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 64,
+      "visible": true,
+      "fill": "#65d9ce",
+      "stroke": "#172738",
+      "strokeWidth": 2,
+      "path": [
+        [
+          "M",
+          391,
+          262
+        ],
+        [
+          "L",
+          413,
+          270
+        ],
+        [
+          "L",
+          409,
+          285
+        ],
+        [
+          "L",
+          387,
+          276
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    }
+  ],
+  "clips": [
+    {
+      "id": "demo",
+      "duration": 6,
+      "loop": true,
+      "tracks": [
+        {
+          "parameter": "head",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              1.5,
+              -0.6
+            ],
+            [
+              3,
+              0.65
+            ],
+            [
+              4.5,
+              -0.25
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "body",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              2,
+              0.6
+            ],
+            [
+              4,
+              -0.6
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "sway",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              1.5,
+              0.8
+            ],
+            [
+              3,
+              -0.8
+            ],
+            [
+              4.5,
+              0.5
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "blinkL",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1.15,
+              1
+            ],
+            [
+              1.3,
+              0
+            ],
+            [
+              3.8,
+              0
+            ],
+            [
+              4,
+              1
+            ],
+            [
+              4.2,
+              0
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "blinkR",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1.15,
+              1
+            ],
+            [
+              1.3,
+              0
+            ],
+            [
+              5,
+              0
+            ],
+            [
+              5.15,
+              1
+            ],
+            [
+              5.3,
+              0
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "gazeX",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              2,
+              -0.8
+            ],
+            [
+              4,
+              0.8
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "speech",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              0.9
+            ],
+            [
+              0.6,
+              0.1
+            ],
+            [
+              0.9,
+              0.7
+            ],
+            [
+              1.2,
+              0
+            ],
+            [
+              2,
+              0
+            ],
+            [
+              2.4,
+              1
+            ],
+            [
+              2.7,
+              0.1
+            ],
+            [
+              3,
+              0.8
+            ],
+            [
+              3.3,
+              0
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "bindings": {
+    "gazeX": "gazeX",
+    "gazeY": "gazeY",
+    "blinkLeft": "blinkL",
+    "blinkRight": "blinkR",
+    "speech": "speech",
+    "head": "head",
+    "body": "body",
+    "secondary": "sway"
+  },
+  "provenance": {
+    "kind": "original-authored-vector-control",
+    "date": "2026-10-09",
+    "quality": "MVP control artwork; no professional-quality approval; not Live2D"
+  }
+}

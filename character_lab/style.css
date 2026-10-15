@@ -1,0 +1,46 @@
+#luxel-workbench { color-scheme: light dark; --app-bg: light-dark(#f4f4f0, #15202b); --app-panel: light-dark(#ffffff, #1d2a37); --app-ink: light-dark(#223243, #e7edf0); --app-line: light-dark(#c9d1d6, #3b4c5c); --app-muted: light-dark(#4d6273, #a6b9c7); --app-accent: light-dark(#147d7d, #6cdbce); font: 14px/1.45 system-ui, sans-serif; color: var(--app-ink); background: var(--app-bg); border-radius: 12px; overflow: hidden; max-width: 1200px; margin: auto; }
+#luxel-workbench * { box-sizing: border-box; }
+#luxel-workbench .app-fields[hidden] { display: none; }
+#luxel-workbench .app-header, #luxel-workbench .app-toolbar, #luxel-workbench footer { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 18px; }
+#luxel-workbench .app-header { justify-content: space-between; background: var(--app-panel); border-bottom: 1px solid var(--app-line); }
+#luxel-workbench strong { font-size: 20px; letter-spacing: .04em; }
+#luxel-workbench .app-subtitle { margin-left: 12px; color: var(--app-muted); }
+#luxel-workbench .app-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+#luxel-workbench button, #luxel-workbench .app-file { font: inherit; color: var(--app-ink); background: var(--app-panel); border: 1px solid var(--app-line); border-radius: 6px; padding: 7px 11px; cursor: pointer; }
+#luxel-workbench button[aria-pressed="true"] { color: var(--app-bg); background: var(--app-accent); }
+#luxel-workbench .app-file { position: relative; overflow: hidden; }
+#luxel-workbench .app-file input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+#luxel-workbench .app-toolbar > label { min-width: 140px; }
+#luxel-workbench label { display: grid; gap: 4px; min-width: 0; }
+#luxel-workbench input, #luxel-workbench select { font: inherit; color: var(--app-ink); background: var(--app-panel); border: 1px solid var(--app-line); border-radius: 5px; padding: 6px; width: 100%; min-width: 0; }
+#luxel-workbench input[type="range"] { accent-color: var(--app-accent); padding: 0; border: 0; }
+#luxel-workbench input[type="color"] { height: 34px; padding: 3px; }
+#luxel-workbench .app-check { display: flex; align-items: center; gap: 7px; }
+#luxel-workbench input[type="checkbox"] { width: auto; accent-color: var(--app-accent); }
+#luxel-workbench .app-time { flex: 1; max-width: 300px; grid-template-columns: auto auto; }
+#luxel-workbench .app-time input { grid-column: span 2; }
+#luxel-workbench output { text-align: right; font-variant-numeric: tabular-nums; color: var(--app-muted); }
+#luxel-workbench .app-main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
+#luxel-workbench .app-stage { position: relative; min-width: 0; background-image: radial-gradient(var(--app-line) .7px, transparent .7px); background-size: 14px 14px; }
+#luxel-workbench .app-stage svg { display: block; width: 100%; height: 690px; max-height: 76vh; touch-action: none; }
+#luxel-workbench .app-caption { margin: 0; padding: 10px 18px; text-align: center; color: var(--app-muted); }
+#luxel-workbench .app-inspector { background: var(--app-panel); border-left: 1px solid var(--app-line); padding: 16px; display: grid; align-content: start; gap: 10px; }
+#luxel-workbench h2 { font-size: 14px; font-weight: 600; margin: 8px 0 0; }
+#luxel-workbench .app-parameters { display: grid; gap: 7px; }
+#luxel-workbench .app-parameters label { grid-template-columns: 1fr auto; }
+#luxel-workbench .app-parameters input { grid-column: span 2; }
+#luxel-workbench .app-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+#luxel-workbench .app-note { margin: 2px 0; font-size: 12px; color: var(--app-muted); }
+#luxel-workbench footer { border-top: 1px solid var(--app-line); font-size: 12px; }
+#luxel-workbench [data-output="error"] { color: light-dark(#b33636, #ffb0a8); }
+#luxel-workbench .rig-link { stroke: var(--app-accent); stroke-width: 2; }
+#luxel-workbench .rig-pivot, #luxel-workbench .control-handle { fill: var(--app-bg); stroke: var(--app-accent); stroke-width: 2; }
+#luxel-workbench .control-handle { cursor: move; }
+#luxel-workbench .part-bounds { fill: none; stroke: var(--app-accent); stroke-width: 1; stroke-dasharray: 5 4; }
+@media (max-width: 720px) {
+  #luxel-workbench .app-main { grid-template-columns: minmax(0, 1fr); }
+  #luxel-workbench .app-inspector { border-left: 0; border-top: 1px solid var(--app-line); }
+  #luxel-workbench .app-stage svg { height: 460px; max-height: none; }
+  #luxel-workbench .app-subtitle { display: block; margin: 0; }
+}
+@media (pointer: coarse) { #luxel-workbench button, #luxel-workbench select, #luxel-workbench input:not([type="checkbox"]) { min-height: 44px; font-size: 16px; } }

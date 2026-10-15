@@ -1,0 +1,221 @@
+{
+  "schema": "luxel.assembly-guide/v1",
+  "project": "cyan_vtuber",
+  "source_digest": "d3443ce1428dc383a499e3a53fb22d5eeb97f12272c775e5fe31167a81534493",
+  "label": "Female reference proportion study",
+  "groups": [
+    {
+      "id": "eyes",
+      "label": "Eye line",
+      "parts": [
+        "eye_white_left",
+        "iris_left",
+        "eye_left",
+        "closed_left",
+        "eye_white_right",
+        "iris_right",
+        "eye_right",
+        "closed_right"
+      ],
+      "nodes": [],
+      "anchor": "eye_line",
+      "target": [
+        300,
+        245
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "scale": 1
+    },
+    {
+      "id": "mouth",
+      "label": "Lip placement",
+      "parts": [
+        "mouth_closed",
+        "mouth_open"
+      ],
+      "nodes": [],
+      "anchor": "lips",
+      "target": [
+        300,
+        299
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "scale": 1
+    },
+    {
+      "id": "fringe",
+      "label": "Front fringe",
+      "parts": [
+        "hair_front"
+      ],
+      "nodes": [],
+      "anchor": "fringe_top",
+      "target": [
+        303,
+        75
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "scale": 0.86
+    },
+    {
+      "id": "collar",
+      "label": "Collar to existing skin",
+      "parts": [
+        "torso"
+      ],
+      "nodes": [],
+      "anchor": "collar",
+      "target": "neck_seat",
+      "offset": [
+        0,
+        0
+      ],
+      "scale": 1
+    },
+    {
+      "id": "neck_underpaint",
+      "label": "Narrow concealed neck underpaint",
+      "parts": [
+        "neck_bridge"
+      ],
+      "nodes": [],
+      "anchor": "bridge_top",
+      "target": [
+        300,
+        340
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "scale": 0.8
+    }
+  ],
+  "landmarks": [
+    {
+      "id": "eye_line",
+      "label": "Eye line",
+      "part": "eye_white_left",
+      "point": [
+        300,
+        263
+      ]
+    },
+    {
+      "id": "nose",
+      "label": "Nose tip",
+      "part": "face",
+      "point": [
+        300,
+        275
+      ]
+    },
+    {
+      "id": "lips",
+      "label": "Lip center",
+      "part": "mouth_closed",
+      "point": [
+        300,
+        306
+      ]
+    },
+    {
+      "id": "chin",
+      "label": "Chin",
+      "part": "face",
+      "point": [
+        300,
+        332
+      ]
+    },
+    {
+      "id": "neck_seat",
+      "label": "Skin at collar",
+      "part": "face",
+      "point": [
+        300,
+        344
+      ]
+    },
+    {
+      "id": "collar",
+      "label": "Collar top",
+      "part": "torso",
+      "point": [
+        300,
+        362
+      ]
+    },
+    {
+      "id": "fringe_top",
+      "label": "Front hair crown",
+      "part": "hair_front",
+      "point": [
+        303,
+        75
+      ]
+    },
+    {
+      "id": "bridge_top",
+      "label": "Concealed skin underpaint",
+      "part": "neck_bridge",
+      "point": [
+        300,
+        333
+      ]
+    }
+  ],
+  "contacts": [
+    {
+      "label": "Skin / collar seat",
+      "a": "neck_seat",
+      "b": "collar",
+      "max_distance": 4
+    }
+  ],
+  "ratios": [
+    {
+      "label": "Eye–nose / nose–lip spacing",
+      "numerator": [
+        "eye_line",
+        "nose"
+      ],
+      "denominator": [
+        "nose",
+        "lips"
+      ],
+      "target": 1.4,
+      "tolerance": 0.4
+    }
+  ],
+  "occlusion": [
+    {
+      "part": "torso",
+      "order": 25
+    }
+  ],
+  "joints": [],
+  "findings": [
+    {
+      "id": "matte_cleanup",
+      "detail": "Colored/transparent atlas edges need authored silhouette cleanup."
+    },
+    {
+      "id": "feature_closure",
+      "detail": "Opacity-blended blink/mouth midpoints still ghost; textured deformation is unsupported."
+    },
+    {
+      "id": "neck_deformation",
+      "detail": "Foreground collar overlaps the skin boundary; connected skin/collar deformation and consistent shading remain unimplemented."
+    }
+  ]
+}

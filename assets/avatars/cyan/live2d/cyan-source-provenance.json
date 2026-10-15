@@ -1,0 +1,33 @@
+{
+  "schema": "luxel.cyan-source-cubism-provenance/v1",
+  "bundleId": "cyan_source",
+  "editor": {
+    "product": "Live2D Cubism Editor",
+    "version": "5.3.04",
+    "edition": "FREE",
+    "executable": "CubismEditor5.exe",
+    "winePrefix": "cubism5",
+    "installerSha256": "457421e617cc836eced24236ca3564935580b2d3b26bdeab9a304a42b83308bc",
+    "exportTarget": "SDK5.0/Cubism5.0",
+    "textureAtlas": "1x1024 Texture0",
+    "moc3Version": 5
+  },
+  "source": {
+    "psd": "assets/avatars/cyan/layered/cyan-cubism-import.psd",
+    "cmo3": "assets/avatars/cyan/live2d/cyan_source.cmo3",
+    "femaleV2Sha256": "82da3196532fc000fdc6ce4569a8fe031c1fb260f5d5dacb3e3f1a9abd53b3b8"
+  },
+  "runtime": {
+    "model3": "assets/avatars/cyan/live2d/cyan_source.model3.json",
+    "moc3": "assets/avatars/cyan/live2d/cyan_source.moc3",
+    "displayInfo": "assets/avatars/cyan/live2d/cyan_source.cdi3.json"
+  },
+  "notes": [
+    "moc3 magic is MOC3 from Cubism 5.3.04 File > Export For Runtime > Export as moc3 file, Export Version For SDK 5.0 / Cubism5.0 (moc3 version byte 5).",
+    "Pinned Open-LLM-VTuber Cubism Core is 5.0.0 (latestMoc 5); moc3 version 6 was rejected.",
+    "cmo3 magic is CAFF. JSON/PNG were not renamed to moc3.",
+    "FREE edition refused Modeling > Parameter > Settings for Eye Blinking and Lip-sync (PRO only). Runtime Groups were bound from DisplayInfo parameter IDs.",
+    "Default 4-vertex ArtMeshes were kept; Automatic Mesh generator OK/Apply clips under Wine.",
+    "Native Lava Live2D is out of scope for Star 1."
+  ]
+}

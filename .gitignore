@@ -17,12 +17,29 @@ venv/
 # Julia lockfiles are canonical build inputs and must remain visible to source
 # control. Caches and generated reports remain excluded below.
 
+# Isolated research scratch (raw clones, binaries, logs). Curated reports
+# live under docs/research/.
+research/
+
 # Generated reports, bundles, caches, and local orchestration state
 artifacts/
 asset_intake_reports/
+
+# Offline character_lab pages from build.py: they inline modules and source
+# art (several MiB each). Rebuild with python3 character_lab/build.py.
+character_lab/assembly.html
+character_lab/index.html
+character_lab/reference.html
+character_lab/review.html
+character_lab/topology.html
+character_lab/workbench-fragment.html
 .freebuff/
 kvfold/
 .pytest_cache/
+
+# Cubism Editor import PSDs are regenerated from layered PNGs by
+# character_lab/cyan_source_author.py and exceed the 5 MiB commit limit.
+*.psd
 
 # Generated kit output. The generators in pipeline/ are the source; the meshes
 # they emit are not, and they land wherever the caller points them.

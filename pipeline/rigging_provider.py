@@ -21,6 +21,8 @@ import sys
 from mathutils import Quaternion
 
 output_path = sys.argv[sys.argv.index("--") + 1]
+blend_path = sys.argv[sys.argv.index("--") + 2]
+bpy.context.preferences.filepaths.file_preview_type = "NONE"
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete(use_global=False)
 
@@ -169,6 +171,10 @@ make_action("attack", [(1, 0.0, -0.65, 0.0), (13, -0.12, 0.72, 0.0), (25, 0.0, -
 bpy.context.scene.render.fps = 24
 bpy.context.scene.frame_start = 1
 bpy.context.scene.frame_end = 25
+if blend_path:
+    bpy.ops.wm.save_as_mainfile(filepath=blend_path, check_existing=False)
+    bpy.ops.wm.open_mainfile(filepath=blend_path, load_ui=False)
+    rig = bpy.data.objects["control_skeleton"]
 bpy.ops.object.select_all(action="SELECT")
 bpy.context.view_layer.objects.active = rig
 bpy.ops.export_scene.gltf(
@@ -176,6 +182,7 @@ bpy.ops.export_scene.gltf(
     export_format="GLB",
     export_animations=True,
     export_animation_mode="NLA_TRACKS",
+    export_anim_slide_to_zero=True,
     export_skins=True,
     export_extras=True,
     export_yup=True,
@@ -189,25 +196,55 @@ bpy.ops.export_scene.gltf(
 def generate_rigged_character_control(
     output_glb: str | os.PathLike[str],
     *,
+    editable_blend: str | os.PathLike[str] | None = None,
     blender_executable: str | os.PathLike[str] | None = None,
     timeout_seconds: float = 120.0,
 ) -> subprocess.CompletedProcess[str]:
-    """Generate a deterministic, inspectable rigged character GLB using Blender."""
+    """Generate a control GLB and optional editable source without overwriting.
+
+    Both outputs must share a directory. A failed generation publishes neither.
+    Acceptance of the character remains the Rust authority's responsibility.
+    """
 
     blender = blender_executable or os.environ.get("LUXEL_BLENDER_BIN", "blender")
     destination = Path(output_glb).resolve()
+    editable = Path(editable_blend).resolve() if editable_blend is not None else None
+    outputs = [destination] + ([editable] if editable is not None else [])
+    if editable is not None and (
+        editable == destination or editable.parent != destination.parent
+    ):
+        raise ValueError("GLB and editable source must be distinct files in one directory")
+    if any(path.exists() or path.is_symlink() for path in outputs):
+        raise FileExistsError("refusing to overwrite a character output")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="luxel-rigging-provider-") as temporary:
+    with tempfile.TemporaryDirectory(
+        prefix=".luxel-rigging-", dir=destination.parent
+    ) as temporary:
         script = Path(temporary) / "generate_control.py"
+        staged_glb = Path(temporary) / "character.glb"
+        staged_blend = Path(temporary) / "character.blend" if editable else None
         script.write_text(_BLENDER_CONTROL_SCRIPT, encoding="utf-8")
         command: Sequence[str] = (
             str(blender),
             "--background",
             "--factory-startup",
+            "--threads",
+            "2",
+            "-noaudio",
+            "--python-exit-code",
+            "1",
             "--python",
             str(script),
             "--",
-            str(destination),
+            str(staged_glb),
+            str(staged_blend) if staged_blend else "",
+        )
+        environment = dict(
+            os.environ,
+            ALSOFT_DRIVERS="null",
+            OPENBLAS_NUM_THREADS="1",
+            OMP_NUM_THREADS="2",
+            XDG_CACHE_HOME=str(Path(temporary) / "cache"),
         )
         result = subprocess.run(
             command,
@@ -215,7 +252,20 @@ def generate_rigged_character_control(
             text=True,
             check=False,
             timeout=timeout_seconds,
+            env=environment,
         )
-    if result.returncode == 0 and not destination.is_file():
-        raise RuntimeError("Blender reported success but did not produce the requested GLB")
+        if result.returncode != 0:
+            return result
+        staged = [staged_glb] + ([staged_blend] if staged_blend else [])
+        if any(not path.is_file() or path.stat().st_size == 0 for path in staged):
+            raise RuntimeError("Blender reported success but omitted a character output")
+        published: list[Path] = []
+        try:
+            for source, target in zip(staged, outputs):
+                os.link(source, target)
+                published.append(target)
+        except OSError:
+            for path in published:
+                path.unlink()
+            raise
     return result

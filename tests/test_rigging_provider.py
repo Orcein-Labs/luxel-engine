@@ -24,10 +24,11 @@ ASSET_CONTRACT = Path(
         ROOT / "world_core" / "target" / "debug" / "luxel-asset-contract",
     )
 )
+# The negative-control GLB is an external sample kept out of the repo (research/ is gitignored).
 BAD_CONTROL = Path(
     os.environ.get(
         "LUXEL_RIGGING_BAD_GLB",
-        "/home/mattc/Pictures/Generated 2D Images/sample_2026-09-26T091412.074.glb",
+        ROOT / "research" / "2026-10-15_rigging-control" / "bad-control.glb",
     )
 )
 BAD_CONTROL_SHA256 = "858fa104880822d081405579fb5b39d533d3b3b341d38aa1490a44b634f5e2b4"
@@ -67,11 +68,37 @@ class RiggingProviderIntegrationTest(unittest.TestCase):
             directory = Path(temporary)
             first_glb = directory / "control-a.glb"
             second_glb = directory / "control-b.glb"
+            editable = directory / "control.blend"
             for output in (first_glb, second_glb):
-                generated = generate_rigged_character_control(output)
+                generated = generate_rigged_character_control(
+                    output, editable_blend=editable if output == first_glb else None
+                )
                 self.assertEqual(generated.returncode, 0, generated.stdout + generated.stderr)
                 self.assertGreater(output.stat().st_size, 1024)
             self.assertEqual(first_glb.read_bytes(), second_glb.read_bytes())
+            probe = directory / "inspect_editable.py"
+            facts = directory / "editable.json"
+            probe.write_text("""import bpy, json, sys
+rig = bpy.data.objects['control_skeleton']
+mesh = bpy.data.objects['body_lod0']
+facts = {'bones': list(rig.data.bones.keys()), 'actions': list(bpy.data.actions.keys()),
+         'groups': list(mesh.vertex_groups.keys()),
+         'armature': mesh.modifiers['skin'].object.name,
+         'socket': bpy.data.objects['weapon_mount'].parent_bone}
+with open(sys.argv[sys.argv.index('--') + 1], 'w') as stream: json.dump(facts, stream)
+""")
+            environment = dict(os.environ, ALSOFT_DRIVERS="null", OPENBLAS_NUM_THREADS="1")
+            reopened = subprocess.run(
+                [str(BLENDER), "-b", str(editable), "-t", "2", "-noaudio",
+                 "--python-exit-code", "1", "--python", str(probe), "--", str(facts)],
+                capture_output=True, text=True, timeout=30, env=environment,
+            )
+            self.assertEqual(reopened.returncode, 0, reopened.stdout + reopened.stderr)
+            self.assertEqual(json.loads(facts.read_text()), {
+                "bones": ["root", "spine", "hand_r"], "actions": ["attack", "idle", "locomotion"],
+                "groups": ["root", "spine", "hand_r"], "armature": "control_skeleton",
+                "socket": "hand_r",
+            })
             inspection = self._rust_inspect(first_glb)
             self.assertIn("Blender", inspection["inspection"]["gltf"]["generator"])
 
@@ -99,6 +126,19 @@ class RiggingProviderIntegrationTest(unittest.TestCase):
             self.assertEqual([lod["level"] for lod in package["lods"]], [0, 1])
             self.assertEqual(package["collision"]["shape"], "capsule")
             self.assertTrue(receipt["receipt_sha256"])
+
+    def test_editable_job_failure_publishes_nothing_and_existing_source_is_preserved(self):
+        with tempfile.TemporaryDirectory(prefix="luxel-editable-failure-") as temporary:
+            directory = Path(temporary)
+            glb, blend = directory / "control.glb", directory / "control.blend"
+            with self.assertRaises(subprocess.TimeoutExpired):
+                generate_rigged_character_control(glb, editable_blend=blend, timeout_seconds=0.001)
+            self.assertEqual(list(directory.iterdir()), [])
+            blend.write_bytes(b"existing editable source")
+            with self.assertRaises(FileExistsError):
+                generate_rigged_character_control(glb, editable_blend=blend)
+            self.assertEqual(blend.read_bytes(), b"existing editable source")
+            self.assertFalse(glb.exists())
 
     def test_supplied_bad_glb_stays_a_hard_rust_rejection_control(self):
         if not BAD_CONTROL.is_file():

@@ -1,0 +1,2320 @@
+{
+  "schema": "luxel.layered-character/v1",
+  "id": "hacker_bird",
+  "label": "Hacker bird \u2014 vector study",
+  "canvas": [
+    600,
+    700
+  ],
+  "parameters": [
+    {
+      "id": "head",
+      "label": "Head tilt",
+      "min": -1,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "body",
+      "label": "Body lean",
+      "min": -1,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "gazeX",
+      "label": "Look left / right",
+      "min": -1,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "gazeY",
+      "label": "Look up / down",
+      "min": -1,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "blinkL",
+      "label": "Left blink",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "blinkR",
+      "label": "Right blink",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "speech",
+      "label": "Mouth / beak open",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "sway",
+      "label": "Secondary sway",
+      "min": -1,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "typing",
+      "label": "Typing gesture",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "body",
+      "parent": null,
+      "pivot": [
+        300,
+        600
+      ],
+      "channels": [
+        {
+          "parameter": "body",
+          "property": "rotate",
+          "gain": 3
+        }
+      ]
+    },
+    {
+      "id": "head",
+      "parent": "body",
+      "pivot": [
+        300,
+        420
+      ],
+      "channels": [
+        {
+          "parameter": "head",
+          "property": "rotate",
+          "gain": 9
+        },
+        {
+          "parameter": "head",
+          "property": "x",
+          "gain": 8
+        }
+      ]
+    },
+    {
+      "id": "prop",
+      "parent": null,
+      "pivot": [
+        300,
+        600
+      ],
+      "channels": []
+    }
+  ],
+  "parts": [
+    {
+      "id": "hoodie",
+      "label": "Hoodie",
+      "node": "body",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 5,
+      "visible": true,
+      "fill": "#283b50",
+      "stroke": "#172738",
+      "strokeWidth": 5,
+      "path": [
+        [
+          "M",
+          206,
+          399
+        ],
+        [
+          "Q",
+          132,
+          421,
+          118,
+          503
+        ],
+        [
+          "L",
+          116,
+          617
+        ],
+        [
+          "Q",
+          299,
+          677,
+          485,
+          616
+        ],
+        [
+          "L",
+          476,
+          503
+        ],
+        [
+          "Q",
+          457,
+          414,
+          394,
+          398
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "hood_rim",
+      "label": "Hood rim",
+      "node": "body",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 9,
+      "visible": true,
+      "fill": "#182a3b",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          190,
+          403
+        ],
+        [
+          "Q",
+          300,
+          474,
+          410,
+          403
+        ],
+        [
+          "Q",
+          426,
+          435,
+          402,
+          461
+        ],
+        [
+          "Q",
+          300,
+          504,
+          193,
+          458
+        ],
+        [
+          "Q",
+          173,
+          436,
+          190,
+          403
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "cord_left",
+      "label": "Cord left",
+      "node": "body",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 11,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#e6ebdf",
+      "strokeWidth": 6,
+      "path": [
+        [
+          "M",
+          253,
+          469
+        ],
+        [
+          "L",
+          250,
+          535
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "cord_right",
+      "label": "Cord right",
+      "node": "body",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 11,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#e6ebdf",
+      "strokeWidth": 6,
+      "path": [
+        [
+          "M",
+          350,
+          469
+        ],
+        [
+          "L",
+          347,
+          535
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "crest_back",
+      "label": "Crest back",
+      "node": "head",
+      "pivot": [
+        305,
+        200
+      ],
+      "order": 15,
+      "visible": true,
+      "fill": "#ffe7a2",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          269,
+          205
+        ],
+        [
+          "Q",
+          268,
+          117,
+          346,
+          79
+        ],
+        [
+          "Q",
+          361,
+          142,
+          329,
+          180
+        ],
+        [
+          "Q",
+          375,
+          126,
+          394,
+          143
+        ],
+        [
+          "Q",
+          395,
+          190,
+          349,
+          216
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "sway",
+          "property": "rotate",
+          "gain": 8
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "face",
+      "label": "Face",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 20,
+      "visible": true,
+      "fill": "#fff5db",
+      "stroke": "#172738",
+      "strokeWidth": 5,
+      "path": [
+        [
+          "M",
+          167,
+          279
+        ],
+        [
+          "C",
+          151,
+          184,
+          247,
+          165,
+          302,
+          175
+        ],
+        [
+          "C",
+          390,
+          160,
+          450,
+          223,
+          437,
+          318
+        ],
+        [
+          "C",
+          434,
+          398,
+          367,
+          451,
+          302,
+          454
+        ],
+        [
+          "C",
+          228,
+          444,
+          165,
+          382,
+          167,
+          279
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "face_light",
+      "label": "Face light",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 21,
+      "visible": true,
+      "fill": "#fffdf4",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          336,
+          286
+        ],
+        [
+          "C",
+          336,
+          329.0782105,
+          303.764502,
+          364,
+          264,
+          364
+        ],
+        [
+          "C",
+          224.235498,
+          364,
+          192,
+          329.0782105,
+          192,
+          286
+        ],
+        [
+          "C",
+          192,
+          242.9217895,
+          224.235498,
+          208,
+          264,
+          208
+        ],
+        [
+          "C",
+          303.764502,
+          208,
+          336,
+          242.9217895,
+          336,
+          286
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "cheek_left",
+      "label": "Cheek left",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 25,
+      "visible": true,
+      "fill": "#f7ca78",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          241,
+          355
+        ],
+        [
+          "C",
+          241,
+          363.28427125,
+          230.254834,
+          370,
+          217,
+          370
+        ],
+        [
+          "C",
+          203.745166,
+          370,
+          193,
+          363.28427125,
+          193,
+          355
+        ],
+        [
+          "C",
+          193,
+          346.71572875,
+          203.745166,
+          340,
+          217,
+          340
+        ],
+        [
+          "C",
+          230.254834,
+          340,
+          241,
+          346.71572875,
+          241,
+          355
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "cheek_right",
+      "label": "Cheek right",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 25,
+      "visible": true,
+      "fill": "#f7ca78",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          411,
+          355
+        ],
+        [
+          "C",
+          411,
+          363.28427125,
+          400.254834,
+          370,
+          387,
+          370
+        ],
+        [
+          "C",
+          373.745166,
+          370,
+          363,
+          363.28427125,
+          363,
+          355
+        ],
+        [
+          "C",
+          363,
+          346.71572875,
+          373.745166,
+          340,
+          387,
+          340
+        ],
+        [
+          "C",
+          400.254834,
+          340,
+          411,
+          346.71572875,
+          411,
+          355
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "eye_left",
+      "label": "Eye left",
+      "node": "head",
+      "pivot": [
+        241,
+        307
+      ],
+      "order": 40,
+      "visible": true,
+      "fill": "#fffaf1",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          268,
+          307
+        ],
+        [
+          "C",
+          268,
+          318.045695,
+          255.91168825,
+          327,
+          241,
+          327
+        ],
+        [
+          "C",
+          226.08831175,
+          327,
+          214,
+          318.045695,
+          214,
+          307
+        ],
+        [
+          "C",
+          214,
+          295.954305,
+          226.08831175,
+          287,
+          241,
+          287
+        ],
+        [
+          "C",
+          255.91168825,
+          287,
+          268,
+          295.954305,
+          268,
+          307
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "blinkL",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "iris_left",
+      "label": "Iris left",
+      "node": "head",
+      "pivot": [
+        241,
+        307
+      ],
+      "order": 41,
+      "visible": true,
+      "fill": "#32a8ab",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          252,
+          307
+        ],
+        [
+          "C",
+          252,
+          315.28427125,
+          247.07513225,
+          322,
+          241,
+          322
+        ],
+        [
+          "C",
+          234.92486775,
+          322,
+          230,
+          315.28427125,
+          230,
+          307
+        ],
+        [
+          "C",
+          230,
+          298.71572875,
+          234.92486775,
+          292,
+          241,
+          292
+        ],
+        [
+          "C",
+          247.07513225,
+          292,
+          252,
+          298.71572875,
+          252,
+          307
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "gazeX",
+          "property": "x",
+          "gain": 8
+        },
+        {
+          "parameter": "gazeY",
+          "property": "y",
+          "gain": 5
+        },
+        {
+          "parameter": "blinkL",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": "eye_left"
+    },
+    {
+      "id": "pupil_left",
+      "label": "Pupil left",
+      "node": "head",
+      "pivot": [
+        241,
+        307
+      ],
+      "order": 42,
+      "visible": true,
+      "fill": "#172738",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          246,
+          308
+        ],
+        [
+          "C",
+          246,
+          313.5228475,
+          243.76142375,
+          318,
+          241,
+          318
+        ],
+        [
+          "C",
+          238.23857625,
+          318,
+          236,
+          313.5228475,
+          236,
+          308
+        ],
+        [
+          "C",
+          236,
+          302.4771525,
+          238.23857625,
+          298,
+          241,
+          298
+        ],
+        [
+          "C",
+          243.76142375,
+          298,
+          246,
+          302.4771525,
+          246,
+          308
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "gazeX",
+          "property": "x",
+          "gain": 8
+        },
+        {
+          "parameter": "gazeY",
+          "property": "y",
+          "gain": 5
+        },
+        {
+          "parameter": "blinkL",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": "eye_left"
+    },
+    {
+      "id": "glint_left",
+      "label": "Glint left",
+      "node": "head",
+      "pivot": [
+        241,
+        307
+      ],
+      "order": 43,
+      "visible": true,
+      "fill": "#ffffff",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          241,
+          302
+        ],
+        [
+          "C",
+          241,
+          304.209139,
+          239.65685425,
+          306,
+          238,
+          306
+        ],
+        [
+          "C",
+          236.34314575,
+          306,
+          235,
+          304.209139,
+          235,
+          302
+        ],
+        [
+          "C",
+          235,
+          299.790861,
+          236.34314575,
+          298,
+          238,
+          298
+        ],
+        [
+          "C",
+          239.65685425,
+          298,
+          241,
+          299.790861,
+          241,
+          302
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "gazeX",
+          "property": "x",
+          "gain": 8
+        },
+        {
+          "parameter": "gazeY",
+          "property": "y",
+          "gain": 5
+        },
+        {
+          "parameter": "blinkL",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": "eye_left"
+    },
+    {
+      "id": "lash_left",
+      "label": "Lash left",
+      "node": "head",
+      "pivot": [
+        241,
+        307
+      ],
+      "order": 44,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          211,
+          300
+        ],
+        [
+          "Q",
+          241,
+          278,
+          271,
+          300
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "blinkL",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "brow_left",
+      "label": "Brow left",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 45,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          214,
+          269
+        ],
+        [
+          "Q",
+          241,
+          261,
+          268,
+          268
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "eye_right",
+      "label": "Eye right",
+      "node": "head",
+      "pivot": [
+        359,
+        307
+      ],
+      "order": 40,
+      "visible": true,
+      "fill": "#fffaf1",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          386,
+          307
+        ],
+        [
+          "C",
+          386,
+          318.045695,
+          373.91168825,
+          327,
+          359,
+          327
+        ],
+        [
+          "C",
+          344.08831175,
+          327,
+          332,
+          318.045695,
+          332,
+          307
+        ],
+        [
+          "C",
+          332,
+          295.954305,
+          344.08831175,
+          287,
+          359,
+          287
+        ],
+        [
+          "C",
+          373.91168825,
+          287,
+          386,
+          295.954305,
+          386,
+          307
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "blinkR",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "iris_right",
+      "label": "Iris right",
+      "node": "head",
+      "pivot": [
+        359,
+        307
+      ],
+      "order": 41,
+      "visible": true,
+      "fill": "#32a8ab",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          370,
+          307
+        ],
+        [
+          "C",
+          370,
+          315.28427125,
+          365.07513225,
+          322,
+          359,
+          322
+        ],
+        [
+          "C",
+          352.92486775,
+          322,
+          348,
+          315.28427125,
+          348,
+          307
+        ],
+        [
+          "C",
+          348,
+          298.71572875,
+          352.92486775,
+          292,
+          359,
+          292
+        ],
+        [
+          "C",
+          365.07513225,
+          292,
+          370,
+          298.71572875,
+          370,
+          307
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "gazeX",
+          "property": "x",
+          "gain": 8
+        },
+        {
+          "parameter": "gazeY",
+          "property": "y",
+          "gain": 5
+        },
+        {
+          "parameter": "blinkR",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": "eye_right"
+    },
+    {
+      "id": "pupil_right",
+      "label": "Pupil right",
+      "node": "head",
+      "pivot": [
+        359,
+        307
+      ],
+      "order": 42,
+      "visible": true,
+      "fill": "#172738",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          364,
+          308
+        ],
+        [
+          "C",
+          364,
+          313.5228475,
+          361.76142375,
+          318,
+          359,
+          318
+        ],
+        [
+          "C",
+          356.23857625,
+          318,
+          354,
+          313.5228475,
+          354,
+          308
+        ],
+        [
+          "C",
+          354,
+          302.4771525,
+          356.23857625,
+          298,
+          359,
+          298
+        ],
+        [
+          "C",
+          361.76142375,
+          298,
+          364,
+          302.4771525,
+          364,
+          308
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "gazeX",
+          "property": "x",
+          "gain": 8
+        },
+        {
+          "parameter": "gazeY",
+          "property": "y",
+          "gain": 5
+        },
+        {
+          "parameter": "blinkR",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": "eye_right"
+    },
+    {
+      "id": "glint_right",
+      "label": "Glint right",
+      "node": "head",
+      "pivot": [
+        359,
+        307
+      ],
+      "order": 43,
+      "visible": true,
+      "fill": "#ffffff",
+      "stroke": "#172738",
+      "strokeWidth": 0,
+      "path": [
+        [
+          "M",
+          359,
+          302
+        ],
+        [
+          "C",
+          359,
+          304.209139,
+          357.65685425,
+          306,
+          356,
+          306
+        ],
+        [
+          "C",
+          354.34314575,
+          306,
+          353,
+          304.209139,
+          353,
+          302
+        ],
+        [
+          "C",
+          353,
+          299.790861,
+          354.34314575,
+          298,
+          356,
+          298
+        ],
+        [
+          "C",
+          357.65685425,
+          298,
+          359,
+          299.790861,
+          359,
+          302
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "gazeX",
+          "property": "x",
+          "gain": 8
+        },
+        {
+          "parameter": "gazeY",
+          "property": "y",
+          "gain": 5
+        },
+        {
+          "parameter": "blinkR",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": "eye_right"
+    },
+    {
+      "id": "lash_right",
+      "label": "Lash right",
+      "node": "head",
+      "pivot": [
+        359,
+        307
+      ],
+      "order": 44,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          329,
+          300
+        ],
+        [
+          "Q",
+          359,
+          278,
+          389,
+          300
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "blinkR",
+          "property": "scaleY",
+          "gain": -0.96
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "brow_right",
+      "label": "Brow right",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 45,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          332,
+          269
+        ],
+        [
+          "Q",
+          359,
+          261,
+          386,
+          268
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "beak_interior",
+      "label": "Beak interior",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 48,
+      "visible": true,
+      "fill": "#793e35",
+      "stroke": "#172738",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          272,
+          349
+        ],
+        [
+          "Q",
+          300,
+          329,
+          329,
+          352
+        ],
+        [
+          "L",
+          315,
+          397
+        ],
+        [
+          "Q",
+          301,
+          411,
+          286,
+          397
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "beak_lower",
+      "label": "Beak lower",
+      "node": "head",
+      "pivot": [
+        300,
+        365
+      ],
+      "order": 49,
+      "visible": true,
+      "fill": "#f39556",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          274,
+          366
+        ],
+        [
+          "Q",
+          300,
+          382,
+          327,
+          366
+        ],
+        [
+          "Q",
+          316,
+          406,
+          300,
+          407
+        ],
+        [
+          "Q",
+          285,
+          402,
+          274,
+          366
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "speech",
+          "property": "y",
+          "gain": 15
+        },
+        {
+          "parameter": "speech",
+          "property": "scaleY",
+          "gain": 0.15
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "beak_upper",
+      "label": "Beak upper",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 50,
+      "visible": true,
+      "fill": "#f9b071",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          272,
+          358
+        ],
+        [
+          "Q",
+          277,
+          326,
+          300,
+          327
+        ],
+        [
+          "Q",
+          325,
+          326,
+          330,
+          357
+        ],
+        [
+          "Q",
+          315,
+          379,
+          300,
+          383
+        ],
+        [
+          "Q",
+          282,
+          373,
+          272,
+          358
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "beak_shine",
+      "label": "Beak shine",
+      "node": "head",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 51,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#ffe3bc",
+      "strokeWidth": 5,
+      "path": [
+        [
+          "M",
+          284,
+          347
+        ],
+        [
+          "Q",
+          288,
+          334,
+          297,
+          337
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "wing_left",
+      "label": "Wing left",
+      "node": "body",
+      "pivot": [
+        164,
+        481
+      ],
+      "order": 70,
+      "visible": true,
+      "fill": "#344a60",
+      "stroke": "#172738",
+      "strokeWidth": 5,
+      "path": [
+        [
+          "M",
+          163,
+          469
+        ],
+        [
+          "Q",
+          104,
+          476,
+          94,
+          544
+        ],
+        [
+          "Q",
+          90,
+          585,
+          147,
+          595
+        ],
+        [
+          "L",
+          220,
+          564
+        ],
+        [
+          "L",
+          210,
+          526
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "typing",
+          "property": "rotate",
+          "gain": 4
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "wing_right",
+      "label": "Wing right",
+      "node": "body",
+      "pivot": [
+        437,
+        481
+      ],
+      "order": 70,
+      "visible": true,
+      "fill": "#344a60",
+      "stroke": "#172738",
+      "strokeWidth": 5,
+      "path": [
+        [
+          "M",
+          437,
+          470
+        ],
+        [
+          "Q",
+          494,
+          478,
+          506,
+          545
+        ],
+        [
+          "Q",
+          513,
+          587,
+          454,
+          596
+        ],
+        [
+          "L",
+          382,
+          565
+        ],
+        [
+          "L",
+          389,
+          527
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "typing",
+          "property": "rotate",
+          "gain": -4
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "laptop_base",
+      "label": "Laptop base",
+      "node": "prop",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 90,
+      "visible": true,
+      "fill": "#63778a",
+      "stroke": "#172738",
+      "strokeWidth": 5,
+      "path": [
+        [
+          "M",
+          149,
+          610
+        ],
+        [
+          "L",
+          451,
+          610
+        ],
+        [
+          "L",
+          500,
+          641
+        ],
+        [
+          "Q",
+          507,
+          654,
+          481,
+          659
+        ],
+        [
+          "L",
+          118,
+          659
+        ],
+        [
+          "Q",
+          93,
+          652,
+          109,
+          640
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "paw_left",
+      "label": "Paw left",
+      "node": "body",
+      "pivot": [
+        204,
+        634
+      ],
+      "order": 104,
+      "visible": true,
+      "fill": "#fff2d4",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          234,
+          634
+        ],
+        [
+          "C",
+          234,
+          641.7319865,
+          220.5685425,
+          648,
+          204,
+          648
+        ],
+        [
+          "C",
+          187.4314575,
+          648,
+          174,
+          641.7319865,
+          174,
+          634
+        ],
+        [
+          "C",
+          174,
+          626.2680135,
+          187.4314575,
+          620,
+          204,
+          620
+        ],
+        [
+          "C",
+          220.5685425,
+          620,
+          234,
+          626.2680135,
+          234,
+          634
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "typing",
+          "property": "y",
+          "gain": 4
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "paw_right",
+      "label": "Paw right",
+      "node": "body",
+      "pivot": [
+        398,
+        634
+      ],
+      "order": 104,
+      "visible": true,
+      "fill": "#fff2d4",
+      "stroke": "#172738",
+      "strokeWidth": 4,
+      "path": [
+        [
+          "M",
+          428,
+          634
+        ],
+        [
+          "C",
+          428,
+          641.7319865,
+          414.5685425,
+          648,
+          398,
+          648
+        ],
+        [
+          "C",
+          381.4314575,
+          648,
+          368,
+          641.7319865,
+          368,
+          634
+        ],
+        [
+          "C",
+          368,
+          626.2680135,
+          381.4314575,
+          620,
+          398,
+          620
+        ],
+        [
+          "C",
+          414.5685425,
+          620,
+          428,
+          626.2680135,
+          428,
+          634
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [
+        {
+          "parameter": "typing",
+          "property": "y",
+          "gain": -4
+        }
+      ],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "laptop_lid",
+      "label": "Laptop lid",
+      "node": "prop",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 100,
+      "visible": true,
+      "fill": "#24394e",
+      "stroke": "#172738",
+      "strokeWidth": 5,
+      "path": [
+        [
+          "M",
+          137,
+          502
+        ],
+        [
+          "Q",
+          135,
+          489,
+          151,
+          488
+        ],
+        [
+          "L",
+          424,
+          488
+        ],
+        [
+          "Q",
+          439,
+          488,
+          441,
+          502
+        ],
+        [
+          "L",
+          463,
+          635
+        ],
+        [
+          "L",
+          157,
+          635
+        ],
+        [
+          "Z"
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "laptop_edge",
+      "label": "Laptop edge",
+      "node": "prop",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 101,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#8196aa",
+      "strokeWidth": 3,
+      "path": [
+        [
+          "M",
+          153,
+          500
+        ],
+        [
+          "L",
+          424,
+          500
+        ],
+        [
+          "L",
+          444,
+          622
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "code_left",
+      "label": "Code left",
+      "node": "prop",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 102,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#c8f3e9",
+      "strokeWidth": 7,
+      "path": [
+        [
+          "M",
+          279,
+          543
+        ],
+        [
+          "L",
+          255,
+          565
+        ],
+        [
+          "L",
+          281,
+          587
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "code_right",
+      "label": "Code right",
+      "node": "prop",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 102,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#c8f3e9",
+      "strokeWidth": 7,
+      "path": [
+        [
+          "M",
+          329,
+          543
+        ],
+        [
+          "L",
+          353,
+          565
+        ],
+        [
+          "L",
+          327,
+          587
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    },
+    {
+      "id": "code_slash",
+      "label": "Code slash",
+      "node": "prop",
+      "pivot": [
+        300,
+        320
+      ],
+      "order": 102,
+      "visible": true,
+      "fill": "none",
+      "stroke": "#65d9ce",
+      "strokeWidth": 6,
+      "path": [
+        [
+          "M",
+          315,
+          538
+        ],
+        [
+          "L",
+          299,
+          591
+        ]
+      ],
+      "channels": [],
+      "deforms": [],
+      "mask": null
+    }
+  ],
+  "clips": [
+    {
+      "id": "demo",
+      "duration": 6,
+      "loop": true,
+      "tracks": [
+        {
+          "parameter": "head",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              1.5,
+              -0.6
+            ],
+            [
+              3,
+              0.65
+            ],
+            [
+              4.5,
+              -0.25
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "body",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              2,
+              0.6
+            ],
+            [
+              4,
+              -0.6
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "sway",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              1.5,
+              0.8
+            ],
+            [
+              3,
+              -0.8
+            ],
+            [
+              4.5,
+              0.5
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "blinkL",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1.15,
+              1
+            ],
+            [
+              1.3,
+              0
+            ],
+            [
+              3.8,
+              0
+            ],
+            [
+              4,
+              1
+            ],
+            [
+              4.2,
+              0
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "blinkR",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1.15,
+              1
+            ],
+            [
+              1.3,
+              0
+            ],
+            [
+              5,
+              0
+            ],
+            [
+              5.15,
+              1
+            ],
+            [
+              5.3,
+              0
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "gazeX",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              2,
+              -0.8
+            ],
+            [
+              4,
+              0.8
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "speech",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              0.9
+            ],
+            [
+              0.6,
+              0.1
+            ],
+            [
+              0.9,
+              0.7
+            ],
+            [
+              1.2,
+              0
+            ],
+            [
+              2,
+              0
+            ],
+            [
+              2.4,
+              1
+            ],
+            [
+              2.7,
+              0.1
+            ],
+            [
+              3,
+              0.8
+            ],
+            [
+              3.3,
+              0
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        {
+          "parameter": "typing",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              2,
+              0
+            ],
+            [
+              2.3,
+              1
+            ],
+            [
+              2.6,
+              0
+            ],
+            [
+              2.9,
+              1
+            ],
+            [
+              3.2,
+              0
+            ],
+            [
+              3.5,
+              1
+            ],
+            [
+              4,
+              0
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "bindings": {
+    "gazeX": "gazeX",
+    "gazeY": "gazeY",
+    "blinkLeft": "blinkL",
+    "blinkRight": "blinkR",
+    "speech": "speech",
+    "head": "head",
+    "body": "body",
+    "secondary": "sway"
+  },
+  "provenance": {
+    "kind": "original-authored-vector-control",
+    "date": "2026-10-09",
+    "quality": "MVP control artwork; no professional-quality approval; not Live2D"
+  }
+}

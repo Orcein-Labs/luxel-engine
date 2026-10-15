@@ -1,0 +1,28 @@
+{
+	"Type": "Live2D Expression",
+	"FadeInTime": 0.5,
+	"FadeOutTime": 0.5,
+	"Name": "exp_joy",
+	"Parameters": [
+		{
+			"Id": "ParamEyeLSmile",
+			"Value": 0.8,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyeRSmile",
+			"Value": 0.8,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamMouthForm",
+			"Value": 0.7,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamCheek",
+			"Value": 0.5,
+			"Blend": "Add"
+		}
+	]
+}

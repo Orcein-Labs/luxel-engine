@@ -1,0 +1,52 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "cyan_source.moc3",
+		"Textures": [
+			"cyan_source.1024/texture_00.png"
+		],
+		"DisplayInfo": "cyan_source.cdi3.json",
+		"Expressions": [
+			{
+				"Name": "exp_neutral",
+				"File": "expressions/exp_neutral.exp3.json"
+			},
+			{
+				"Name": "exp_sad",
+				"File": "expressions/exp_sad.exp3.json"
+			},
+			{
+				"Name": "exp_anger",
+				"File": "expressions/exp_anger.exp3.json"
+			},
+			{
+				"Name": "exp_joy",
+				"File": "expressions/exp_joy.exp3.json"
+			}
+		],
+		"Motions": {
+			"Idle": [
+				{
+					"File": "motions/idle.motion3.json"
+				}
+			]
+		}
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": [
+				"ParamEyeLOpen",
+				"ParamEyeROpen"
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": [
+				"ParamMouthOpenY"
+			]
+		}
+	]
+}
