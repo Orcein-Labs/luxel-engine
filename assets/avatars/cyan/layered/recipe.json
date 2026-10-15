@@ -1,0 +1,515 @@
+{
+  "schema": "luxel.cyan-source-assembly/v1",
+  "source": "assets/avatars/cyan/source/cyan-source-art-female-v2.png",
+  "source_digest": "82da3196532fc000fdc6ce4569a8fe031c1fb260f5d5dacb3e3f1a9abd53b3b8",
+  "canvas": [
+    1024,
+    1536
+  ],
+  "boundary_policy_px": 2,
+  "landmarks": {
+    "left_iris_xy": [
+      435,
+      340
+    ],
+    "right_iris_xy": [
+      577,
+      322
+    ],
+    "mouth_center_xy": [
+      515,
+      442
+    ]
+  },
+  "part_stack": [
+    "hair_back",
+    "coat",
+    "torso",
+    "collar",
+    "hair_underpaint",
+    "neck_behind_jaw_collar",
+    "neck",
+    "face_behind_bangs",
+    "face",
+    "sclera_left_under",
+    "sclera_right_under",
+    "sclera_left",
+    "sclera_right",
+    "iris_left",
+    "iris_right",
+    "mouth_interior",
+    "lid_lower_left",
+    "lid_lower_right",
+    "lip_lower",
+    "lip_upper",
+    "lid_upper_left",
+    "lid_upper_right",
+    "hair_front"
+  ],
+  "layers": [
+    {
+      "id": "hair_back",
+      "label": "hair back",
+      "kind": "visible",
+      "surfaces": [
+        "hair_overlaps"
+      ],
+      "png": "layers/hair_back.png",
+      "origin": [
+        59,
+        4
+      ],
+      "size": [
+        922,
+        1306
+      ]
+    },
+    {
+      "id": "coat",
+      "label": "coat",
+      "kind": "visible",
+      "surfaces": [],
+      "png": "layers/coat.png",
+      "origin": [
+        0,
+        561
+      ],
+      "size": [
+        1024,
+        975
+      ]
+    },
+    {
+      "id": "torso",
+      "label": "torso",
+      "kind": "visible",
+      "surfaces": [],
+      "png": "layers/torso.png",
+      "origin": [
+        54,
+        241
+      ],
+      "size": [
+        927,
+        1295
+      ]
+    },
+    {
+      "id": "collar",
+      "label": "collar",
+      "kind": "visible",
+      "surfaces": [],
+      "png": "layers/collar.png",
+      "origin": [
+        73,
+        621
+      ],
+      "size": [
+        891,
+        239
+      ]
+    },
+    {
+      "id": "hair_underpaint",
+      "label": "hair underpaint",
+      "kind": "concealed",
+      "surfaces": [
+        "hair_overlaps"
+      ],
+      "png": "layers/hair_underpaint.png",
+      "origin": [
+        367,
+        195
+      ],
+      "size": [
+        290,
+        367
+      ]
+    },
+    {
+      "id": "neck_behind_jaw_collar",
+      "label": "neck behind jaw collar",
+      "kind": "concealed",
+      "surfaces": [
+        "neck_behind_jaw_collar"
+      ],
+      "png": "layers/neck_behind_jaw_collar.png",
+      "origin": [
+        392,
+        426
+      ],
+      "size": [
+        241,
+        355
+      ]
+    },
+    {
+      "id": "neck",
+      "label": "neck",
+      "kind": "visible",
+      "surfaces": [],
+      "png": "layers/neck.png",
+      "origin": [
+        205,
+        193
+      ],
+      "size": [
+        628,
+        567
+      ]
+    },
+    {
+      "id": "face_behind_bangs",
+      "label": "face behind bangs",
+      "kind": "concealed",
+      "surfaces": [
+        "face_behind_bangs"
+      ],
+      "png": "layers/face_behind_bangs.png",
+      "origin": [
+        367,
+        195
+      ],
+      "size": [
+        290,
+        367
+      ]
+    },
+    {
+      "id": "face",
+      "label": "face",
+      "kind": "visible",
+      "surfaces": [],
+      "png": "layers/face.png",
+      "origin": [
+        368,
+        196
+      ],
+      "size": [
+        290,
+        389
+      ]
+    },
+    {
+      "id": "sclera_left_under",
+      "label": "sclera left under",
+      "kind": "concealed",
+      "surfaces": [
+        "sclera"
+      ],
+      "png": "layers/sclera_left_under.png",
+      "origin": [
+        395,
+        324
+      ],
+      "size": [
+        71,
+        32
+      ]
+    },
+    {
+      "id": "sclera_right_under",
+      "label": "sclera right under",
+      "kind": "concealed",
+      "surfaces": [
+        "sclera"
+      ],
+      "png": "layers/sclera_right_under.png",
+      "origin": [
+        542,
+        306
+      ],
+      "size": [
+        73,
+        28
+      ]
+    },
+    {
+      "id": "sclera_left",
+      "label": "sclera left",
+      "kind": "visible",
+      "surfaces": [
+        "sclera"
+      ],
+      "png": "layers/sclera_left.png",
+      "origin": [
+        399,
+        322
+      ],
+      "size": [
+        79,
+        37
+      ]
+    },
+    {
+      "id": "sclera_right",
+      "label": "sclera right",
+      "kind": "visible",
+      "surfaces": [
+        "sclera"
+      ],
+      "png": "layers/sclera_right.png",
+      "origin": [
+        535,
+        305
+      ],
+      "size": [
+        85,
+        36
+      ]
+    },
+    {
+      "id": "iris_left",
+      "label": "iris left",
+      "kind": "visible",
+      "surfaces": [
+        "pupils"
+      ],
+      "png": "layers/iris_left.png",
+      "origin": [
+        421,
+        326
+      ],
+      "size": [
+        29,
+        29
+      ]
+    },
+    {
+      "id": "iris_right",
+      "label": "iris right",
+      "kind": "visible",
+      "surfaces": [
+        "pupils"
+      ],
+      "png": "layers/iris_right.png",
+      "origin": [
+        563,
+        308
+      ],
+      "size": [
+        29,
+        29
+      ]
+    },
+    {
+      "id": "mouth_interior",
+      "label": "mouth interior",
+      "kind": "concealed",
+      "surfaces": [
+        "mouth_interior"
+      ],
+      "png": "layers/mouth_interior.png",
+      "origin": [
+        488,
+        440
+      ],
+      "size": [
+        53,
+        10
+      ]
+    },
+    {
+      "id": "lid_lower_left",
+      "label": "lid lower left",
+      "kind": "concealed",
+      "surfaces": [
+        "lids"
+      ],
+      "png": "layers/lid_lower_left.png",
+      "origin": [
+        397,
+        343
+      ],
+      "size": [
+        77,
+        16
+      ]
+    },
+    {
+      "id": "lid_lower_right",
+      "label": "lid lower right",
+      "kind": "concealed",
+      "surfaces": [
+        "lids"
+      ],
+      "png": "layers/lid_lower_right.png",
+      "origin": [
+        539,
+        325
+      ],
+      "size": [
+        77,
+        16
+      ]
+    },
+    {
+      "id": "lip_lower",
+      "label": "lip lower",
+      "kind": "visible",
+      "surfaces": [
+        "lips"
+      ],
+      "png": "layers/lip_lower.png",
+      "origin": [
+        468,
+        443
+      ],
+      "size": [
+        95,
+        16
+      ]
+    },
+    {
+      "id": "lip_upper",
+      "label": "lip upper",
+      "kind": "visible",
+      "surfaces": [
+        "lips"
+      ],
+      "png": "layers/lip_upper.png",
+      "origin": [
+        467,
+        426
+      ],
+      "size": [
+        97,
+        17
+      ]
+    },
+    {
+      "id": "lid_upper_left",
+      "label": "lid upper left",
+      "kind": "concealed",
+      "surfaces": [
+        "lids"
+      ],
+      "png": "layers/lid_upper_left.png",
+      "origin": [
+        393,
+        320
+      ],
+      "size": [
+        85,
+        24
+      ]
+    },
+    {
+      "id": "lid_upper_right",
+      "label": "lid upper right",
+      "kind": "concealed",
+      "surfaces": [
+        "lids"
+      ],
+      "png": "layers/lid_upper_right.png",
+      "origin": [
+        535,
+        302
+      ],
+      "size": [
+        85,
+        24
+      ]
+    },
+    {
+      "id": "hair_front",
+      "label": "hair front",
+      "kind": "visible",
+      "surfaces": [
+        "hair_overlaps"
+      ],
+      "png": "layers/hair_front.png",
+      "origin": [
+        367,
+        195
+      ],
+      "size": [
+        290,
+        367
+      ]
+    }
+  ],
+  "coverage": [
+    {
+      "surface": "lids",
+      "status": "present",
+      "layer_ids": [
+        "lid_lower_left",
+        "lid_lower_right",
+        "lid_upper_left",
+        "lid_upper_right"
+      ],
+      "finding": "Authored layer(s) lid_lower_left, lid_lower_right, lid_upper_left, lid_upper_right cover lids."
+    },
+    {
+      "surface": "sclera",
+      "status": "present",
+      "layer_ids": [
+        "sclera_left_under",
+        "sclera_right_under",
+        "sclera_left",
+        "sclera_right"
+      ],
+      "finding": "Authored layer(s) sclera_left_under, sclera_right_under, sclera_left, sclera_right cover sclera."
+    },
+    {
+      "surface": "pupils",
+      "status": "present",
+      "layer_ids": [
+        "iris_left",
+        "iris_right"
+      ],
+      "finding": "Authored layer(s) iris_left, iris_right cover pupils."
+    },
+    {
+      "surface": "lips",
+      "status": "present",
+      "layer_ids": [
+        "lip_lower",
+        "lip_upper"
+      ],
+      "finding": "Authored layer(s) lip_lower, lip_upper cover lips."
+    },
+    {
+      "surface": "mouth_interior",
+      "status": "present",
+      "layer_ids": [
+        "mouth_interior"
+      ],
+      "finding": "Authored layer(s) mouth_interior cover mouth_interior."
+    },
+    {
+      "surface": "face_behind_bangs",
+      "status": "present",
+      "layer_ids": [
+        "face_behind_bangs"
+      ],
+      "finding": "Authored layer(s) face_behind_bangs cover face_behind_bangs."
+    },
+    {
+      "surface": "neck_behind_jaw_collar",
+      "status": "present",
+      "layer_ids": [
+        "neck_behind_jaw_collar"
+      ],
+      "finding": "Authored layer(s) neck_behind_jaw_collar cover neck_behind_jaw_collar."
+    },
+    {
+      "surface": "hair_overlaps",
+      "status": "present",
+      "layer_ids": [
+        "hair_back",
+        "hair_underpaint",
+        "hair_front"
+      ],
+      "finding": "Authored layer(s) hair_back, hair_underpaint, hair_front cover hair_overlaps."
+    }
+  ],
+  "provenance": {
+    "kind": "cyan-source-1-rest-assembly",
+    "reference_preserved": true,
+    "flattened_underlay": false,
+    "cubism_import": "assets/avatars/cyan/layered/cyan-cubism-import.psd",
+    "quality": "Source preparation; human appearance review remains separate"
+  }
+}

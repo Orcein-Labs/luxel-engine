@@ -1,0 +1,44 @@
+{
+  "schema": "luxel.cyan-source-parameters/v1",
+  "editor": {
+    "product": "Live2D Cubism Editor",
+    "version": "5.3.04",
+    "edition": "FREE",
+    "exportTarget": "SDK5.3/Cubism5.3",
+    "textureAtlas": "1x1024 Texture0"
+  },
+  "note": "IDs, names, and rest values come from the Cubism 5.3.04 FREE export (cdi3 + Parameter palette). Min/max follow the Cubism standard parameter list that the Editor applied on PSD create. Settings for Eye Blinking and Lip-sync is PRO-only in this edition; runtime Groups are bound from DisplayInfo IDs.",
+  "parameters": [
+    {"id": "ParamAngleX", "name": "Angle X", "min": -30, "default": 0, "max": 30, "control": "head"},
+    {"id": "ParamAngleY", "name": "Angle Y", "min": -30, "default": 0, "max": 30, "control": "head"},
+    {"id": "ParamAngleZ", "name": "Angle Z", "min": -30, "default": 0, "max": 30, "control": "head"},
+    {"id": "ParamEyeLOpen", "name": "EyeL Open", "min": 0, "default": 1, "max": 1, "control": "blink"},
+    {"id": "ParamEyeLSmile", "name": "EyeL Smile", "min": 0, "default": 0, "max": 1, "control": "expression"},
+    {"id": "ParamEyeROpen", "name": "EyeR Open", "min": 0, "default": 1, "max": 1, "control": "blink"},
+    {"id": "ParamEyeRSmile", "name": "EyeR Smile", "min": 0, "default": 0, "max": 1, "control": "expression"},
+    {"id": "ParamEyeBallX", "name": "Eyeball X", "min": -1, "default": 0, "max": 1, "control": "gaze"},
+    {"id": "ParamEyeBallY", "name": "Eyeball Y", "min": -1, "default": 0, "max": 1, "control": "gaze"},
+    {"id": "ParamBrowLY", "name": "BrowL Y", "min": -1, "default": 0, "max": 1, "control": "expression"},
+    {"id": "ParamBrowRY", "name": "BrowR Y", "min": -1, "default": 0, "max": 1, "control": "expression"},
+    {"id": "ParamBrowLX", "name": "BrowL X", "min": -1, "default": 0, "max": 1, "control": "expression"},
+    {"id": "ParamBrowRX", "name": "BrowR X", "min": -1, "default": 0, "max": 1, "control": "expression"},
+    {"id": "ParamBrowLAngle", "name": "BrowL Angle", "min": -1, "default": 0, "max": 1, "control": "expression"},
+    {"id": "ParamBrowRAngle", "name": "BrowR Angle", "min": -1, "default": 0, "max": 1, "control": "expression"},
+    {"id": "ParamBrowLForm", "name": "BrowL Form", "min": -1, "default": 0, "max": 1, "control": "expression"},
+    {"id": "ParamBrowRForm", "name": "BrowR Form", "min": -1, "default": 0, "max": 1, "control": "expression"},
+    {"id": "ParamMouthForm", "name": "Mouth Form", "min": -1, "default": 0, "max": 1, "control": "mouth"},
+    {"id": "ParamMouthOpenY", "name": "Mouth Open", "min": 0, "default": 0, "max": 1, "control": "mouth"},
+    {"id": "ParamCheek", "name": "Cheek", "min": 0, "default": 0, "max": 1, "control": "expression"},
+    {"id": "ParamBodyAngleX", "name": "Body X", "min": -10, "default": 0, "max": 10, "control": "body"},
+    {"id": "ParamBodyAngleY", "name": "Body Y", "min": -10, "default": 0, "max": 10, "control": "body"},
+    {"id": "ParamBodyAngleZ", "name": "Body Z", "min": -10, "default": 0, "max": 10, "control": "body"},
+    {"id": "ParamBreath", "name": "Breath", "min": 0, "default": 0, "max": 1, "control": "idle"},
+    {"id": "ParamHairFront", "name": "Hair Move Front", "min": -1, "default": 0, "max": 1, "control": "hair"},
+    {"id": "ParamHairSide", "name": "Hair Move Side", "min": -1, "default": 0, "max": 1, "control": "hair"},
+    {"id": "ParamHairBack", "name": "Hair Move Back", "min": -1, "default": 0, "max": 1, "control": "hair"}
+  ],
+  "groups": {
+    "EyeBlink": ["ParamEyeLOpen", "ParamEyeROpen"],
+    "LipSync": ["ParamMouthOpenY"]
+  }
+}

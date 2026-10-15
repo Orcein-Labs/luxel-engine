@@ -1,0 +1,51 @@
+<div id="luxel-workbench">
+  <header class="app-header">
+    <div><strong>Luxel</strong><span class="app-subtitle">Character workbench · MVP</span></div>
+    <div class="app-actions">
+      <button type="button" data-action="export">Export project</button>
+      <button type="button" data-action="undo" disabled>Undo edit</button>
+      <label class="app-file">Import project<input type="file" data-input="import" accept=".json,application/json"></label>
+    </div>
+  </header>
+  <div class="app-toolbar">
+    <label>Character<select data-input="subject"></select></label>
+    <button type="button" data-action="play" aria-pressed="false">Play demo</button>
+    <label class="app-time">Time <output data-output="time">0.00 s</output><input type="range" data-input="time" min="0" max="6" step="0.01" value="0"></label>
+    <button type="button" data-action="neutral">Neutral pose</button>
+    <label class="app-check"><input type="checkbox" data-input="rig">Show rig &amp; points</label>
+  </div>
+  <main class="app-main">
+    <section class="app-stage" aria-label="Character preview">
+      <svg data-view="character" role="img" aria-label="Editable layered character"></svg>
+      <p class="app-caption" data-output="caption"></p>
+    </section>
+    <aside class="app-inspector" aria-label="Character controls">
+      <h2>Pose</h2><div data-view="parameters" class="app-parameters"></div>
+      <h2>Source &amp; rig</h2>
+      <label>Layer<select data-input="part"></select></label>
+      <label class="app-check"><input type="checkbox" data-input="visible">Visible</label>
+      <div class="app-fields">
+        <label>Layer pivot X<input type="number" data-input="pivotX" step="1"></label>
+        <label>Layer pivot Y<input type="number" data-input="pivotY" step="1"></label>
+        <label>Draw order<input type="number" data-input="order" step="1"></label>
+        <label>Fill<input type="color" data-input="fill"></label>
+      </div>
+      <div class="app-fields" data-view="placement" hidden>
+        <label>Position X<input type="number" data-input="layerX" step="1"></label>
+        <label>Position Y<input type="number" data-input="layerY" step="1"></label>
+        <label>Width<input type="number" data-input="layerW" step="1"></label>
+        <label>Height<input type="number" data-input="layerH" step="1"></label>
+      </div>
+      <label>Rig node<select data-input="node"></select></label>
+      <div class="app-fields">
+        <label>Node pivot X<input type="number" data-input="nodeX" step="1"></label>
+        <label>Node pivot Y<input type="number" data-input="nodeY" step="1"></label>
+      </div>
+      <label>Node parent<select data-input="parent"></select></label>
+      <label>Layer / rig control<select data-input="channel"></select></label>
+      <label>Control strength<input type="number" data-input="gain" step="0.1"></label>
+      <p class="app-note">Export saves layers, rig and animation. Pose sliders are a preview. Demo gestures are authored motion, not live speech or activity.</p>
+    </aside>
+  </main>
+  <footer><span data-output="status" role="status" aria-live="polite"></span><span data-output="error" role="alert"></span></footer>
+</div>
