@@ -49,11 +49,34 @@ What the Sidhe scene will need that does not exist yet: hero-scale trees
 flowing water (L-5), moss/wet material layers, a settlement kit with paths and
 bridges, deep forest fog, and output resolution / anti-aliasing past 960×640.
 
-## Characters — NOT STARTED
+## Characters — CPU EVALUATION; NATIVE PLAYBACK PENDING
 
-Import → skeleton → weights → skinning → animation → equipment sockets. The
-schema has no joints, weights or animation channels yet (parity audit GP-09).
-Existing seed: `pipeline/rigging_provider.py` (structural control only).
+The asset contract validates a bounded rigged GLB profile: skeleton hierarchy,
+inverse bind matrices, joint indices and weights, animation channels, sockets,
+and LOD metadata. `pipeline/rigging_provider.py` generates a small Blender control
+with a real rig and clips. Preparation produces import manifests and summaries;
+it does not execute animation.
+
+CHAR-CPU-1 now decodes one selected embedded GLB rig/clip and evaluates STEP or
+LINEAR animation, mesh-local skeletal skinning, scene-space sockets and posed
+bounds on CPU. MOVE-CPU-1 binds real fixed-tick physics to actor/camera sidecars
+and deterministic replay. CPU tests and deliberate fault controls are recorded
+in `docs/characters/cpu-foundation-implementation-20261009.md`.
+
+Native rendering still uses static meshes: `RenderMesh` and `MeshPacket` have no
+skeletal pose or morph streams, and the renderer does not consume movement
+sidecars. Pose/shading-stream, bounds, shadow/reflection and moving-camera
+integration remain next rendering contracts. The static import boundary's
+next semantics are in `docs/characters/static-extraction-import-decision.md`;
+existing receipt schemas have not changed.
+
+Live2D is an additional art/deformer/provider surface, including human and
+nonhuman avatars with props, not a replacement for 3D character evaluation.
+The local Cyan Avatar Frontend is a concrete consumer; an original editable
+rig and visual runtime proof remain pending. See
+`docs/characters/avatar/live2d-avatar-quality-contract.md`. Etsy/distribution is
+not a prerequisite. Witcher 3 and Elden Ring remain distinct broader quality
+references across art styles, not achieved parity claims.
 
 ## Deformation — RESEARCH
 
