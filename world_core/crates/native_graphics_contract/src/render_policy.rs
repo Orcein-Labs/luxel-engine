@@ -274,8 +274,73 @@ pub struct ShadowFitPolicy {
     pub map_size_px: Option<i32>,
 }
 
+/// Two view-relative shadow cascades (CONVERGE-4 L-1b).
+///
+/// `near_distance_m` is the centre of the transition. The near cascade fits
+/// through `near_distance_m + blend_width_m / 2`, while the far cascade starts
+/// at `near_distance_m - blend_width_m / 2` and ends at `far_distance_m`.
+/// This overlap lets the adapter cross-fade visibility rather than switching
+/// maps at a hard boundary. ABSENT leaves the existing single-map behavior
+/// untouched and is omitted from canonical JSON. Map sides are requests: the
+/// resulting world-units-per-texel depends on the camera frustum, so the
+/// adapter must verify the campaign's near-field density target at runtime.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ShadowCascadesPolicy {
+    /// Centre of the split in metres. Range [8, 2000].
+    pub near_distance_m: i32,
+    /// End of far cascade in metres. Range [8, 2000], beyond the split and
+    /// its near-fit extent.
+    pub far_distance_m: i32,
+    /// Width in metres of the cross-fade overlap. Range [1, 100].
+    pub blend_width_m: i32,
+    /// Near map side in texels. One of 512, 1024, 2048, 4096.
+    pub near_map_size_px: i32,
+    /// Far map side in texels. One of 512, 1024, 2048, 4096.
+    pub far_map_size_px: i32,
+}
+
+impl ShadowCascadesPolicy {
+    /// CONVERGE-4 profile: a detailed 30 m near cascade and 250 m far reach.
+    pub const CONVERGE4: Self = Self {
+        near_distance_m: 30,
+        far_distance_m: 250,
+        blend_width_m: 6,
+        near_map_size_px: 2048,
+        far_map_size_px: 4096,
+    };
+}
+
+/// Optional short-range contact occlusion control (L-1b support axis).
+///
+/// This is policy data only; the renderer owns the implementation. ABSENT is
+/// byte-identical to the existing renderer and is omitted from JSON.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ContactAoPolicy {
+    /// Sampling radius in centimetres. Range [1, 200].
+    pub radius_cm: i32,
+    /// AO contribution strength in basis points. Range [0, 10000].
+    pub strength_bp: i32,
+    /// Receiver depth bias in millimetres. Range [0, 100].
+    pub bias_mm: i32,
+}
+
+/// Omnidirectional point-light shadows packed as a 2D cube-face atlas.
+///
+/// ABSENT keeps unshadowed local lights and is omitted from canonical JSON.
+/// Present requests one 2D atlas of four lights by six axis-aligned faces.
+/// Face cameras reuse the existing shadow path; Lava has no cube textures.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PointShadowsPolicy {
+    /// Face map side in texels. 256 or 512.
+    pub map_size_px: i32,
+}
+
 /// Shadow map sides the renderer allocates.
 pub const SHADOW_MAP_SIZES_PX: [i32; 4] = [512, 1024, 2048, 4096];
+pub const POINT_SHADOW_MAP_SIZES_PX: [i32; 2] = [256, 512];
 
 /// View-direction sky.
 ///
@@ -443,6 +508,12 @@ pub struct RenderPolicy {
     pub ibl: Option<IblPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub foliage_coverage: Option<FoliageCoveragePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow_cascades: Option<ShadowCascadesPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contact_ao: Option<ContactAoPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub point_shadows: Option<PointShadowsPolicy>,
 }
 
 impl RenderPolicy {
@@ -465,6 +536,9 @@ impl RenderPolicy {
             debug: self.debug,
             ibl: self.ibl,
             foliage_coverage: self.foliage_coverage,
+            shadow_cascades: self.shadow_cascades,
+            contact_ao: self.contact_ao,
+            point_shadows: self.point_shadows,
         }
     }
 }
@@ -491,6 +565,9 @@ pub struct ResolvedRenderPolicy {
     pub debug: Option<DebugPolicy>,
     pub ibl: Option<IblPolicy>,
     pub foliage_coverage: Option<FoliageCoveragePolicy>,
+    pub shadow_cascades: Option<ShadowCascadesPolicy>,
+    pub contact_ao: Option<ContactAoPolicy>,
+    pub point_shadows: Option<PointShadowsPolicy>,
 }
 
 impl Default for ResolvedRenderPolicy {
@@ -618,6 +695,67 @@ pub fn validate_render_policy(policy: &RenderPolicy) -> Result<(), GraphicsContr
                 "render_policy.shadow_fit.map_size_px {size} is not one of {SHADOW_MAP_SIZES_PX:?}"
             )));
         }
+    }
+    if let Some(cascades) = &policy.shadow_cascades {
+        bounded_i32(
+            cascades.near_distance_m,
+            8,
+            2000,
+            "shadow_cascades.near_distance_m",
+        )?;
+        bounded_i32(
+            cascades.far_distance_m,
+            8,
+            2000,
+            "shadow_cascades.far_distance_m",
+        )?;
+        bounded_i32(
+            cascades.blend_width_m,
+            1,
+            100,
+            "shadow_cascades.blend_width_m",
+        )?;
+        if cascades.blend_width_m >= 2 * cascades.near_distance_m {
+            return Err(GraphicsContractError::malformed(
+                "shadow_cascades.blend_width_m must be less than twice near_distance_m",
+            ));
+        }
+        if cascades.far_distance_m <= cascades.near_distance_m + cascades.blend_width_m / 2 {
+            return Err(GraphicsContractError::malformed(
+                "shadow_cascades.far_distance_m must extend beyond the near cascade fit",
+            ));
+        }
+        if let Some(size) = [cascades.near_map_size_px, cascades.far_map_size_px]
+            .into_iter()
+            .find(|size| !SHADOW_MAP_SIZES_PX.contains(size))
+        {
+            return Err(GraphicsContractError::malformed(format!(
+                "render_policy.shadow_cascades map size {size} is not one of {SHADOW_MAP_SIZES_PX:?}"
+            )));
+        }
+        if policy.shadow_fit.is_some() {
+            return Err(GraphicsContractError::malformed(
+                "render_policy.shadow_fit and render_policy.shadow_cascades cannot both be set",
+            ));
+        }
+    }
+    if let Some(contact_ao) = &policy.contact_ao {
+        bounded_i32(contact_ao.radius_cm, 1, 200, "contact_ao.radius_cm")?;
+        bounded_i32(
+            contact_ao.strength_bp,
+            0,
+            POLICY_SCALE as i32,
+            "contact_ao.strength_bp",
+        )?;
+        bounded_i32(contact_ao.bias_mm, 0, 100, "contact_ao.bias_mm")?;
+    }
+    if let Some(point_shadows) = &policy.point_shadows
+        && !POINT_SHADOW_MAP_SIZES_PX.contains(&point_shadows.map_size_px)
+    {
+        return Err(GraphicsContractError::malformed(format!(
+            "render_policy.point_shadows.map_size_px {} is not one of {POINT_SHADOW_MAP_SIZES_PX:?}",
+            point_shadows.map_size_px
+        )));
     }
     if let Some(sky) = &policy.sky {
         bounded_i32(

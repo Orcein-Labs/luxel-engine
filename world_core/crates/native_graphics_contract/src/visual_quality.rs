@@ -276,6 +276,8 @@ pub struct Campaign2VisualEvidenceBody {
     pub frame_receipt_sha256: String,
     pub runtime_frame_receipt_sha256: String,
     pub raw_capture_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grounding_evidence_sha256: Option<String>,
     pub measurements: Campaign2VisualMeasurements,
 }
 
@@ -711,6 +713,7 @@ pub fn assess_campaign2_visual_evidence(
         frame_receipt_sha256: certification_receipt.receipt_sha256.clone(),
         runtime_frame_receipt_sha256: runtime_receipt.receipt_sha256.clone(),
         raw_capture_sha256: sha256_prefixed(capture_bytes),
+        grounding_evidence_sha256: None,
         measurements,
     };
     let evidence_sha256 =
@@ -719,6 +722,45 @@ pub fn assess_campaign2_visual_evidence(
         body,
         evidence_sha256,
     }
+}
+
+/// Add a depth-observed geometric contact measurement. Artistic AO appearance
+/// is still assessed separately; hidden bases never count as grounded.
+pub fn assess_campaign2_visual_evidence_with_depth(
+    packet: &GraphicsScenePacket,
+    certification_receipt: &GraphicsFrameReceipt,
+    runtime_receipt: &GraphicsFrameReceipt,
+    quality: &VisualQualityEvidence,
+    capture_bytes: &[u8],
+    view_role: &str,
+    depth: &crate::depth_capture::VerifiedDepthCapture,
+) -> Result<Campaign2VisualEvidence, GraphicsContractError> {
+    let grounding = crate::depth_capture::measure_grounding(packet, capture_bytes, depth)?;
+    let mut evidence = assess_campaign2_visual_evidence(
+        packet,
+        certification_receipt,
+        runtime_receipt,
+        quality,
+        capture_bytes,
+        view_role,
+    );
+    evidence.body.grounding_evidence_sha256 = Some(grounding.evidence_sha256);
+    evidence.body.measurements.grounding_contact = match grounding.body.contact_fraction_bp {
+        Some(value) => measured(
+            value,
+            format!(
+                "visible named prop bases within 150 mm of rasterized terrain; {} observed, {} hidden/unobserved; geometric contact only",
+                grounding.body.samples.len(),
+                grounding.body.unobserved_count
+            ),
+        ),
+        None => indeterminate(format!(
+            "depth captured but no named prop bases observed; {} candidates; no grounding claim",
+            grounding.body.candidate_count
+        )),
+    };
+    evidence.evidence_sha256 = sha256_prefixed(&canonical_json(&evidence.body)?);
+    Ok(evidence)
 }
 
 /// Revalidate the campaign evidence vector from the same Rust inputs.  This
@@ -732,6 +774,46 @@ pub fn validate_campaign2_visual_evidence(
     runtime_receipt: &GraphicsFrameReceipt,
     quality: &VisualQualityEvidence,
     capture_bytes: &[u8],
+) -> Result<(), GraphicsContractError> {
+    validate_campaign2_visual_evidence_impl(
+        evidence,
+        packet,
+        certification_receipt,
+        runtime_receipt,
+        quality,
+        capture_bytes,
+        None,
+    )
+}
+
+pub fn validate_campaign2_visual_evidence_with_depth(
+    evidence: &Campaign2VisualEvidence,
+    packet: &GraphicsScenePacket,
+    certification_receipt: &GraphicsFrameReceipt,
+    runtime_receipt: &GraphicsFrameReceipt,
+    quality: &VisualQualityEvidence,
+    capture_bytes: &[u8],
+    depth: &crate::depth_capture::VerifiedDepthCapture,
+) -> Result<(), GraphicsContractError> {
+    validate_campaign2_visual_evidence_impl(
+        evidence,
+        packet,
+        certification_receipt,
+        runtime_receipt,
+        quality,
+        capture_bytes,
+        Some(depth),
+    )
+}
+
+fn validate_campaign2_visual_evidence_impl(
+    evidence: &Campaign2VisualEvidence,
+    packet: &GraphicsScenePacket,
+    certification_receipt: &GraphicsFrameReceipt,
+    runtime_receipt: &GraphicsFrameReceipt,
+    quality: &VisualQualityEvidence,
+    capture_bytes: &[u8],
+    depth: Option<&crate::depth_capture::VerifiedDepthCapture>,
 ) -> Result<(), GraphicsContractError> {
     if evidence.body.schema_version != CAMPAIGN2_VISUAL_EVIDENCE_SCHEMA
         || evidence.body.view_role.trim().is_empty()
@@ -763,14 +845,25 @@ pub fn validate_campaign2_visual_evidence(
     }
     validate_visual_quality_evidence(quality, packet, certification_receipt, capture_bytes)?;
     validate_frame_receipt(runtime_receipt, packet, capture_bytes)?;
-    let expected = assess_campaign2_visual_evidence(
-        packet,
-        certification_receipt,
-        runtime_receipt,
-        quality,
-        capture_bytes,
-        &evidence.body.view_role,
-    );
+    let expected = match depth {
+        Some(depth) => assess_campaign2_visual_evidence_with_depth(
+            packet,
+            certification_receipt,
+            runtime_receipt,
+            quality,
+            capture_bytes,
+            &evidence.body.view_role,
+            depth,
+        )?,
+        None => assess_campaign2_visual_evidence(
+            packet,
+            certification_receipt,
+            runtime_receipt,
+            quality,
+            capture_bytes,
+            &evidence.body.view_role,
+        ),
+    };
     if expected != *evidence {
         return Err(GraphicsContractError::provenance(
             "Campaign 2 visual evidence does not match independent Rust remeasurement",
@@ -1212,7 +1305,10 @@ fn non_terrain_geometry_mask(
     Ok(mask)
 }
 
-fn transform_instance_point(transform: &crate::Transform3d, position: [f32; 3]) -> [f32; 3] {
+pub(crate) fn transform_instance_point(
+    transform: &crate::Transform3d,
+    position: [f32; 3],
+) -> [f32; 3] {
     let scaled = [
         position[0] * transform.scale_xyz[0],
         position[1] * transform.scale_xyz[1],

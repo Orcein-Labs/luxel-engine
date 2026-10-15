@@ -593,4 +593,12 @@ end
 end
 
 include("camera_continuity.jl")
+include("material_response.jl")
 include("shadow_consistency.jl")
+include("contact_occlusion.jl")
+include("shadow_cascades.jl")
+include("shadow_cascades_gpu.jl")
+include("local_lighting.jl")
+include("local_lighting_gpu.jl")
+include("local_shadows.jl")
+include("local_shadows_gpu.jl")

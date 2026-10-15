@@ -16,14 +16,15 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
-    ADAPTER_REVISION, CalibrationRig, Campaign2Inputs, Campaign2LoweringInputs,
-    Campaign2OutputResolution, Campaign2View, CaptureFormat, FRAME_RECEIPT_SCHEMA, FrameStatus,
-    GraphicsAssetProjection, GraphicsCamera, GraphicsContractError, GraphicsFrameMeasurements,
-    GraphicsFrameReceipt, GraphicsFrameReceiptBody, GraphicsReady, GraphicsRendererAttestation,
+    ADAPTER_REVISION, CalibrationRig, Campaign2FeatureInputs, Campaign2Features, Campaign2Inputs,
+    Campaign2LoweringInputs, Campaign2OutputResolution, Campaign2View, CaptureFormat,
+    FRAME_RECEIPT_SCHEMA, FrameStatus, GraphicsAssetProjection, GraphicsCamera,
+    GraphicsContractError, GraphicsFrameMeasurements, GraphicsFrameReceipt,
+    GraphicsFrameReceiptBody, GraphicsReady, GraphicsRendererAttestation,
     GraphicsRendererAttestationBody, GraphicsScenePacket, GraphicsTelemetry, LAVA_BACKEND_ID,
     LAVA_REVISION, MAX_DENSE_BENCHMARK_INSTANCES, ParityContent, ParityPolicyCandidate,
     TerrainLayerSet, canonical_json, compose_bound_scene_with_view, lower_campaign2_packet,
-    lower_campaign2_packet_with_resolution_inputs, lower_dense_benchmark_packet,
+    lower_campaign2_packet_with_features, lower_dense_benchmark_packet,
     lower_objective_close_packet, lower_reference_world, lower_showcase_packet,
     lower_world_showcase_packet, measure_frame_capture, seal_frame_receipt_with_capture,
     seal_renderer_attestation, seal_scene_packet, sha256_prefixed, validate_native_visual_gate,
@@ -122,6 +123,7 @@ pub struct GraphicsFrameOutput {
 
 #[derive(Debug)]
 pub struct PromotedFrame {
+    pub depth_capture: Option<crate::depth_capture::VerifiedDepthCapture>,
     pub frame: GraphicsFrameOutput,
     pub receipt: GraphicsFrameReceipt,
     pub renderer_attestation: GraphicsRendererAttestation,
@@ -379,6 +381,23 @@ impl GraphicsWorkerSupervisor {
         world: &WorldArtifact,
         inputs: &Campaign2LoweringInputs<'_>,
     ) -> Result<PromotedFrame, GraphicsWorkerError> {
+        self.render_and_promote_campaign2_with_features(
+            packet,
+            world,
+            &Campaign2FeatureInputs {
+                resolution: *inputs,
+                features: Campaign2Features::default(),
+            },
+        )
+    }
+
+    /// Authorize and render precisely the selected rendering/content axes.
+    pub fn render_and_promote_campaign2_with_features(
+        &mut self,
+        packet: &GraphicsScenePacket,
+        world: &WorldArtifact,
+        inputs: &Campaign2FeatureInputs<'_>,
+    ) -> Result<PromotedFrame, GraphicsWorkerError> {
         validate_scene_packet(packet).map_err(GraphicsWorkerError::contract)?;
         validate_world_artifact_binding(packet, world)?;
         validate_authorized_world_projection(packet, world, Some(*inputs))?;
@@ -515,6 +534,26 @@ impl GraphicsWorkerSupervisor {
                 "frame capture digest does not match its bytes",
             ));
         }
+        let depth_capture = response
+            .get("depth_capture")
+            .map(|value| {
+                let payload = serde_json::from_value(value.clone()).map_err(|error| {
+                    GraphicsWorkerError::protocol(format!("depth payload is not typed: {error}"))
+                })?;
+                crate::depth_capture::VerifiedDepthCapture::verify(packet, payload)
+                    .map_err(GraphicsWorkerError::contract)
+            })
+            .transpose()?;
+        if packet
+            .body
+            .render_policy
+            .is_some_and(|policy| policy.contact_ao.is_some())
+            && depth_capture.is_none()
+        {
+            return Err(GraphicsWorkerError::protocol(
+                "contact AO frame is missing its depth diagnostic",
+            ));
+        }
         self.ensure_renderer_sources_unchanged()?;
         let renderer_attestation =
             self.renderer_attestation(&ready, &worker_script_sha256, &renderer_identity_sha256)?;
@@ -550,6 +589,7 @@ impl GraphicsWorkerSupervisor {
         let receipt = seal_frame_receipt_with_capture(packet, body, &capture_bytes)
             .map_err(GraphicsWorkerError::contract)?;
         Ok(PromotedFrame {
+            depth_capture,
             frame,
             receipt,
             renderer_attestation,
@@ -690,7 +730,7 @@ impl GraphicsWorkerSupervisor {
         &self,
         worker_script_sha256: &str,
     ) -> Result<BTreeMap<String, String>, GraphicsWorkerError> {
-        Ok(BTreeMap::from([
+        let mut sources = BTreeMap::from([
             ("worker_script".into(), worker_script_sha256.to_owned()),
             (
                 "lava_adapter".into(),
@@ -708,7 +748,18 @@ impl GraphicsWorkerSupervisor {
                 "manifest".into(),
                 sha256_file(&self.project.join("Manifest.toml"))?,
             ),
-        ]))
+        ]);
+        for (name, file) in [
+            ("contact_occlusion", "ContactOcclusion.jl"),
+            ("shadow_cascades", "ShadowCascades.jl"),
+            ("local_shadows", "LocalShadows.jl"),
+        ] {
+            let path = self.project.join("src").join(file);
+            if path.exists() {
+                sources.insert(name.into(), sha256_file(&path)?);
+            }
+        }
+        Ok(sources)
     }
 
     fn renderer_source_identity_sha256(&self) -> Result<String, GraphicsWorkerError> {
@@ -815,12 +866,12 @@ impl GraphicsWorkerSupervisor {
 fn validate_authorized_world_projection(
     packet: &GraphicsScenePacket,
     world: &WorldArtifact,
-    campaign2_inputs: Option<Campaign2LoweringInputs<'_>>,
+    campaign2_inputs: Option<Campaign2FeatureInputs<'_>>,
 ) -> Result<(), GraphicsWorkerError> {
     let reference = lower_reference_world(world).map_err(GraphicsWorkerError::contract)?;
     let campaign2 = |view| match campaign2_inputs {
         None => lower_campaign2_packet(&reference, view),
-        Some(inputs) => lower_campaign2_packet_with_resolution_inputs(&reference, view, &inputs),
+        Some(inputs) => lower_campaign2_packet_with_features(&reference, view, &inputs),
     };
     let mut authorized = vec![
         reference.clone(),

@@ -367,3 +367,5 @@ end
     @test refuses(inst(variation=(tint_rgb=[2.0, 1.0, 1.0],)))
     @test refuses(inst(variation=(tint_rgb=[1.0, 1.0, 1.0], stray=1)))
 end
+
+include("local_light_parser.jl")

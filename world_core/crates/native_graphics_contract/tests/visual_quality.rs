@@ -612,3 +612,81 @@ fn backdrop_instances_are_landform_not_props() {
     assert_eq!(with_backdrop.authored_geometry_pixels, 0);
     assert_eq!(with_backdrop.region_coverage_bp, base.region_coverage_bp);
 }
+
+#[test]
+fn optional_depth_vector_is_rederived_and_hidden_bases_remain_indeterminate() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use luxel_native_graphics_contract::depth_capture::{
+        DepthCapturePayload, VerifiedDepthCapture,
+    };
+    use luxel_native_graphics_contract::visual_quality::{
+        assess_campaign2_visual_evidence, assess_campaign2_visual_evidence_with_depth,
+        validate_campaign2_visual_evidence, validate_campaign2_visual_evidence_with_depth,
+    };
+    let packet = packet(false);
+    let pixels = structured_terrain();
+    let receipt = receipt(&packet, &pixels);
+    let profile = VisualQualityProfile::terrain_reference_v1(64, 64);
+    let quality = assess_visual_quality(&packet, &receipt, &pixels, &profile);
+    let bytes: Vec<u8> = (0..64 * 64).flat_map(|_| 10.0f32.to_le_bytes()).collect();
+    let depth = VerifiedDepthCapture::verify(
+        &packet,
+        DepthCapturePayload {
+            schema: "luxel.view-depth/v1".into(),
+            packet_sha256: packet.packet_sha256.clone(),
+            capture_id: packet.body.capture.capture_id.clone(),
+            width_px: 64,
+            height_px: 64,
+            depth_sha256: sha256_prefixed(&bytes),
+            depth_base64: STANDARD.encode(bytes),
+        },
+    )
+    .unwrap();
+    let old = assess_campaign2_visual_evidence(
+        &packet,
+        &receipt,
+        &receipt,
+        &quality,
+        &pixels,
+        "test-view",
+    );
+    assert!(old.body.grounding_evidence_sha256.is_none());
+    assert!(
+        !serde_json::to_string(&old)
+            .unwrap()
+            .contains("grounding_evidence_sha256")
+    );
+    let mut evidence = assess_campaign2_visual_evidence_with_depth(
+        &packet,
+        &receipt,
+        &receipt,
+        &quality,
+        &pixels,
+        "test-view",
+        &depth,
+    )
+    .unwrap();
+    assert!(evidence.body.grounding_evidence_sha256.is_some());
+    assert_eq!(
+        evidence.body.measurements.grounding_contact.status,
+        luxel_native_graphics_contract::VisualObservationStatus::Indeterminate
+    );
+    validate_campaign2_visual_evidence_with_depth(
+        &evidence, &packet, &receipt, &receipt, &quality, &pixels, &depth,
+    )
+    .unwrap();
+    assert!(
+        validate_campaign2_visual_evidence(
+            &evidence, &packet, &receipt, &receipt, &quality, &pixels
+        )
+        .is_err()
+    );
+    evidence.body.measurements.grounding_contact.value_bp = Some(10000);
+    evidence.evidence_sha256 = sha256_prefixed(&canonical_json(&evidence.body).unwrap());
+    assert!(
+        validate_campaign2_visual_evidence_with_depth(
+            &evidence, &packet, &receipt, &receipt, &quality, &pixels, &depth
+        )
+        .is_err()
+    );
+}

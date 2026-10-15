@@ -46,6 +46,8 @@ pub mod asset_projection;
 pub mod backdrop;
 pub mod calibration;
 pub mod deformation;
+pub mod depth_capture;
+pub mod forest_profile;
 pub mod ibl;
 pub mod input_session;
 pub mod kit;
@@ -69,10 +71,11 @@ pub use deformation::{
 };
 
 pub use render_policy::{
-    AtmospherePolicy, BloomPolicy, DebugPolicy, DitherPolicy, FoliageCoveragePolicy, GradePolicy,
-    IblPolicy, MeshSurfacePolicy, POLICY_SCALE, RenderPolicy, ResolvedRenderPolicy, SamplerPolicy,
-    ShadowFitPolicy, ShadowPolicy, SkyModel, SkyPolicy, TerrainSurfacePolicy, VignettePolicy,
-    validate_packet_render_policy, validate_render_policy,
+    AtmospherePolicy, BloomPolicy, ContactAoPolicy, DebugPolicy, DitherPolicy,
+    FoliageCoveragePolicy, GradePolicy, IblPolicy, MeshSurfacePolicy, POINT_SHADOW_MAP_SIZES_PX,
+    POLICY_SCALE, PointShadowsPolicy, RenderPolicy, ResolvedRenderPolicy, SamplerPolicy,
+    ShadowCascadesPolicy, ShadowFitPolicy, ShadowPolicy, SkyModel, SkyPolicy, TerrainSurfacePolicy,
+    VignettePolicy, validate_packet_render_policy, validate_render_policy,
 };
 
 pub use asset_projection::{
@@ -81,6 +84,7 @@ pub use asset_projection::{
 };
 pub use backdrop::{BackdropSet, load_backdrop_set};
 pub use calibration::{CalibrationPlacement, CalibrationRig, CalibrationView};
+pub use forest_profile::{ForestProfile, ForestProfileReceipt, apply_forest_profile};
 pub use kit::{KitSet, load_kit_set};
 pub use scene_composition::{
     compose_bound_scene, compose_bound_scene_with_camera, compose_bound_scene_with_view,
@@ -556,6 +560,9 @@ pub struct EnvironmentIntent {
     pub exposure: f32,
 }
 
+/// Maximum number of unshadowed local lights in the native fragment path.
+pub const MAX_POINT_LIGHTS: usize = 4;
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LightKind {
@@ -734,10 +741,12 @@ fn validate_renderer_attestation_body(
         "project",
         "worker_script",
     ];
-    if body.source_digests.len() != required_sources.len()
-        || required_sources
-            .iter()
-            .any(|source| !body.source_digests.contains_key(*source))
+    if body.source_digests.keys().any(|key| {
+        !required_sources.contains(&key.as_str())
+            && !["contact_occlusion", "shadow_cascades", "local_shadows"].contains(&key.as_str())
+    }) || required_sources
+        .iter()
+        .any(|source| !body.source_digests.contains_key(*source))
     {
         return Err(GraphicsContractError::provenance(
             "renderer attestation source manifest is incomplete",
@@ -1084,6 +1093,18 @@ pub fn validate_scene_packet(packet: &GraphicsScenePacket) -> Result<(), Graphic
     if packet.body.lights.is_empty() {
         return Err(GraphicsContractError::malformed(
             "scene packet needs at least one light intent",
+        ));
+    }
+    let directional_count = packet
+        .body
+        .lights
+        .iter()
+        .filter(|light| matches!(light.kind, LightKind::Directional { .. }))
+        .count();
+    let point_count = packet.body.lights.len() - directional_count;
+    if directional_count != 1 || point_count > MAX_POINT_LIGHTS {
+        return Err(GraphicsContractError::malformed(
+            "native lighting requires exactly one directional light and at most four point lights",
         ));
     }
     let mut light_ids = BTreeSet::new();
@@ -4659,6 +4680,68 @@ impl Campaign2OutputResolution {
 pub struct Campaign2LoweringInputs<'a> {
     pub campaign: &'a Campaign2Inputs<'a>,
     pub output_resolution: Campaign2OutputResolution,
+}
+
+/// Explicit opt-in rendering and content axes. Absent fields preserve the
+/// historical Campaign 2 packet, including its digest.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Campaign2Features {
+    pub shadow_cascades: Option<ShadowCascadesPolicy>,
+    pub contact_ao: Option<ContactAoPolicy>,
+    pub forest_profile: Option<ForestProfile>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Campaign2FeatureInputs<'a> {
+    pub resolution: Campaign2LoweringInputs<'a>,
+    pub features: Campaign2Features,
+}
+
+/// Lower and seal all selected axes from explicit inputs. The same values
+/// must be supplied to the supervisor for independent authorization.
+pub fn lower_campaign2_packet_with_features(
+    reference: &GraphicsScenePacket,
+    view: Campaign2View,
+    inputs: &Campaign2FeatureInputs<'_>,
+) -> Result<GraphicsScenePacket, GraphicsContractError> {
+    let base = lower_campaign2_packet_with_resolution_inputs(reference, view, &inputs.resolution)?;
+    if inputs.features == Campaign2Features::default() {
+        return Ok(base);
+    }
+    let mut body = base.body;
+    if inputs.features.shadow_cascades.is_some() || inputs.features.contact_ao.is_some() {
+        let policy = body.render_policy.get_or_insert_with(RenderPolicy::default);
+        if let Some(cascades) = inputs.features.shadow_cascades {
+            policy.shadow_fit = None;
+            policy.shadow_cascades = Some(cascades);
+        }
+        if let Some(ao) = inputs.features.contact_ao {
+            policy.contact_ao = Some(ao);
+        }
+    }
+    if let Some(profile) = inputs.features.forest_profile {
+        if inputs.resolution.campaign.candidate != ParityPolicyCandidate::Converge4 {
+            return Err(GraphicsContractError::provenance(
+                "Heartwood content requires the converge4 arm",
+            ));
+        }
+        let objective = reference
+            .body
+            .instances
+            .iter()
+            .find(|instance| instance.instance_id == "objective-beacon")
+            .ok_or_else(|| GraphicsContractError::provenance("missing objective beacon anchor"))?;
+        let [x, _, z] = objective.transform.translation_xyz_m;
+        let hero_x = x - 5.5;
+        let hero_z = z - 2.0;
+        let hero_y = campaign2_terrain_height(reference, f64::from(hero_x), f64::from(hero_z));
+        let surface = still_water::TerrainSurface::of(&body.terrain)?;
+        let anchor = [hero_x, surface.height(hero_x, hero_z), hero_z];
+        let cameras =
+            CAMPAIGN2_CAMERA_OFFSETS.map(|[dx, dy, dz]| [hero_x + dx, hero_y + dy, hero_z + dz]);
+        apply_forest_profile(&mut body, profile, anchor, &cameras)?;
+    }
+    seal_scene_packet(body)
 }
 
 /// `lower_campaign2_packet` with every input explicit (see `Campaign2Inputs`).

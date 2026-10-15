@@ -237,6 +237,8 @@ end
 
 const LightKindPacket = Union{DirectionalLightPacket,PointLightPacket}
 
+const MAX_POINT_LIGHTS = 4
+
 struct LightPacket
     light_id::String
     kind::LightKindPacket
@@ -347,7 +349,33 @@ end
 
 ShadowFitPolicy(view_distance_m::Integer) = ShadowFitPolicy(view_distance_m, 512)
 
+# CONVERGE-4 L-1b: near_distance_m is the split centre; both maps overlap by
+# blend_width_m around it. This axis is opt-in and absent leaves old behavior.
+struct ShadowCascadesPolicy
+    near_distance_m::Int32
+    far_distance_m::Int32
+    blend_width_m::Int32
+    near_map_size_px::Int32
+    far_map_size_px::Int32
+end
+
+ShadowCascadesPolicy() = ShadowCascadesPolicy(30, 250, 6, 2048, 4096)
+
+# Policy data only; the native adapter owns the AO implementation.
+struct ContactAoPolicy
+    radius_cm::Int32
+    strength_bp::Int32
+    bias_mm::Int32
+end
+
+# Optional omnidirectional point-light shadows. Absence keeps unshadowed
+# local lights. Face size is 256 or 512.
+struct PointShadowsPolicy
+    map_size_px::Int32
+end
+
 const SHADOW_MAP_SIZES_PX = (512, 1024, 2048, 4096)
+const POINT_SHADOW_MAP_SIZES_PX = (256, 512)
 
 # View-direction sky. Absence selects the historical screen-space sky draw.
 # `model` is :gradient (CONVERGE-0, also what an absent `model` key means) or
@@ -403,7 +431,40 @@ struct RenderPolicy
     debug::Union{Nothing,DebugPolicy}
     ibl::Union{Nothing,IblPolicy}
     foliage_coverage::Union{Nothing,FoliageCoveragePolicy}
+    shadow_cascades::Union{Nothing,ShadowCascadesPolicy}
+    contact_ao::Union{Nothing,ContactAoPolicy}
+    point_shadows::Union{Nothing,PointShadowsPolicy}
 end
+
+# Full legacy positional form (including foliage coverage), retained when the
+# two new optional axes extend the record.
+RenderPolicy(
+    grade::GradePolicy, bloom::BloomPolicy, vignette::VignettePolicy,
+    dither::DitherPolicy, terrain_surface::TerrainSurfacePolicy,
+    sampler::SamplerPolicy, shadow::ShadowPolicy, mesh_surface::MeshSurfacePolicy,
+    shadow_fit::Union{Nothing,ShadowFitPolicy}, sky::Union{Nothing,SkyPolicy},
+    atmosphere::Union{Nothing,AtmospherePolicy}, debug::Union{Nothing,DebugPolicy},
+    ibl::Union{Nothing,IblPolicy}, foliage_coverage::Union{Nothing,FoliageCoveragePolicy},
+) = RenderPolicy(
+    grade, bloom, vignette, dither, terrain_surface, sampler, shadow, mesh_surface,
+    shadow_fit, sky, atmosphere, debug, ibl, foliage_coverage, nothing, nothing, nothing,
+)
+
+# Sixteen-axis form predates local point shadows: cascades and contact AO
+# present, point-shadow atlas absent.
+RenderPolicy(
+    grade::GradePolicy, bloom::BloomPolicy, vignette::VignettePolicy,
+    dither::DitherPolicy, terrain_surface::TerrainSurfacePolicy,
+    sampler::SamplerPolicy, shadow::ShadowPolicy, mesh_surface::MeshSurfacePolicy,
+    shadow_fit::Union{Nothing,ShadowFitPolicy}, sky::Union{Nothing,SkyPolicy},
+    atmosphere::Union{Nothing,AtmospherePolicy}, debug::Union{Nothing,DebugPolicy},
+    ibl::Union{Nothing,IblPolicy}, foliage_coverage::Union{Nothing,FoliageCoveragePolicy},
+    shadow_cascades::Union{Nothing,ShadowCascadesPolicy},
+    contact_ao::Union{Nothing,ContactAoPolicy},
+) = RenderPolicy(
+    grade, bloom, vignette, dither, terrain_surface, sampler, shadow, mesh_surface,
+    shadow_fit, sky, atmosphere, debug, ibl, foliage_coverage, shadow_cascades, contact_ao, nothing,
+)
 
 # The thirteen-axis form predates L-2a: no foliage coverage.
 RenderPolicy(
@@ -421,7 +482,7 @@ RenderPolicy(
     debug::Union{Nothing,DebugPolicy},
     ibl::Union{Nothing,IblPolicy},
 ) = RenderPolicy(grade, bloom, vignette, dither, terrain_surface, sampler, shadow, mesh_surface,
-                 shadow_fit, sky, atmosphere, debug, ibl, nothing)
+                 shadow_fit, sky, atmosphere, debug, ibl, nothing, nothing, nothing, nothing)
 
 RenderPolicy() = RenderPolicy(
     GradePolicy(),
@@ -432,6 +493,10 @@ RenderPolicy() = RenderPolicy(
     SamplerPolicy(),
     ShadowPolicy(),
     MeshSurfacePolicy(),
+    nothing,
+    nothing,
+    nothing,
+    nothing,
     nothing,
     nothing,
     nothing,
@@ -453,7 +518,7 @@ RenderPolicy(
     shadow_fit::Union{Nothing,ShadowFitPolicy},
     sky::Union{Nothing,SkyPolicy},
 ) = RenderPolicy(
-    grade, bloom, vignette, dither, terrain_surface, sampler, shadow, mesh_surface, shadow_fit, sky, nothing, nothing, nothing,
+    grade, bloom, vignette, dither, terrain_surface, sampler, shadow, mesh_surface, shadow_fit, sky, nothing, nothing, nothing, nothing, nothing, nothing, nothing,
 )
 
 # The seven-axis form predates CONVERGE-0; the three newer axes default to
@@ -480,6 +545,10 @@ RenderPolicy(
     nothing,
     nothing,
     nothing,
+    nothing,
+    nothing,
+    nothing,
+    nothing,
 )
 
 const RENDER_POLICY_KEYS = (
@@ -497,6 +566,9 @@ const RENDER_POLICY_KEYS = (
     "debug",
     "ibl",
     "foliage_coverage",
+    "shadow_cascades",
+    "contact_ao",
+    "point_shadows",
 )
 
 abstract type OverlayPacket end
@@ -820,6 +892,51 @@ function _parse_render_policy(body::JSON3.Object)::RenderPolicy
     else
         nothing
     end
+    shadow_cascades = if haskey(value, "shadow_cascades")
+        c = _object(value["shadow_cascades"], "render_policy.shadow_cascades")
+        _exact_keys(c, ("near_distance_m", "far_distance_m", "blend_width_m", "near_map_size_px", "far_map_size_px"), "render_policy.shadow_cascades")
+        near = _bounded_bp(c["near_distance_m"], "shadow_cascades.near_distance_m", 8, 2000)
+        far = _bounded_bp(c["far_distance_m"], "shadow_cascades.far_distance_m", 8, 2000)
+        blend = _bounded_bp(c["blend_width_m"], "shadow_cascades.blend_width_m", 1, 100)
+        near_size = _bounded_bp(c["near_map_size_px"], "shadow_cascades.near_map_size_px", 512, 4096)
+        far_size = _bounded_bp(c["far_map_size_px"], "shadow_cascades.far_map_size_px", 512, 4096)
+        near_size in SHADOW_MAP_SIZES_PX || throw(ProtocolError(
+            "malformed_packet", "render_policy.shadow_cascades.near_map_size_px $(near_size) is not one of $(SHADOW_MAP_SIZES_PX)"))
+        far_size in SHADOW_MAP_SIZES_PX || throw(ProtocolError(
+            "malformed_packet", "render_policy.shadow_cascades.far_map_size_px $(far_size) is not one of $(SHADOW_MAP_SIZES_PX)"))
+        blend < 2 * near || throw(ProtocolError(
+            "malformed_packet", "render_policy.shadow_cascades.blend_width_m must be less than twice near_distance_m"))
+        far > near + div(blend, 2) || throw(ProtocolError(
+            "malformed_packet", "render_policy.shadow_cascades.far_distance_m must extend beyond the near cascade fit"))
+        ShadowCascadesPolicy(near, far, blend, near_size, far_size)
+    else
+        nothing
+    end
+    shadow_cascades !== nothing && shadow_fit !== nothing && throw(ProtocolError(
+        "malformed_packet",
+        "render_policy.shadow_fit and render_policy.shadow_cascades cannot both be set",
+    ))
+    contact_ao = if haskey(value, "contact_ao")
+        a = _object(value["contact_ao"], "render_policy.contact_ao")
+        _exact_keys(a, ("radius_cm", "strength_bp", "bias_mm"), "render_policy.contact_ao")
+        ContactAoPolicy(
+            _bounded_bp(a["radius_cm"], "contact_ao.radius_cm", 1, 200),
+            _bounded_bp(a["strength_bp"], "contact_ao.strength_bp", 0, POLICY_SCALE),
+            _bounded_bp(a["bias_mm"], "contact_ao.bias_mm", 0, 100),
+        )
+    else
+        nothing
+    end
+    point_shadows = if haskey(value, "point_shadows")
+        p = _object(value["point_shadows"], "render_policy.point_shadows")
+        _exact_keys(p, ("map_size_px",), "render_policy.point_shadows")
+        size = _bounded_bp(p["map_size_px"], "point_shadows.map_size_px", 256, 512)
+        size in POINT_SHADOW_MAP_SIZES_PX || throw(ProtocolError(
+            "malformed_packet", "render_policy.point_shadows.map_size_px $(size) is not one of $(POINT_SHADOW_MAP_SIZES_PX)"))
+        PointShadowsPolicy(size)
+    else
+        nothing
+    end
     sky = if haskey(value, "sky")
         k = _object(value["sky"], "render_policy.sky")
         _exact_keys(
@@ -911,6 +1028,9 @@ function _parse_render_policy(body::JSON3.Object)::RenderPolicy
         debug,
         ibl,
         foliage_coverage,
+        shadow_cascades,
+        contact_ao,
+        point_shadows,
     )
 end
 
@@ -1604,6 +1724,10 @@ function _parse_lights(value::JSON3.Array)::Vector{LightPacket}
             throw(ProtocolError("malformed_packet", "light intensity is outside native bounds"))
         push!(lights, LightPacket(id, _parse_light_kind(_object(object["kind"], "light.kind")), color, intensity))
     end
+    count(light -> light.kind isa DirectionalLightPacket, lights) == 1 ||
+        throw(ProtocolError("unsupported_lighting", "native path requires exactly one directional light"))
+    count(light -> light.kind isa PointLightPacket, lights) <= MAX_POINT_LIGHTS ||
+        throw(ProtocolError("unsupported_lighting", "native path supports at most four point lights"))
     return lights
 end
 

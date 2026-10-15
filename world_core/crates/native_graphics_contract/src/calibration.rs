@@ -27,8 +27,8 @@ use luxel_reference_runtime::WorldArtifact;
 use serde::{Deserialize, Serialize};
 
 use crate::render_policy::{
-    DebugPolicy, FoliageCoveragePolicy, IblPolicy, MeshSurfacePolicy, RenderPolicy,
-    ShadowFitPolicy, ShadowPolicy, SkyModel, SkyPolicy,
+    DebugPolicy, FoliageCoveragePolicy, IblPolicy, MeshSurfacePolicy, PointShadowsPolicy,
+    RenderPolicy, ShadowFitPolicy, ShadowPolicy, SkyModel, SkyPolicy,
 };
 use crate::{
     CameraProjection, EnvironmentIntent, GraphicsCamera, GraphicsContractError,
@@ -61,6 +61,11 @@ pub enum CalibrationRig {
     SunCoverage,
     OvercastCoverage,
     SunIblCoverage,
+    /// Fixed dim environment with four warm or cool unshadowed local lights.
+    LocalWarm,
+    LocalCool,
+    /// Same environment and directional light, with local lights absent.
+    LocalOff,
 }
 
 impl CalibrationRig {
@@ -75,6 +80,12 @@ impl CalibrationRig {
         Self::SunAlbedoGreyIbl,
     ];
 
+    pub const LOCAL: [Self; 3] = [Self::LocalOff, Self::LocalWarm, Self::LocalCool];
+
+    pub fn local(self) -> bool {
+        Self::LOCAL.contains(&self)
+    }
+
     /// The rigs that carry the foliage-coverage policy.
     pub const COVERAGE: [Self; 3] = [
         Self::SunCoverage,
@@ -84,6 +95,9 @@ impl CalibrationRig {
 
     pub fn name(self) -> &'static str {
         match self {
+            Self::LocalOff => "local-off",
+            Self::LocalWarm => "local-warm",
+            Self::LocalCool => "local-cool",
             Self::SunCoverage => "sun-coverage",
             Self::OvercastCoverage => "overcast-coverage",
             Self::SunIblCoverage => "sun-ibl-coverage",
@@ -130,13 +144,14 @@ impl CalibrationRig {
 
     /// Rigs whose fixed exposure is set on the grey card (the ±5% gate).
     pub fn exposure_calibrated(self) -> bool {
-        matches!(self.lighting(), Self::Sun | Self::Overcast)
+        !self.local() && matches!(self.lighting(), Self::Sun | Self::Overcast)
     }
 
     pub fn parse(name: &str) -> Option<Self> {
         Self::ALL
             .into_iter()
             .chain(Self::COVERAGE)
+            .chain(Self::LOCAL)
             .find(|rig| rig.name() == name)
     }
 
@@ -145,7 +160,11 @@ impl CalibrationRig {
     /// Everything else in the body is untouched.
     pub fn apply(self, body: &mut GraphicsScenePacketBody) -> Result<(), GraphicsContractError> {
         let ibl = self.ibl();
-        let rig = self.lighting();
+        let rig = if self.local() {
+            Self::Overcast
+        } else {
+            self.lighting()
+        };
         let (direction_xyz, color_rgb, intensity) = match rig {
             // Toward the sun: camera-right (−X, the cameras look +Z) and toward
             // the camera (−Z), 35° up. The light travels the other way.
@@ -155,16 +174,23 @@ impl CalibrationRig {
             | Self::SunAlbedoGreyIbl
             | Self::SunCoverage
             | Self::SunIblCoverage => ([0.579_228, -0.573_576, 0.579_228], [1.0, 0.96, 0.90], 3.0),
-            Self::Overcast | Self::OvercastIbl | Self::OvercastCoverage => {
-                ([0.0, -1.0, 0.0], [1.0, 1.0, 1.0], 0.0)
-            }
+            Self::Overcast
+            | Self::OvercastIbl
+            | Self::OvercastCoverage
+            | Self::LocalOff
+            | Self::LocalWarm
+            | Self::LocalCool => ([0.0, -1.0, 0.0], [1.0, 1.0, 1.0], 0.0),
             // Toward the sun: behind the row (+Z), 15° to camera-right, 10° up.
             Self::Grazing | Self::GrazingIbl => {
                 ([0.254_887, -0.173_648, -0.951_251], [1.0, 0.86, 0.70], 3.0)
             }
         };
         body.lights = vec![LightIntent {
-            light_id: format!("calibration-{}", self.name()),
+            light_id: if self.local() {
+                "calibration-local-sun".into()
+            } else {
+                format!("calibration-{}", self.name())
+            },
             kind: LightKind::Directional { direction_xyz },
             color_rgb,
             intensity,
@@ -232,7 +258,62 @@ impl CalibrationRig {
                 .then_some(FoliageCoveragePolicy { samples: 4 }),
             ..RenderPolicy::default()
         });
+        if self.local() {
+            self.apply_local_lights(body)?;
+        }
         crate::ibl::apply_ibl(body)
+    }
+    fn apply_local_lights(
+        self,
+        body: &mut GraphicsScenePacketBody,
+    ) -> Result<(), GraphicsContractError> {
+        // Use the sealed staging transform, never a preview camera or guessed Y.
+        let ground = body
+            .instances
+            .iter()
+            .find(|instance| instance.instance_id == "scene::calibration-ground_plane")
+            .ok_or_else(|| {
+                GraphicsContractError::provenance(
+                    "local calibration rig requires the bound calibration ground plane",
+                )
+            })?;
+        let anchor = ground.transform.translation_xyz_m;
+        if ground.transform.rotation_xyzw != [0.0, 1.0, 0.0, 0.0]
+            || ground.transform.scale_xyz != [1.0; 3]
+        {
+            return Err(GraphicsContractError::provenance(
+                "local calibration staging transform changed",
+            ));
+        }
+        body.environment = EnvironmentIntent {
+            sky_top_rgb: [0.012, 0.022, 0.045],
+            sky_horizon_rgb: [0.025, 0.035, 0.055],
+            ground_rgb: [0.008, 0.010, 0.015],
+            fog_color_rgb: [0.025, 0.035, 0.055],
+            fog_density: 0.0,
+            exposure: 1.0,
+        };
+        if self != Self::LocalOff {
+            let color_rgb = if self == Self::LocalWarm {
+                [1.0, 0.38, 0.10]
+            } else {
+                [0.12, 0.48, 1.0]
+            };
+            for (index, x) in [-10.0, -4.0, 2.0, 8.0].into_iter().enumerate() {
+                body.lights.push(LightIntent {
+                    light_id: format!("calibration-local-{index}"),
+                    kind: LightKind::Point {
+                        position_xyz_m: [anchor[0] - x, anchor[1] + 2.6, anchor[2] - 2.0],
+                        range_m: 5.5,
+                    },
+                    color_rgb,
+                    intensity: 18.0,
+                });
+            }
+            let policy = body.render_policy.get_or_insert_with(RenderPolicy::default);
+            policy.point_shadows = Some(PointShadowsPolicy { map_size_px: 512 });
+        }
+        Ok(())
     }
 }
 
