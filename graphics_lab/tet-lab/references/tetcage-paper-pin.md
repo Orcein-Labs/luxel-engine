@@ -11,7 +11,7 @@ SHA-256: 19289776f4eaa9851e98c09c5184a1c4e87650817ff458b4cc5131801750b739
 
 Local artifacts:
 - `TetrahedralMeshes_AuthorsVersion.pdf` — authors' version, 15,108,045 bytes, 13 pages.
-- `paper.txt` — `pdftotext -layout` extraction, 851 lines.
+- `paper.txt` — `pdftotext -layout` extraction, 851 lines (local only, gitignored).
 
 Verification chain: ACM DL confirmed DOI/venue (403 to robots, humans-verified
 metadata via search); wccftech 2026-09-20 confirms award + numeric anchors;
