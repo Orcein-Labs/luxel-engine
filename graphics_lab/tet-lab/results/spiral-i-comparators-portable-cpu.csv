@@ -1,0 +1,178 @@
+# Spiral I — Goal-2 comparators (portable driver, backend cpu)
+# device: KernelAbstractions CPU() (1 threads)
+# backend: cpu via KernelAbstractions 0.9.43, workgroup 256
+# job: animate N instances through a rigid-rotation phase cycle (φ advancing; affine — exact through the cage path per A5-G2, so all paths produce the SAME output); f32 out; wall incl. launch+upload+sync; uploads measured copyto!s from pinned host arrays, ONE batched memcpy per component per frame (the incumbent's best case)
+# authored-state sizes per frame: A_auth 48·T·N B (cage states), C 24·N B (palette), D 24·V·N B (morph pairs); A_param/B_direct 0 B/frame (true form)
+# quality bounds: C(LBS)/D(morph) measured on the rotation family only — they cannot represent twist/fold (recorded)
+# v4: rigid-rotation body everywhere (F-I.3); A_param ≡ A_auth bitwise by construction; B_direct arithmetic bitwise = host reference
+# blob N=1 ident ulp-bound 5.70e-07: A=2.38e-07 auth=2.38e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 13.830 px@5 (arc-vs-chord at DPHI cadence)
+# blob N=8 ident ulp-bound 5.70e-07: A=2.38e-07 auth=2.38e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 13.830 px@5 (arc-vs-chord at DPHI cadence)
+# blob N=32 ident ulp-bound 5.70e-07: A=2.38e-07 auth=2.38e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 13.830 px@5 (arc-vs-chord at DPHI cadence)
+# blob N=128 ident ulp-bound 5.70e-07: A=2.38e-07 auth=2.38e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 13.830 px@5 (arc-vs-chord at DPHI cadence)
+# teapot N=1 ident ulp-bound 5.48e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 12.400 px@5 (arc-vs-chord at DPHI cadence)
+# teapot N=8 ident ulp-bound 5.48e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 12.400 px@5 (arc-vs-chord at DPHI cadence)
+# teapot N=32 ident ulp-bound 5.48e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 12.400 px@5 (arc-vs-chord at DPHI cadence)
+# teapot N=128 ident ulp-bound 5.48e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 12.400 px@5 (arc-vs-chord at DPHI cadence)
+# icosphere2 N=1 ident ulp-bound 5.25e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 13.053 px@5 (arc-vs-chord at DPHI cadence)
+# icosphere2 N=8 ident ulp-bound 5.25e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 13.053 px@5 (arc-vs-chord at DPHI cadence)
+# icosphere2 N=32 ident ulp-bound 5.25e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 13.053 px@5 (arc-vs-chord at DPHI cadence)
+# icosphere2 N=128 ident ulp-bound 5.25e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 13.053 px@5 (arc-vs-chord at DPHI cadence)
+# robot N=1 ident ulp-bound 5.48e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 15.056 px@5 (arc-vs-chord at DPHI cadence)
+# robot N=8 ident ulp-bound 5.48e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 15.056 px@5 (arc-vs-chord at DPHI cadence)
+# robot N=32 ident ulp-bound 5.48e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 15.056 px@5 (arc-vs-chord at DPHI cadence)
+# robot N=128 ident ulp-bound 5.48e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 15.056 px@5 (arc-vs-chord at DPHI cadence)
+# conifer N=1 ident ulp-bound 3.43e-06: A=1.43e-06 auth=1.43e-06 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 86.340 px@5 (arc-vs-chord at DPHI cadence)
+# conifer N=8 ident ulp-bound 3.43e-06: A=1.43e-06 auth=1.43e-06 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 86.340 px@5 (arc-vs-chord at DPHI cadence)
+# conifer N=32 ident ulp-bound 3.43e-06: A=1.43e-06 auth=1.43e-06 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 86.340 px@5 (arc-vs-chord at DPHI cadence)
+# conifer N=128 ident ulp-bound 3.43e-06: A=1.43e-06 auth=1.43e-06 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 86.340 px@5 (arc-vs-chord at DPHI cadence)
+# plate N=1 ident ulp-bound 5.72e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 18.459 px@5 (arc-vs-chord at DPHI cadence)
+# plate N=8 ident ulp-bound 5.72e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 18.459 px@5 (arc-vs-chord at DPHI cadence)
+# plate N=32 ident ulp-bound 5.72e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 18.459 px@5 (arc-vs-chord at DPHI cadence)
+# plate N=128 ident ulp-bound 5.72e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 18.459 px@5 (arc-vs-chord at DPHI cadence)
+# grass N=1 ident ulp-bound 3.81e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 11.318 px@5 (arc-vs-chord at DPHI cadence)
+# grass N=8 ident ulp-bound 3.81e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 11.318 px@5 (arc-vs-chord at DPHI cadence)
+# grass N=32 ident ulp-bound 3.81e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 11.318 px@5 (arc-vs-chord at DPHI cadence)
+# grass N=128 ident ulp-bound 3.81e-07: A=1.19e-07 auth=1.19e-07 B=0.00e+00 C=0.00e+00 D=0.00e+00 | morph quality bound: lerp-of-poses dev max 11.318 px@5 (arc-vs-chord at DPHI cadence)
+# rows: kind,path,name,verts,tets,N,bytes_up_frame,us_wall,us_dev
+row,A_param,blob,10242,1100,1,0,204.96,207.04
+row,A_auth,blob,10242,1100,1,52800,192.90,184.22
+row,B_direct,blob,10242,1100,1,0,12.98,13.46
+row,C_lbs,blob,10242,1100,1,24,291.38,240.10
+row,D_morph,blob,10242,1100,1,245808,50.72,56.15
+row,A_param,blob,10242,1100,8,0,1609.56,1504.62
+row,A_auth,blob,10242,1100,8,422400,1486.98,1529.92
+row,B_direct,blob,10242,1100,8,0,109.10,109.30
+row,C_lbs,blob,10242,1100,8,192,2016.18,2013.08
+row,D_morph,blob,10242,1100,8,1966464,453.06,407.16
+row,A_param,blob,10242,1100,32,0,6610.60,6948.22
+row,A_auth,blob,10242,1100,32,1689600,6364.33,6129.69
+row,B_direct,blob,10242,1100,32,0,512.24,508.93
+row,C_lbs,blob,10242,1100,32,768,8986.15,8441.59
+row,D_morph,blob,10242,1100,32,7865856,1857.91,1865.23
+row,A_param,blob,10242,1100,128,0,25920.46,26129.92
+row,A_auth,blob,10242,1100,128,6758400,23748.87,24181.44
+row,B_direct,blob,10242,1100,128,0,1814.60,1884.95
+row,C_lbs,blob,10242,1100,128,3072,32659.32,32898.68
+row,D_morph,blob,10242,1100,128,31463424,10574.42,9832.60
+row,A_param,teapot,392,500,1,0,7.92,7.10
+row,A_auth,teapot,392,500,1,24000,8.20,9.29
+row,B_direct,teapot,392,500,1,0,0.65,0.64
+row,C_lbs,teapot,392,500,1,24,9.99,9.38
+row,D_morph,teapot,392,500,1,9408,1.34,1.34
+row,A_param,teapot,392,500,8,0,57.15,57.09
+row,A_auth,teapot,392,500,8,192000,67.35,67.40
+row,B_direct,teapot,392,500,8,0,3.72,3.72
+row,C_lbs,teapot,392,500,8,192,75.23,75.16
+row,D_morph,teapot,392,500,8,75264,11.72,11.82
+row,A_param,teapot,392,500,32,0,233.28,233.18
+row,A_auth,teapot,392,500,32,768000,288.54,328.32
+row,B_direct,teapot,392,500,32,0,11.52,11.91
+row,C_lbs,teapot,392,500,32,768,359.41,348.92
+row,D_morph,teapot,392,500,32,301056,61.55,61.85
+row,A_param,teapot,392,500,128,0,1036.69,1047.45
+row,A_auth,teapot,392,500,128,3072000,1248.51,1250.78
+row,B_direct,teapot,392,500,128,0,70.56,66.94
+row,C_lbs,teapot,392,500,128,3072,1349.42,1267.07
+row,D_morph,teapot,392,500,128,1204224,221.12,221.62
+row,A_param,icosphere2,162,906,1,0,3.17,3.18
+row,A_auth,icosphere2,162,906,1,43488,4.78,4.79
+row,B_direct,icosphere2,162,906,1,0,0.30,0.30
+row,C_lbs,icosphere2,162,906,1,24,4.53,4.69
+row,D_morph,icosphere2,162,906,1,3888,0.60,0.60
+row,A_param,icosphere2,162,906,8,0,25.42,25.39
+row,A_auth,icosphere2,162,906,8,347904,57.58,53.46
+row,B_direct,icosphere2,162,906,8,0,1.80,1.80
+row,C_lbs,icosphere2,162,906,8,192,31.24,31.19
+row,D_morph,icosphere2,162,906,8,31104,4.92,4.91
+row,A_param,icosphere2,162,906,32,0,117.71,124.04
+row,A_auth,icosphere2,162,906,32,1391616,260.38,242.64
+row,B_direct,icosphere2,162,906,32,0,6.06,6.85
+row,C_lbs,icosphere2,162,906,32,768,141.49,145.14
+row,D_morph,icosphere2,162,906,32,124416,20.73,26.25
+row,A_param,icosphere2,162,906,128,0,474.50,471.19
+row,A_auth,icosphere2,162,906,128,5566464,899.98,910.98
+row,B_direct,icosphere2,162,906,128,0,26.82,27.57
+row,C_lbs,icosphere2,162,906,128,3072,637.75,527.49
+row,D_morph,icosphere2,162,906,128,497664,92.71,105.01
+row,A_param,robot,48,435,1,0,1.06,1.05
+row,A_auth,robot,48,435,1,20880,1.99,1.95
+row,B_direct,robot,48,435,1,0,0.28,0.28
+row,C_lbs,robot,48,435,1,24,1.80,1.81
+row,D_morph,robot,48,435,1,1152,0.35,0.35
+row,A_param,robot,48,435,8,0,7.59,7.62
+row,A_auth,robot,48,435,8,167040,17.34,17.02
+row,B_direct,robot,48,435,8,0,0.68,0.64
+row,C_lbs,robot,48,435,8,192,10.28,10.21
+row,D_morph,robot,48,435,8,9216,1.32,1.34
+row,A_param,robot,48,435,32,0,27.78,27.81
+row,A_auth,robot,48,435,32,668160,84.51,89.84
+row,B_direct,robot,48,435,32,0,1.25,1.25
+row,C_lbs,robot,48,435,32,768,36.51,36.54
+row,D_morph,robot,48,435,32,36864,5.21,5.22
+row,A_param,robot,48,435,128,0,110.91,111.10
+row,A_auth,robot,48,435,128,2672640,364.14,359.39
+row,B_direct,robot,48,435,128,0,5.02,4.96
+row,C_lbs,robot,48,435,128,3072,145.64,145.79
+row,D_morph,robot,48,435,128,147456,25.29,26.05
+row,A_param,conifer,3508,226,1,0,66.90,60.93
+row,A_auth,conifer,3508,226,1,10848,63.11,67.20
+row,B_direct,conifer,3508,226,1,0,4.49,4.64
+row,C_lbs,conifer,3508,226,1,24,82.70,84.07
+row,D_morph,conifer,3508,226,1,84192,13.30,13.94
+row,A_param,conifer,3508,226,8,0,563.87,559.22
+row,A_auth,conifer,3508,226,8,86784,483.17,499.86
+row,B_direct,conifer,3508,226,8,0,36.42,38.58
+row,C_lbs,conifer,3508,226,8,192,676.10,676.43
+row,D_morph,conifer,3508,226,8,673536,144.91,131.77
+row,A_param,conifer,3508,226,32,0,2131.47,2042.53
+row,A_auth,conifer,3508,226,32,347136,2317.29,2163.22
+row,B_direct,conifer,3508,226,32,0,156.65,160.66
+row,C_lbs,conifer,3508,226,32,768,2773.56,2817.62
+row,D_morph,conifer,3508,226,32,2694144,578.17,529.03
+row,A_param,conifer,3508,226,128,0,8710.47,8477.90
+row,A_auth,conifer,3508,226,128,1388544,7883.71,7862.54
+row,B_direct,conifer,3508,226,128,0,650.91,586.39
+row,C_lbs,conifer,3508,226,128,3072,11523.10,11190.82
+row,D_morph,conifer,3508,226,128,10776576,2499.58,2425.15
+row,A_param,plate,289,96,1,0,5.06,5.06
+row,A_auth,plate,289,96,1,4608,5.36,5.37
+row,B_direct,plate,289,96,1,0,0.55,0.56
+row,C_lbs,plate,289,96,1,24,8.27,8.15
+row,D_morph,plate,289,96,1,6936,1.18,1.19
+row,A_param,plate,289,96,8,0,49.10,44.66
+row,A_auth,plate,289,96,8,36864,59.38,52.40
+row,B_direct,plate,289,96,8,0,3.02,3.01
+row,C_lbs,plate,289,96,8,192,58.56,62.16
+row,D_morph,plate,289,96,8,55488,8.68,8.68
+row,A_param,plate,289,96,32,0,163.76,163.75
+row,A_auth,plate,289,96,32,147456,167.42,167.05
+row,B_direct,plate,289,96,32,0,10.75,10.77
+row,C_lbs,plate,289,96,32,768,221.79,221.77
+row,D_morph,plate,289,96,32,221952,44.38,43.45
+row,A_param,plate,289,96,128,0,660.39,689.67
+row,A_auth,plate,289,96,128,589824,678.30,690.05
+row,B_direct,plate,289,96,128,0,49.11,49.93
+row,C_lbs,plate,289,96,128,3072,1078.22,908.18
+row,D_morph,plate,289,96,128,887808,173.45,173.38
+row,A_param,grass,120,93,1,0,2.18,2.18
+row,A_auth,grass,120,93,1,4464,2.34,2.35
+row,B_direct,grass,120,93,1,0,0.28,0.28
+row,C_lbs,grass,120,93,1,24,3.01,3.02
+row,D_morph,grass,120,93,1,2880,0.53,0.54
+row,A_param,grass,120,93,8,0,18.62,17.03
+row,A_auth,grass,120,93,8,35712,19.27,19.28
+row,B_direct,grass,120,93,8,0,1.18,1.18
+row,C_lbs,grass,120,93,8,192,23.15,23.13
+row,D_morph,grass,120,93,8,23040,3.63,3.63
+row,A_param,grass,120,93,32,0,69.59,69.34
+row,A_auth,grass,120,93,32,142848,76.07,71.83
+row,B_direct,grass,120,93,32,0,3.27,3.30
+row,C_lbs,grass,120,93,32,768,91.16,99.47
+row,D_morph,grass,120,93,32,92160,13.50,13.64
+row,A_param,grass,120,93,128,0,277.23,277.36
+row,A_auth,grass,120,93,128,571392,297.92,297.81
+row,B_direct,grass,120,93,128,0,18.60,18.92
+row,C_lbs,grass,120,93,128,3072,445.55,422.23
+row,D_morph,grass,120,93,128,368640,68.75,81.83
+# gates: HI-G0 provenance; HI-G1 identity all paths (A_param ≡ A_auth bitwise); HI-G2 measured uploads; HI-G3 measured-wall capacity; HI-G4 stable cols x2
+# pin protocol: stable columns = kind,path,name,verts,tets,N,bytes_up_frame (us_* machine-state)
