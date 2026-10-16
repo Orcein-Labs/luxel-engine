@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
+use luxel_native_graphics_contract::session::{PresentedGraphicsSession, PresentedSessionRequest};
 use luxel_native_graphics_contract::{
     Campaign2FeatureInputs, Campaign2Features, Campaign2Inputs, Campaign2LoweringInputs,
     Campaign2OutputResolution, Campaign2View, ContactAoPolicy, ForestProfile,
@@ -15,7 +16,6 @@ use luxel_native_graphics_contract::{
     lower_showcase_packet, lower_world_showcase_packet, sha256_prefixed,
     validate_campaign2_visual_evidence,
 };
-use luxel_native_graphics_contract::session::{PresentedGraphicsSession, PresentedSessionRequest};
 use luxel_reference_runtime::build_from_layout_path;
 use serde::Serialize;
 
@@ -441,6 +441,13 @@ fn run() -> Result<(), String> {
                         .ok_or_else(|| "LUXEL_PRESENT_FRAMES must be a positive integer".to_owned())?,
                 ),
             };
+            // Unset or "still" keeps the camera fixed; "pan" moves it per frame.
+            let present_motion = match env::var("LUXEL_PRESENT_MOTION") {
+                Err(env::VarError::NotPresent) => PresentMotion::Still,
+                Ok(value) if value == "still" => PresentMotion::Still,
+                Ok(value) if value == "pan" => PresentMotion::Pan,
+                _ => return Err("LUXEL_PRESENT_MOTION must be still or pan".to_owned()),
+            };
             let layout = canonical_path(
                 PathBuf::from(
                     arguments
@@ -662,6 +669,7 @@ fn run() -> Result<(), String> {
                         &world.world,
                         view_name,
                         frames,
+                        present_motion,
                     )?),
                 };
                 view_summaries.push(serde_json::json!({
@@ -1395,6 +1403,45 @@ fn sphere_probe(
     }))
 }
 
+/// How the presented benchmark moves the camera between timed frames.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PresentMotion {
+    Still,
+    Pan,
+}
+
+/// Camera pose for one frame of the pan benchmark. Frame 0 (`t = 0`) returns
+/// the packet pose. Forward yaws about +Y by up to 15 degrees and the position
+/// slides along the packet's horizontal forward by up to 4 m.
+fn pan_pose(position: [f32; 3], forward: [f32; 3], i: u32, frames: u32) -> ([f32; 3], [f32; 3]) {
+    let t = i as f32 / frames.max(1) as f32;
+    let angle = (2.0 * std::f32::consts::PI * t).sin() * 15.0_f32.to_radians();
+    let (sin_a, cos_a) = angle.sin_cos();
+    let rotated = [
+        forward[0] * cos_a + forward[2] * sin_a,
+        forward[1],
+        -forward[0] * sin_a + forward[2] * cos_a,
+    ];
+    let length =
+        (rotated[0] * rotated[0] + rotated[1] * rotated[1] + rotated[2] * rotated[2]).sqrt();
+    let scale = if length > 0.0 { 1.0 / length } else { 1.0 };
+    let new_forward = [rotated[0] * scale, rotated[1] * scale, rotated[2] * scale];
+
+    let horizontal = [forward[0], 0.0, forward[2]];
+    let horizontal_length = (horizontal[0] * horizontal[0] + horizontal[2] * horizontal[2]).sqrt();
+    let slide = 4.0 * (std::f32::consts::PI * t).sin();
+    let new_position = if horizontal_length < 1e-6 {
+        position
+    } else {
+        [
+            position[0] + horizontal[0] / horizontal_length * slide,
+            position[1],
+            position[2] + horizontal[2] / horizontal_length * slide,
+        ]
+    };
+    (new_position, new_forward)
+}
+
 /// Read each optional axis once before opening inputs or starting a worker.
 /// Present `frames` window frames of a promoted Campaign 2 view and summarize
 /// the worker's per-frame wall time. One untimed frame first allocates the
@@ -1405,8 +1452,13 @@ fn present_view(
     world: &luxel_reference_runtime::WorldArtifact,
     view_name: &str,
     frames: u32,
+    motion: PresentMotion,
 ) -> Result<serde_json::Value, String> {
     let camera = &packet.body.camera;
+    let motion_label = match motion {
+        PresentMotion::Still => "still",
+        PresentMotion::Pan => "pan",
+    };
     let request = PresentedSessionRequest::new(
         format!("campaign2-{view_name}-presented"),
         camera.width_px,
@@ -1414,8 +1466,8 @@ fn present_view(
         false,
     )
     .map_err(|error| error.to_string())?;
-    let mut session =
-        PresentedGraphicsSession::new(&request, packet, world).map_err(|error| error.to_string())?;
+    let mut session = PresentedGraphicsSession::new(&request, packet, world)
+        .map_err(|error| error.to_string())?;
     session
         .open_window(supervisor)
         .map_err(|error| format!("Campaign 2 {view_name} window failed to open: {error}"))?;
@@ -1427,16 +1479,41 @@ fn present_view(
         let mut frame_times_us = Vec::with_capacity(frames as usize);
         let mut stage_times_us: std::collections::BTreeMap<String, Vec<u64>> = Default::default();
         let mut frames_presented = 0;
-        while frames_presented < frames {
-            let report = session
-                .present_frames(supervisor, PRESENT_BATCH.min(frames - frames_presented))?;
-            frames_presented += report.frames_presented;
-            frame_times_us.extend(report.frame_times_us);
-            for (stage, times) in report.stage_times_us {
-                stage_times_us.entry(stage).or_default().extend(times);
+        match motion {
+            PresentMotion::Still => {
+                while frames_presented < frames {
+                    let report = session
+                        .present_frames(supervisor, PRESENT_BATCH.min(frames - frames_presented))?;
+                    frames_presented += report.frames_presented;
+                    frame_times_us.extend(report.frame_times_us);
+                    for (stage, times) in report.stage_times_us {
+                        stage_times_us.entry(stage).or_default().extend(times);
+                    }
+                }
+            }
+            PresentMotion::Pan => {
+                // One request per frame on purpose: that is how a game loop
+                // drives the worker, and it keeps the cascaded shadow maps
+                // re-rendering every frame.
+                for i in 0..frames {
+                    let (position, forward) =
+                        pan_pose(camera.position_xyz_m, camera.forward_xyz, i, frames);
+                    session.set_camera(position, forward)?;
+                    let report = session.present_frames(supervisor, 1)?;
+                    frames_presented += report.frames_presented;
+                    frame_times_us.extend(report.frame_times_us);
+                    for (stage, times) in report.stage_times_us {
+                        stage_times_us.entry(stage).or_default().extend(times);
+                    }
+                }
             }
         }
-        Ok((frames_presented, frame_times_us, stage_times_us, started.elapsed()))
+        Ok((
+            frames_presented,
+            frame_times_us,
+            stage_times_us,
+            started.elapsed(),
+        ))
     });
     let closed = session.close_window(supervisor);
     let (frames_presented, frame_times_us, stage_times_us, elapsed) =
@@ -1445,19 +1522,26 @@ fn present_view(
     let timing = summarize(&frame_times_us)?;
     let batch_fps = f64::from(frames_presented) / elapsed.as_secs_f64();
     eprintln!(
-        "presented {view_name} {}x{}: {frames_presented} frames, p50 {} us, p95 {} us, p99 {} us, {:.2} fps over the batch",
+        "presented {view_name} {}x{} ({motion_label}): {frames_presented} frames, p50 {} us, p95 {} us, p99 {} us, {:.2} fps over the batch",
         camera.width_px, camera.height_px, timing.p50_us, timing.p95_us, timing.p99_us, batch_fps,
     );
     let mut stages = serde_json::Map::new();
     for (stage, times) in &stage_times_us {
         let stage_timing = summarize(times)?;
-        eprintln!("  stage {stage}: p50 {} us, p95 {} us", stage_timing.p50_us, stage_timing.p95_us);
-        stages.insert(stage.clone(), serde_json::to_value(stage_timing).map_err(|error| error.to_string())?);
+        eprintln!(
+            "  stage {stage}: p50 {} us, p95 {} us",
+            stage_timing.p50_us, stage_timing.p95_us
+        );
+        stages.insert(
+            stage.clone(),
+            serde_json::to_value(stage_timing).map_err(|error| error.to_string())?,
+        );
     }
     Ok(serde_json::json!({
         "width_px": camera.width_px,
         "height_px": camera.height_px,
         "vsync": false,
+        "motion": motion_label,
         "frames_presented": frames_presented,
         "frame_time_us": timing,
         "batch_wall_us": u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX),
@@ -1477,7 +1561,63 @@ fn optional_feature(name: &str) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{nearest_rank, summarize};
+    use super::{nearest_rank, pan_pose, summarize};
+
+    fn normalized(v: [f32; 3]) -> [f32; 3] {
+        let length = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        [v[0] / length, v[1] / length, v[2] / length]
+    }
+
+    #[test]
+    fn pan_pose_frame_zero_is_the_packet_pose() {
+        let position = [1.5, 2.0, -3.0];
+        let forward = [0.3, -0.4, 0.5];
+        let (pos, fwd) = pan_pose(position, forward, 0, 30);
+        assert_eq!(pos, position);
+        let expected = normalized(forward);
+        for axis in 0..3 {
+            assert!((fwd[axis] - expected[axis]).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn pan_pose_forward_is_unit_and_finite_for_every_frame() {
+        let forward = normalized([0.2, -0.5, 0.8]);
+        for i in 0..60 {
+            let (pos, fwd) = pan_pose([0.0, 1.0, 0.0], forward, i, 60);
+            let length = (fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]).sqrt();
+            assert!(
+                (length - 1.0).abs() < 1e-5,
+                "frame {i} forward length {length}"
+            );
+            assert!(fwd.iter().all(|value| value.is_finite()));
+            assert!(pos.iter().all(|value| value.is_finite()));
+        }
+    }
+
+    #[test]
+    fn pan_pose_yaws_fifteen_degrees_at_quarter_path() {
+        let forward = [0.0, 0.0, -1.0];
+        let frames = 8;
+        let (pos, fwd) = pan_pose([0.0, 1.5, 0.0], forward, frames / 4, frames);
+        // Signed angle from the input forward to the new forward about +Y.
+        let cross_y = forward[2] * fwd[0] - forward[0] * fwd[2];
+        let dot = forward[0] * fwd[0] + forward[1] * fwd[1] + forward[2] * fwd[2];
+        let yaw_degrees = cross_y.atan2(dot).to_degrees();
+        assert!((yaw_degrees - 15.0).abs() < 0.01, "yaw {yaw_degrees}");
+        assert_eq!(pos[1], 1.5);
+    }
+
+    #[test]
+    fn pan_pose_straight_down_does_not_move_or_nan() {
+        let position = [2.0, 10.0, 3.0];
+        for i in 0..30 {
+            let (pos, fwd) = pan_pose(position, [0.0, -1.0, 0.0], i, 30);
+            assert_eq!(pos, position);
+            assert!(fwd.iter().all(|value| value.is_finite()));
+            assert!((fwd[1] + 1.0).abs() < 1e-5);
+        }
+    }
 
     #[test]
     fn benchmark_percentiles_use_nearest_rank() {
