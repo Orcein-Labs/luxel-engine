@@ -578,7 +578,9 @@ impl PresentedGraphicsSession {
         let stage_times_us: BTreeMap<String, Vec<u64>> = match response.get("stage_times_us") {
             None => BTreeMap::new(),
             Some(value) => serde_json::from_value(value.clone()).map_err(|error| {
-                GraphicsWorkerError::protocol(format!("frame report stage times are not typed: {error}"))
+                GraphicsWorkerError::protocol(format!(
+                    "frame report stage times are not typed: {error}"
+                ))
             })?,
         };
         let report = WindowFrameReport {
