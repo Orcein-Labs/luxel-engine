@@ -5017,6 +5017,9 @@ const GPU_FRAME_TIMING_LABEL = "luxel.graphics.frame"
 const GPU_PASS_TIMING_LABELS = (
     prepare="luxel.graphics.pass.prepare",
     scene_raster="luxel.graphics.pass.scene-raster",
+    scene_sky="luxel.graphics.pass.scene-sky",
+    scene_terrain="luxel.graphics.pass.scene-terrain",
+    scene_meshes="luxel.graphics.pass.scene-meshes",
     resolve="luxel.graphics.pass.resolve",
     overlay="luxel.graphics.pass.overlay",
     shadow="luxel.graphics.pass.shadow",
@@ -6763,6 +6766,10 @@ function _record_scene_passes!(
 
     scene_raster_started_ns = time_ns()
     scene_raster_gpu_timing_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.scene_raster)
+    scene_sky_gpu_timing_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.scene_sky)
+    # Each draw is its own rendering scope. Resolving the multisampled target on
+    # every draw costs a full-target resolve per draw, so only the last draw into
+    # scene_target (the final mesh batch, or terrain when there are none) resolves.
     sky_policy = packet.render_policy.sky
     if sky_policy === nothing
         draw!(
@@ -6777,6 +6784,7 @@ function _record_scene_passes!(
                 Vec4f(packet.environment.fog_color_rgb..., 1.0f0),
             ),
             clear_color=(0.02f0, 0.03f0, 0.05f0, 1.0f0),
+            resolve=false,
         )
         state.draw_calls += 1
         if !state.sky_compiled
@@ -6791,6 +6799,7 @@ function _record_scene_passes!(
             3;
             args=_sky_view_arguments(camera_frame, packet, lighting, sky_policy),
             clear_color=(0.02f0, 0.03f0, 0.05f0, 1.0f0),
+            resolve=false,
         )
         state.draw_calls += 1
         if !state.sky_view_compiled
@@ -6798,6 +6807,7 @@ function _record_scene_passes!(
             state.pipeline_compilations += 1
         end
     end
+    _end_gpu_pass_timing!(state, scene_sky_gpu_timing_slot)
     terrain_arguments = (
             resources.heights,
             resources.slopes,
@@ -6841,6 +6851,8 @@ function _record_scene_passes!(
             atmosphere_parameters,
             surface_options,
     )
+    terrain_resolves = mesh_resources === nothing || isempty(mesh_resources.batches)
+    scene_terrain_gpu_timing_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.scene_terrain)
     if packet.terrain.layers === nothing
         terrain_pipeline = if point_lights === nothing
             cascade_policy === nothing ? state.terrain_pipeline : state.cascade_terrain_pipeline
@@ -6856,6 +6868,7 @@ function _record_scene_passes!(
             descriptor_set_layout=texture_resources.bindings.layout,
             descriptor_set=texture_resources.bindings.set,
             clear_color=nothing,
+            resolve=terrain_resolves,
         )
         state.draw_calls += 1
         if point_lights !== nothing
@@ -6888,6 +6901,7 @@ function _record_scene_passes!(
                 descriptor_set_layout=layer_resources.bindings.layout,
                 descriptor_set=layer_resources.bindings.set,
                 clear_color=nothing,
+                resolve=terrain_resolves,
             )
             if point_lights !== nothing
                 _mark_point_pipeline_compiled!(state, cascade_policy === nothing ? 3 : 4)
@@ -6921,6 +6935,7 @@ function _record_scene_passes!(
                 descriptor_set_layout=wet_bindings.layout,
                 descriptor_set=wet_bindings.set,
                 clear_color=nothing,
+                resolve=terrain_resolves,
             )
             if point_lights !== nothing
                 _mark_point_pipeline_compiled!(state, cascade_policy === nothing ? 5 : 6)
@@ -6933,8 +6948,10 @@ function _record_scene_passes!(
         end
         state.draw_calls += 1
     end
+    _end_gpu_pass_timing!(state, scene_terrain_gpu_timing_slot)
+    scene_meshes_gpu_timing_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.scene_meshes)
     if mesh_resources !== nothing
-        for batch in mesh_resources.batches
+        for (batch_index, batch) in enumerate(mesh_resources.batches)
             batch_material = _material(packet, batch.material_id)
             batch_texture_resources = _material_texture_resources!(
                 state,
@@ -7010,6 +7027,7 @@ function _record_scene_passes!(
                 descriptor_set=batch_texture_resources.bindings.set,
                 clear_color=nothing,
                 depth_clear=nothing,
+                resolve=batch_index == length(mesh_resources.batches),
             )
             state.draw_calls += 1
             if point_lights !== nothing
@@ -7030,6 +7048,7 @@ function _record_scene_passes!(
             end
         end
     end
+    _end_gpu_pass_timing!(state, scene_meshes_gpu_timing_slot)
     _transition_color_to_sampled!(state, scene_framebuffer)
     _end_gpu_pass_timing!(state, scene_raster_gpu_timing_slot)
     scene_raster_time_us = _elapsed_us(scene_raster_started_ns)
@@ -7660,6 +7679,9 @@ function render_window_frames!(
         "gpu_reflection" => GPU_PASS_TIMING_LABELS.reflection,
         "gpu_prepare" => GPU_PASS_TIMING_LABELS.prepare,
         "gpu_scene_raster" => GPU_PASS_TIMING_LABELS.scene_raster,
+        "gpu_scene_sky" => GPU_PASS_TIMING_LABELS.scene_sky,
+        "gpu_scene_terrain" => GPU_PASS_TIMING_LABELS.scene_terrain,
+        "gpu_scene_meshes" => GPU_PASS_TIMING_LABELS.scene_meshes,
         "gpu_resolve" => GPU_PASS_TIMING_LABELS.resolve,
         "gpu_overlay" => GPU_PASS_TIMING_LABELS.overlay,
         "gpu_present_blit" => GPU_PASS_TIMING_LABELS.present_blit,

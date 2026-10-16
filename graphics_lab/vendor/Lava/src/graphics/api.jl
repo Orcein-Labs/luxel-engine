@@ -222,7 +222,8 @@ function draw!(bq::BatchQueue, pipeline::GraphicsPipeline, target::OffscreenTarg
                clear_color::Union{Nothing, NTuple{4, Float32}}=(0.0f0, 0.0f0, 0.0f0, 1.0f0),
                depth_clear::Union{Nothing, Float32}=1.0f0,
                descriptor_set_layout=nothing,
-               descriptor_set=nothing)
+               descriptor_set=nothing,
+               resolve::Bool=true)
     fb = target.fb
 
     converted_vert = convert_args(args)
@@ -242,7 +243,10 @@ function draw!(bq::BatchQueue, pipeline::GraphicsPipeline, target::OffscreenTarg
     push_data = isempty(args) ? UInt8[] : pack_gfx_args(bq, args, vert_shader.push_info)
 
     # Multisampled: draw into the MSAA image, resolve into the readable one.
+    # `resolve=false` skips the MSAA resolve; the caller must resolve on a later
+    # draw before reading `fb.color_view`.
     multisampled = fb.samples > 1
+    resolves = multisampled && resolve
     vk_draw!(bq, compiled,
         multisampled ? fb.msaa_color_view : fb.color_view,
         multisampled ? fb.msaa_color_image : fb.color_image,
@@ -253,8 +257,8 @@ function draw!(bq::BatchQueue, pipeline::GraphicsPipeline, target::OffscreenTarg
         depth_image=fb.depth_image,
         depth_clear,
         clear_color, descriptor_set,
-        resolve_view=multisampled ? fb.color_view : nothing,
-        resolve_image=multisampled ? fb.color_image : nothing)
+        resolve_view=resolves ? fb.color_view : nothing,
+        resolve_image=resolves ? fb.color_image : nothing)
 end
 
 """
