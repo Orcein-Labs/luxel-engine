@@ -1,377 +1,143 @@
 # Luxel Engine
 
-**Concept art in. A playable, faithful 3D map out.**
+Luxel is an open-world game engine with a Vulkan renderer. Its target is the
+look of current large open-world games: scanned materials, physically based
+lighting, dense forests and kilometre-scale terrain.
 
-License: [Apache License 2.0](LICENSE).
+The Rust core owns the world. It holds layouts, assets, gameplay rules and the
+checks that decide what reaches the screen. The renderer and the terrain
+solvers are written in Julia, and Python drives asset intake and tooling.
 
-> **Fresh-agent orientation:** read [docs/platform/active-architecture.md](docs/platform/active-architecture.md) and
-> [docs/archive/2026-09_roadmaps-and-audits/demo-ready-mega-sprint.md](docs/archive/2026-09_roadmaps-and-audits/demo-ready-mega-sprint.md) first.
-> They define the current native Rust/Julia/Lava path, authority boundaries, provider fence, and
-> campaign order. Older migration/status sections below are retained as historical context and are
-> not current instructions.
+![Riverwatch ruins, wide view](docs/media/riverwatch-ruins-wide.jpg)
 
-Luxel is a game engine. You give it concept art and annotations describing a place; it produces a
-certified, deterministic world — terrain, hydrology, traversal, roads, settlements, materials,
-placements — and renders and runs that world through its native runtime.
-
-## An AI-native engine, not a human-native one
-
-Conventional editor-first engines are **human-native**. Their primary interface is a GUI built for
-a person with a mouse, their primary verification is a human looking at the viewport, and their
-authoring surface assumes an operator who can see.
-
-**Luxel is the same category of thing built for a different operator.** Its interface is a typed
-authoring language, its verification is a gate that measures the world, and its intended author is a
-model. Every design difference follows from that one substitution:
-
-| | Human-native engine | Luxel |
-|---|---|---|
-| Authoring surface | GUI, inspector, viewport | Typed language, parsed never executed |
-| Verification | A person looks at it | Gates measure it and can fail the build |
-| Iteration | Drag, undo, re-render | Compile, diff, repair-carrying diagnostics |
-| Correctness | Convention and review | Provenance binding and a stable world hash |
-| Skill floor | A trained artist | Minimized model capability, measured by quality and repair efficiency |
-
-What makes something an engine is that it owns the authoritative representation of the world and
-the rules for constructing it — terrain, hydrology, traversal, collision, navigation, placement,
-materials, provenance. Luxel owns all of that, including its native graphics path.
-
-External delivery adapters may remain as compatibility material, but they are not part of the
-current Luxel authority or certification path. If a change to Luxel requires an external editor/runtime,
-that change is in the wrong layer.
-
-**Inspection instruments are not semantic authority.** The existing Bevy viewer and other bounded
-reference tools may help Luxel inspect its own output, but they are not interchangeable runtime
-backends and no external engine is required to ship a Luxel game. Audit captures must remain bound to
-the exact packet, renderer path, camera, and authority receipt that produced them.
-
-The distinction matters because the valuable artifact is the *world*, not the render of it. The
-world is a verified data structure with a stable identity hash. Any engine can be pointed at it, and
-two engines pointed at the same world must produce the same place.
-
-## The goal
-
-Take a piece of concept art — a painted overview, a sketched battle map — and end up walking around
-that exact place in 3D. Not "something in the same genre." *That* place: its ridgelines, its water,
-its sightlines, its chokepoints, its keeps where the painting put them.
-
-Two things make that hard, and Luxel is organised around both:
-
-1. **Faithfulness is measurable, not vibes.** Every stage emits evidence and every claim is gated.
-   A world that says it has three roads must have three roads that a player can actually walk.
-2. **The author should not have to be an expert.** See below — this is the part that shapes the
-   whole design.
-
-## Model capability is an efficiency axis
-
-The success criterion for Luxel is **not** a parameter-count threshold. Luxel minimizes the model
-capability required for professional game-development work without sacrificing output quality.
-Small-model runs remain valuable stress tests for authoring ergonomics, recovery, and tool cost;
-they are an efficiency axis, not the definition of product success.
-
-This is why the authoring language is Python-shaped: every model already writes Python, so nobody
-starts from a near-empty prior. But syntax turns out to be the easy half. Measured results on the
-authoring surface:
-
-| Change | Weak-model success |
+| | |
 |---|---|
-| Errors that name the *fix* instead of the violation | 3/6 → **6/6** |
-| A generated file to edit instead of a blank page | 0/4 → **4/4** |
+| ![Riverwatch ruins, close view](docs/media/riverwatch-ruins-close.jpg) | ![Material calibration board under sun and sky, then under warm point lights](docs/media/material-board-sun-and-local-light.jpg) |
 
-Both numbers are from mechanical grading — the output had to compile, apply, contain the requested
-change, and not damage anything else. The lesson from the second row is the sharper one: given the
-complete vocabulary in the prompt but no starting file, a small model invented an API that did not
-exist, every single time. **Recognition beats recall.** Documentation does not prevent hallucination;
-a valid artifact to edit does.
+*Riverwatch, the reference scene: a damaged stone ruin built from scanned
+CC0 models, broadleaf forest and an eroded mountain backdrop. On the right,
+the material calibration board lit by sun and sky (top) and by warm local
+point lights with cube-map shadows (bottom). All frames come straight from
+the engine.*
 
-So the design rule throughout: a change that makes Luxel more expressive but materially harder to
-drive, verify, or repair is a **regression**, not a feature. Model capability and cost are measured
-alongside final mechanical and visual quality.
+## Status
+
+Luxel is in active development and is not ready for production games. The
+renderer handles the Riverwatch scene end to end. Cascaded sun shadows, local
+light shadows, image-based lighting and the camera-relative shadow fix are
+all in. The current work is the materials and lighting campaign, followed by
+the first playable prototypes. See [docs/roadmap.md](docs/roadmap.md).
 
 ## Architecture
 
-The native path has four language/runtime responsibilities, each doing the thing it is actually
-best at:
+| Layer | Language | Location | Role |
+|---|---|---|---|
+| Authority | Rust | `world_core/` | Layouts, assets, gameplay, project ledger, scene lowering, render policy, receipts |
+| Renderer | Julia, Vulkan | `graphics_lab/` | Lava-based Vulkan renderer: PBR shading, shadows, IBL, foliage, water |
+| Terrain | Julia | `terrain_lab/` | Heightfield, erosion and hydrology solvers |
+| Tooling | Python | `pipeline/`, `tools/` | Asset intake, content fetch and build, measurement, the native gate |
+| Characters | JavaScript, Python | `character_lab/` | 2D character authoring workbench |
 
-| Layer | Language | Responsibility |
-|---|---|---|
-| Authoring DSL | Python (parsed, never executed) | What the author — human or model — writes |
-| Native compiler & transaction authority | Rust | Typed lowering boundary, ProjectSpec, identity, receipts, gates, promotion |
-| Numerical solvers | Julia | Terrain analysis, hydrology, placement solving, spatial fields |
-| Provider and backend glue | Python | Source staging, image/Blender/Gaea/provider IO, process transport, adapters |
-| Native runtime / graphics execution | Rust / Julia-Lava-Vulkan | Native delivery and deterministic runtime; Rust-owned gates are explicit |
+The Rust side lowers a world layout into a graphics scene packet. A Julia
+worker process renders the packet and returns the frame, and Rust verifies
+the result. Nothing in the renderer decides gameplay or asset validity.
 
-### Compatibility/reference authoring DSL
+More detail is in [docs/platform/native-graphics-architecture.md](docs/platform/native-graphics-architecture.md).
 
-The Python-shaped intent DSL below is retained as a compatibility and regression lane while the
-Rust-owned native construction surface grows. It is not permission to move semantic authority back
-into Python; new demo-critical operations belong behind typed Rust contracts and the native control
-plane.
+## Requirements
 
-The language-wide design baseline is [docs/DSL docs/LUXEL_LANGUAGE_SPEC.md](docs/DSL%20docs/LUXEL_LANGUAGE_SPEC.md). It defines the planned
-typed IR, safety boundary, geometry/asset and policy domains, backend contracts, conformance suite, and unresolved
-decisions without treating unfinished proposals as language features.
+- Linux and a Vulkan GPU. Development uses an NVIDIA RTX 5060.
+- Rust 1.95 or newer.
+- Julia 1.12, installed with [juliaup](https://github.com/JuliaLang/juliaup).
+- Python 3 with NumPy and Pillow (`pip install -r requirements.txt`).
+  Development uses Python 3.14.
 
-Intent files look like Python and are **parsed, never executed** — no filesystem, network, process,
-import, or runtime access. This is not only a security property. Because the file is data rather
-than a program, it can be generated, diffed, repaired, and round-tripped:
+The full Riverwatch scene also needs:
 
-```python
-from worldbuilder import World, ridge_network
+- Blender on `PATH`, to build the ruin kit.
+- [Gaea 2](https://quadspinner.com/), run through Steam Proton, to build the
+  mountain backdrop. `pipeline/gaea_build.py` lists the environment variables
+  that locate it.
 
-world = World('codeweald_alpine_arena_v1')
+## Getting started
 
-# eastern_alps -- alpine_massif (accepts: ridge_network)
-world.landform(
-    'eastern_alps',
-    composition=ridge_network(
-        spines=3,
-        elevation_bias=0.72,
-        along_jitter=0.08,
-        cross_jitter=0.1,
-    ),
-)
-```
-
-There are no loops, conditionals, or functions. An intent file *describes* a world; it does not
-compute one. Every rejection carries an executable repair, and a complete starting file can be
-generated from any existing world.
-
-## Current canonical status
-
-The active product target is the demo-ready native engine slice in
-[docs/archive/2026-09_roadmaps-and-audits/demo-ready-mega-sprint.md](docs/archive/2026-09_roadmaps-and-audits/demo-ready-mega-sprint.md), not
-the older Codeweald target-engine MVP described in the historical sections below.
-
-Green foundation: Rust-owned typed contracts, deterministic intake/project identity, registered
-receipt authority, Julia terrain/spatial seams, native graphics packet execution, live-evidence
-contracts, reference runtime/traversal machinery, bounded repair/rollback, and the native control
-surface. The active gap is production composition: scene/object/asset lowering, live game-loop
-integration, authored-quality materials/lighting/foliage/atmosphere, one native animated character
-path, richer world population, style compilation/critique, and unattended fresh-agent packaging.
-
-The supplied malformed GLB remains a permanent negative control. Blender is optional at build time;
-it is never a runtime or semantic authority dependency. Unity, Unreal, and Godot are compatibility
-or archaeological lanes only and are not demo gates.
-
-Use the focused commands in [docs/platform/active-architecture.md](docs/platform/active-architecture.md) and the gates named by
-the current campaign. Do not infer present status from the dated snapshot that follows.
-
-The first reproducible native command is:
+Instantiate the Julia projects once:
 
 ```sh
+julia --project=terrain_lab -e 'using Pkg; Pkg.instantiate()'
+julia --project=graphics_lab -e 'using Pkg; Pkg.instantiate()'
+```
+
+Build the Rust workspace and run the native gate:
+
+```sh
+cd world_core && cargo build && cd ..
 python3 pipeline/luxel_native_gate.py
 ```
 
-## Historical compatibility snapshot (not current status)
-
-The vertical slice — `codeweald_alpine_arena_v1`, a 256×256m alpine arena — compiles end to end.
-It does **not** currently pass every gate; see the failing gates below.
-
-| Suite | Result |
-|---|---|
-| Python | 501/501, 161 subtests (2026-08-03) |
-| Rust | 23/23 across the workspace (2026-08-03) |
-| Julia | 8/8 (2026-08-03) |
-| Bevy four-view visual acceptance | passed, zero failures |
-
-Failing gates as of 2026-08-03, all known and tracked rather than surprises:
-
-- **navmesh acceptance:** 3 requirements unmet. None of the three lanes runs end to end; the longest
-  gap is 18 m on `central_lane`. Twelve structure placements obstruct a lane (D13) — but broken down
-  by owner, those twelve block `central_lane` only. `north_lane` and `south_lane` are blocked mostly
-  by keep *gate* components standing in the lane the gate exists to admit, which is a separate and
-  newly logged defect (D29). Moving the villages will not clear this gate on its own.
-- **`bevy_visual_acceptance` foliage floor:** 0.00682 against 0.008 (D28). *New, and not a
-  regression.* The scatter now obeys `canopy_suitability`, the forests thinned to what the ecology
-  supports, and a gate that counts green pixels tripped. Either the ecology is miscalibrated
-  (decisions item 4) or the gate is measuring the wrong thing; the second world settles which.
-- **`bevy_visual_acceptance` road readability:** 0.00686 against 0.008. Pre-existing and previously
-  unrecorded — it was masked while the black-pixel gate was the loud failure.
-
-**No longer failing:** the black-pixel gate reads 0.0645 against 0.08, down from 0.094 (D25). It was
-not fixed directly. The old surfacing darkened the preview by up to 22% wherever wetland was, and
-wetland was wrongly on the cliffs; slope-gating it removed the darkening. A good part of D25 was the
-wetland bug.
-
-Current world: 66,049 terrain vertices, 275 render-plan instances, 0 prop placements (intentional —
-every landform is terrain-native), 3 compiled roads, certified traversal. The instance count fell
-from 337 when the scatter began obeying the ecology; the difference is trees that were standing on
-ground S6 says will not grow them.
-
-Pipeline stages, all green: `compile → worldbuilder_dsl → evidence_overlay → style_reference →
-runtime_effects → terrain → terrain_analysis → terrain_contract → traversal_probe →
-terrain_materials → asset_catalog → asset_plan → asset_visual_preflight →
-asset_physical_acceptance → julia_placement_solver → rust_placement_contract → rust_render_plan →
-godot_adapter`.
-
-### What is done
-
-- Deterministic terrain compilation with a stable world identity hash
-- Rust-certified provenance: analysis is bound to exact raster bytes, stale inputs are rejected
-- Julia terrain analysis, hydrology with uphill-reversal rejection, placement solving
-- Ecology-obeying foliage: the Rust scatter draws in proportion to S6's canopy suitability, and the
-  authored instance count is a ceiling the terrain may refuse rather than a quota it must meet
-- A five-layer terrain surface — grass, road, rock, snow, wetland — so peat and bog reach a material
-  instead of rendering as grass
-- Traversal certification — the walkable claims are verified, not asserted
-- Material/texture gates that reject bad source art instead of certifying it
-- Four-view Bevy audit captures (overview, both wall faces, player height)
-- Authoring DSL with repair-carrying errors and scaffold generation
-- Legacy external delivery adapters with an honest preflight boundary
-
-### What is not done
-
-- **Art fidelity.** This is the live frontier. Settlement and objective kits still read as prototype,
-  foliage density needs work, wetland rendering is weak, the ground palette is flat, and cliff faces
-  still show heightmap-slab grammar.
-- **Gameplay/system DSL.** The `luxel.game` vocabulary does not exist yet. When it does, it shares the
-  authoring kernel with `luxel.world` — one sandbox, two vocabularies, never two dialects.
-- **The critic→DSL loop.** Audit metrics are still numbers. Turning `foreground_edge_density: 0.044`
-  into a concrete suggested patch is what closes the loop and is the next major piece of work.
-
-## Historical layout snapshot (not current instructions)
-
-The engine and the game are separate git repositories as of 2026-08-02. Luxel lives at the **workspace
-root** (`Code Projects/luxel-engine/`), not under `Game Projects/`. It is an engine that games consume, not a
-game.
-
-Engine paths, relative to `Code Projects/luxel-engine/`:
-
-| What | Where |
-|---|---|
-| Compiler, DSL, pipeline | `pipeline/` |
-| Rust WorldSpec core | `world_core/` |
-| Bevy reference renderer | `world_core/apps/world_viewer/` |
-| Julia solvers | `terrain_lab/` |
-| Legacy delivery adapters | `engine_adapters/` |
-| Specifications and decision records | `docs/` |
-
-Game paths, relative to `Code Projects/Game Projects/Codeweald/`:
-
-| What | Where |
-|---|---|
-| Worlds and their evidence | `godot_renderer/concept_batches/` |
-| Assets and map prep | `godot_renderer/` |
-
-`godot_renderer/` keeps its name although the Godot pipeline was removed on 2026-07-31; the rename
-is outstanding as D8.
-
-A world is built by pointing the engine at a batch in the game repo:
+Render a quick top-down check frame of the reference layout (320×240, no
+downloaded content needed). Run this from `world_core/`:
 
 ```sh
-python3 pipeline/build_zone.py <game>/concept_batches/<batch>/annotations.json --project-root <game>
+cargo run -q -p luxel-native-graphics-contract -- render-layout \
+  crates/reference_runtime/examples/riverwatch.layout.json \
+  julia "$PWD/../terrain_lab" "$PWD/../graphics_lab" \
+  "$PWD/../graphics_lab/bin/luxel_graphics_worker.jl" out.ppm
 ```
 
-A batch can live anywhere; the same batch compiled from two locations produces byte-identical
-artifacts.
+### Full Riverwatch scene
 
-## Historical compatibility commands (not current native entry points)
-
-Generate a starting intent file for an existing world — never author from a blank page:
+The scanned content is not committed. Each set is pinned by a manifest with
+URLs, sizes and SHA-256 digests. Each set downloads into the ignored
+`artifacts/` tree:
 
 ```sh
-python3 pipeline/worldbuilder_dsl.py <zone_spec.json> --output map.py --scaffold
+python3 tools/fetch_terrain_layers.py tools/terrain_layers/converge0.json
+python3 tools/fetch_models.py tools/models/kit1.json
+python3 tools/build_kit.py --set kit2
+python3 tools/build_backdrop.py --set backdrop1
 ```
 
-Compile intent into WorldSpec patches:
+Then render the wide, medium and close views with the current policy:
 
 ```sh
-python3 pipeline/worldbuilder_dsl.py map.py --output intent.json
+tools/parity_ab_policy.sh artifacts/riverwatch artifacts/riverwatch/render.log converge4
 ```
 
-Add `--lenient` while authoring to clamp out-of-range values and correct misspelled enums into a
-reported repair list instead of failing. Certification always stays strict.
+Set `LUXEL_JULIA` or `JULIA` if `julia` is not on your `PATH`.
 
-Run the suites:
+## Tests
 
 ```sh
-python3 -m unittest discover -s tests        # from godot_renderer/
-cargo test --workspace                       # from world_core/
-julia --project=. test/runtests.jl           # from terrain_lab/
+(cd world_core && cargo test)                                        # Rust
+julia --project=graphics_lab graphics_lab/test/runtests.jl           # renderer protocol
+(cd terrain_lab && julia --project=. test/runtests.jl)               # terrain solvers
+python3 -m unittest discover -s tests                                # Python tooling
 ```
 
-## Engine-neutral native MVP
+The GPU renderer suites in `graphics_lab/test/` run one at a time; see
+[docs/world/native-graphics-benchmark.md](docs/world/native-graphics-benchmark.md).
+Several tests use a large external GLB as a negative control. It is not in
+the repository, so those tests skip unless `LUXEL_NEGATIVE_CONTROL_GLB`
+points to it.
 
-The current model-facing vertical slice is driven by the Rust-owned native
-contracts. `luxel-control-plane` is the canonical project transaction, pointer,
-candidate, receipt, repair, and promotion authority. Python authoring/provider
-modules parse or stage caller-owned bytes and transport typed requests; they do
-not decide semantic identity, gate status, or promotion. The Rust project
-ledger compiles the typed intake/template into `ProjectSpec`, Julia supplies
-bounded numerical fields, and the Rust reference runtime owns world,
-traversal, gameplay, capture, and revalidation.
+## Repository layout
 
-`semantic_kernel` and the older Python snapshot/build paths remain available
-as compatibility/regression lanes. They cannot promote a native current
-snapshot; the native transaction and registered Rust validators are the source
-of truth for the converged path. The Neura-MCP launcher exposes that same
-bounded operation surface without moving semantics into MCP.
-
-Run the focused acceptance suite:
-
-```sh
-python3 -m unittest tests.test_luxel_native_mvp -v
+```text
+world_core/        Rust workspace: authority crates and the native graphics contract
+graphics_lab/      Julia/Vulkan renderer, worker process and TetCage deformation lab
+terrain_lab/       Julia terrain solvers
+pipeline/          Python asset intake, native gate and integrations
+tools/             Content manifests, fetch and build scripts, measurement tools
+character_lab/     Character authoring workbench
+assets/            Committed source art
+engine_adapters/   Legacy Unity and Unreal export adapters
+tests/             Python test suite
+docs/              Design docs, contracts, decisions and the roadmap
 ```
 
-The model-facing command is:
+The documentation index is [docs/README.md](docs/README.md).
 
-```sh
-python3 pipeline/luxel_native_mvp.py \
-  --source-dir <brief-concept-and-layout> \
-  --project-template <typed-project-template.json> \
-  --rigging-glb <provider-output.glb> \
-  --rigging-request <typed-rigging-request.json> \
-  --output-dir <certified-handoff>
-```
+## License
 
-That command remains the native-MVP regression oracle. The engine-neutral
-convergence path uses the same typed intake/world artifacts through
-`luxel-control-plane` and deliberately leaves production rigging, skinning,
-retargeting, and arbitrary mesh-to-character generation deferred. The
-supplied bad GLB remains a permanent negative control. This checkpoint is
-judged by Luxel's own semantic, mechanical, traversal, visual, repair,
-determinism, provenance, and archive-revalidation gates.
-
-## As substrate for a world model (Project Aisling)
-
-> Design intent, not measured. Aisling is not trained yet. Recorded here because it shapes what Luxel
-> should expose.
-
-The reason a world compiler matters to a generative world model is that **it moves everything
-solvable out of the weights.**
-
-A model asked to emit a world directly must learn geometry, drainage, collision, navigability, and
-material coherence — all of which are *already solved problems* with exact algorithms. It will learn
-them approximately, at enormous parameter cost, and still produce rivers that flow uphill. Against
-Luxel, the model emits ~50 lines of intent and the compiler does the rest exactly. The model's job
-shrinks from "represent a world" to "have taste about a world."
-
-Four concrete uses:
-
-1. **The output space collapses.** ~50 lines of DSL instead of a 66,049-vertex mesh. This is what
-   makes a model viable as a world author: it emits a compact, typed intent surface instead of
-   having to serialize a coherent mesh directly. Same thesis as the skill floor, one level up.
-2. **A programmatic verifier.** Luxel's gates are exact, not learned — traversal certification,
-   hydrology reversal rejection, provenance binding, style scoring. That makes them usable as an RL
-   reward signal that **cannot be hacked the way a neural critic can**, because there is no critic
-   to fool. The world either has three walkable roads or it does not.
-3. **A labelled data factory.** Every compiled world carries ground truth: heightfields, semantic
-   annotations, traversal graphs, hydrology, and four canonical views from known camera poses.
-   3D-consistent labelled data is exactly what generative world models are starved of, and Luxel emits
-   it as a byproduct of doing its normal job.
-4. **Faithfulness stays checkable.** "Does this match the concept art" remains a measured quantity
-   rather than a human judgement call, which is what makes iteration tractable.
-
-The honest caveat: this only holds while the DSL stays expressive enough to describe worlds worth
-generating. If the vocabulary is too thin, the model's taste has nowhere to go. Growing the
-vocabulary without raising the skill floor is the standing tension.
-
-## Relationship to Codeweald
-
-Codeweald is the first consumer, not the owner. It is a fantasy RPG/arena target that exercises Luxel
-against a real art brief, and the two ping-pong: engine capability unlocks map fidelity, and map
-defects drive engine work.
-
-Codeweald's game DSL and Luxel's world DSL are intended to converge on the same shape — one authoring
-kernel, two vocabularies — so that a model fluent in one is already fluent in the other.
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

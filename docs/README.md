@@ -23,6 +23,7 @@ a `SUMMARY.md`.
 | [integrations/](integrations/) | tools Luxel drives from outside | Gaea: `pipeline/gaea_*.py`, `Code Projects/Gaea/`; Blender: `pipeline/blender_*.py`, `tools/blender_*.py`; ComfyUI: `pipeline/comfy_generate_texture.py`; engines: `engine_adapters/`, `pipeline/zone_to_{unity,unreal}.py`, `pipeline/*.gd` |
 | [adr/](adr/) | decision records | |
 | [archive/](archive/) | superseded and closed docs | |
+| [media/](media/) | screenshots used by the top-level README | |
 | [research/](research/) | isolated research campaigns (not production) | [PJ-0 Performant Julia](research/pj-0/REPORT.md) |
 
 Code still lives where it was. It moves into per-layer homes when that layer
