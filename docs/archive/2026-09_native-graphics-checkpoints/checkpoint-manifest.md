@@ -8,13 +8,13 @@ Checkpoint date: 2026-09-25.
 
 Archive, beside the repository:
 
-`/mnt/d/Code Projects/WGE-checkpoint-goal002-2026-09-25.zip`
+`../WGE-checkpoint-goal002-2026-09-25.zip` (local archive, not published)
 
 The zip's top directory is `Luxel/`.
 
 The Goal 001 archive is historical and was not overwritten:
 
-`/mnt/d/Code Projects/WGE-checkpoint-goal001-2026-09-25.zip`
+`../WGE-checkpoint-goal001-2026-09-25.zip` (local archive, not published)
 
 ## Status
 

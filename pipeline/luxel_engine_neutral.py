@@ -1415,7 +1415,7 @@ def _parser() -> argparse.ArgumentParser:
         default=Path(
             os.environ.get(
                 "LUXEL_NEGATIVE_CONTROL_GLB",
-                "/home/mattc/Pictures/Generated 2D Images/sample_2026-09-26T091412.074.glb",
+                str(Path(__file__).resolve().parents[1] / "research/2026-10-15_external-test-inputs/sample_2026-09-26T091412.074.glb"),
             )
         ),
     )

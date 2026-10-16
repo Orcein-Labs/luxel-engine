@@ -28,7 +28,7 @@ ASSET_CONTRACT = Path(
 BAD_CONTROL = Path(
     os.environ.get(
         "LUXEL_RIGGING_BAD_GLB",
-        ROOT / "research" / "2026-10-15_rigging-control" / "bad-control.glb",
+        ROOT / "research" / "2026-10-15_external-test-inputs" / "sample_2026-09-26T091412.074.glb",
     )
 )
 BAD_CONTROL_SHA256 = "858fa104880822d081405579fb5b39d533d3b3b341d38aa1490a44b634f5e2b4"

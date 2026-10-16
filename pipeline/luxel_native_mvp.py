@@ -40,7 +40,7 @@ WORLD_CORE = ROOT / "world_core"
 DEFAULT_BAD_GLB = Path(
     os.environ.get(
         "LUXEL_NEGATIVE_CONTROL_GLB",
-        "/home/mattc/Pictures/Generated 2D Images/sample_2026-09-26T091412.074.glb",
+        ROOT / "research/2026-10-15_external-test-inputs/sample_2026-09-26T091412.074.glb",
     )
 )
 

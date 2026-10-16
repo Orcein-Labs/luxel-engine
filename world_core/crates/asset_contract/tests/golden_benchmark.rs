@@ -14,8 +14,8 @@ fn benchmark_path() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("LUXEL_ASSET_BENCHMARK") {
         return Some(PathBuf::from(path));
     }
-    let default =
-        PathBuf::from("/home/mattc/Pictures/Generated 2D Images/sample_2026-09-26T091412.074.glb");
+    let default = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../research/2026-10-15_external-test-inputs/sample_2026-09-26T091412.074.glb");
     default.is_file().then_some(default)
 }
 

@@ -90,7 +90,7 @@ Do these as separate, individually verifiable steps. Do not batch them.
   fail if the path breaks, so **check for skips, not just passes**, after moving.
 - `build_zone.py` imports pipeline modules directly and names stage order including
   `worldbuilder_dsl` and `godot_adapter`.
-- `codeweald` launcher hardcodes `CANONICAL_PROJECT_DIR = /mnt/d/Language Projects/...` — already
+- `codeweald` launcher hardcodes `CANONICAL_PROJECT_DIR = <projects>/Language Projects/...` — already
   stale (wrong mount *and* wrong workspace name) and needs fixing regardless of this migration.
 - Reports under `concept_batches/` embed absolute paths in `bevy_visual_acceptance_report.json` and
   similar. These are provenance records; regenerate rather than rewrite them.

@@ -189,7 +189,7 @@ The Campaign 2 report records the current supervised command:
 ```sh
 world_core/target/debug/luxel-native-graphics-contract render-campaign2-layout \
   world_core/crates/reference_runtime/examples/riverwatch.layout.json \
-  /home/mattc/.juliaup/bin/julia terrain_lab graphics_lab \
+  julia terrain_lab graphics_lab \
   graphics_lab/bin/luxel_graphics_worker.jl artifacts/campaign2/<run-id>
 ```
 

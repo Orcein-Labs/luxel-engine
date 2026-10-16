@@ -21,8 +21,7 @@ from asset_intake import (  # noqa: E402
 BENCHMARK_ASSET = Path(
     os.environ.get(
         "LUXEL_ASSET_BENCHMARK",
-        "/home/mattc/Pictures/Generated 2D Images/"
-        "sample_2026-09-26T091412.074.glb",
+        Path(__file__).resolve().parents[1] / "research/2026-10-15_external-test-inputs/sample_2026-09-26T091412.074.glb",
     )
 )
 EXPECTED_INPUT_SHA256 = "858fa104880822d081405579fb5b39d533d3b3b341d38aa1490a44b634f5e2b4"

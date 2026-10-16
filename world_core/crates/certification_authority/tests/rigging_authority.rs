@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
-use serde_json::{Value, json};
 use luxel_asset_contract::{AssetPreparationRequest, inspect_glb, prepare_asset};
 use luxel_certification_authority::schema::RiggingReceiptPayload;
 use luxel_certification_authority::{
@@ -10,6 +9,7 @@ use luxel_certification_authority::{
     ValidatorRegistry, candidate_identity, native_mvp_gate_profile, sha256_prefixed,
     validate_receipt,
 };
+use serde_json::{Value, json};
 
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

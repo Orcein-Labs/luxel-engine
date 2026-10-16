@@ -4,8 +4,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-use serde::Serialize;
-use serde_json::{Value, json};
 use luxel_certification_authority::schema::{
     AssetReceiptPayload, AssetUse, DeferredReceiptPayload, GameplayReceiptPayload,
     NativeVisualQualityReceiptPayload, RepairReceiptPayload, VisualReceiptPayload,
@@ -24,6 +22,8 @@ use luxel_certification_authority::{
 use luxel_intake_repair_contract as intake;
 use luxel_native_graphics_contract as graphics;
 use luxel_reference_runtime::{GameplayWorldBinding, WorldBuild, build_from_layout_path};
+use serde::Serialize;
+use serde_json::{Value, json};
 
 const WORLD_ID: &str = "runtime-world";
 const TRAVERSAL_ID: &str = "runtime-traversal";
@@ -1083,7 +1083,11 @@ fn native_seal_cli_computes_receipt_identity_and_writes_canonical_json() {
     let value: Value = serde_json::from_slice(&sealed_bytes).unwrap();
     assert_eq!(
         sealed_bytes,
-        format!("{}\n", luxel_certification_authority::canonical_json(&value)).as_bytes()
+        format!(
+            "{}\n",
+            luxel_certification_authority::canonical_json(&value)
+        )
+        .as_bytes()
     );
     fs::remove_dir_all(directory).unwrap();
 }
@@ -1140,21 +1144,33 @@ fn a_resealed_rigging_deferral_cannot_be_changed_to_pass() {
     assert!(error.detail.contains("cannot accept"));
 }
 
-#[test]
-fn supplied_bad_glb_bytes_remain_a_permanent_asset_rejection_control() {
-    let supplied_path = std::env::var_os("LUXEL_NEGATIVE_CONTROL_GLB")
+/// The supplied bad GLB is a 14 MB external control and is not committed. Point
+/// `LUXEL_NEGATIVE_CONTROL_GLB` at it, or place it under the gitignored
+/// `research/2026-10-15_external-test-inputs/sample_2026-09-26T091412.074.glb`. Tests that need it skip otherwise.
+fn supplied_bad_glb() -> Option<Vec<u8>> {
+    let path = std::env::var_os("LUXEL_NEGATIVE_CONTROL_GLB")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            PathBuf::from(
-                "/home/mattc/Pictures/Generated 2D Images/sample_2026-09-26T091412.074.glb",
-            )
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../research/2026-10-15_external-test-inputs/sample_2026-09-26T091412.074.glb")
         });
-    let bytes = std::fs::read(&supplied_path).unwrap_or_else(|error| {
-        panic!(
-            "cannot read supplied negative-control GLB {}: {error}",
-            supplied_path.display()
-        )
-    });
+    match fs::read(&path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) => {
+            eprintln!(
+                "negative-control GLB {} is unavailable ({error}); test skipped",
+                path.display()
+            );
+            None
+        }
+    }
+}
+
+#[test]
+fn supplied_bad_glb_bytes_remain_a_permanent_asset_rejection_control() {
+    let Some(bytes) = supplied_bad_glb() else {
+        return;
+    };
     assert_eq!(sha256_prefixed(&bytes), SUPPLIED_BAD_GLB_SHA256);
 
     let registry = ValidatorRegistry::luxel_engine_neutral_v1();
@@ -1204,15 +1220,9 @@ fn supplied_bad_glb_bytes_remain_a_permanent_asset_rejection_control() {
 
 #[test]
 fn typed_repair_gate_revalidates_raw_before_after_receipts_and_exact_artifact_delta() {
-    let supplied_path = std::env::var_os("LUXEL_NEGATIVE_CONTROL_GLB")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(
-                "/home/mattc/Pictures/Generated 2D Images/sample_2026-09-26T091412.074.glb",
-            )
-        });
-    let bad_glb =
-        fs::read(supplied_path).expect("supplied bad GLB negative control must be present");
+    let Some(bad_glb) = supplied_bad_glb() else {
+        return;
+    };
     assert_eq!(sha256_prefixed(&bad_glb), SUPPLIED_BAD_GLB_SHA256);
 
     let registry = ValidatorRegistry::luxel_engine_neutral_v1();

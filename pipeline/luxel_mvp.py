@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -22,8 +23,14 @@ from typing import Any, Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "mvp_vertical_slice"
-DEFAULT_CONCEPT = Path("/home/mattc/Pictures/Generated 2D Images/Warden_A_pose_front_and_back.png")
-DEFAULT_ASSET = Path("/home/mattc/Pictures/Generated 2D Images/sample_2026-09-26T091412.074.glb")
+# The concept sheet and hero GLB are external inputs and are not committed.
+EXTERNAL_INPUTS = ROOT / "research" / "2026-10-15_external-test-inputs"
+DEFAULT_CONCEPT = Path(
+    os.environ.get("LUXEL_MVP_CONCEPT", EXTERNAL_INPUTS / "Warden_A_pose_front_and_back.png")
+)
+DEFAULT_ASSET = Path(
+    os.environ.get("LUXEL_MVP_ASSET", EXTERNAL_INPUTS / "sample_2026-09-26T091412.074.glb")
+)
 LEDGER_MANIFEST = ROOT / "world_core" / "Cargo.toml"
 
 

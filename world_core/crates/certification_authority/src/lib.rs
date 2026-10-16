@@ -10,10 +10,10 @@ mod validators;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub use luxel_intake_repair_contract as repair_contract;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-pub use luxel_intake_repair_contract as repair_contract;
 
 pub const REQUEST_SCHEMA: &str = "luxel.certification-request/v1";
 pub const ENVELOPE_SCHEMA: &str = "luxel.certification-receipt-envelope/v1";
@@ -636,14 +636,26 @@ pub fn repair_validator_registry()
 -> Result<repair_contract::NativeValidatorRegistry, AuthorityError> {
     let mut registry = repair_contract::NativeValidatorRegistry::new();
     for (validator, schema) in [
-        ("luxel.validator.semantic-spec/v1", "luxel.semantic-receipt/v1"),
-        ("luxel.validator.world-traversal/v1", "luxel.world-receipt/v1"),
+        (
+            "luxel.validator.semantic-spec/v1",
+            "luxel.semantic-receipt/v1",
+        ),
+        (
+            "luxel.validator.world-traversal/v1",
+            "luxel.world-receipt/v1",
+        ),
         (
             "luxel.validator.gameplay-replay/v1",
             "luxel.gameplay-receipt/v1",
         ),
-        ("luxel.validator.asset-preparation/v1", "luxel.asset-receipt/v1"),
-        ("luxel.validator.visual-reference/v1", "luxel.visual-receipt/v1"),
+        (
+            "luxel.validator.asset-preparation/v1",
+            "luxel.asset-receipt/v1",
+        ),
+        (
+            "luxel.validator.visual-reference/v1",
+            "luxel.visual-receipt/v1",
+        ),
         (
             "luxel.validator.visual-quality/v1",
             NATIVE_VISUAL_QUALITY_RECEIPT_SCHEMA,

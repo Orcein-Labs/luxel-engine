@@ -295,7 +295,7 @@ receipt and evidence.
 The final current-binary run is preserved under
 `artifacts/campaign2/live-twelfth/`; its clean replay is preserved under
 `artifacts/campaign2/live-eleventh/`; and the viewable captures are under
-`/home/mattc/Pictures/Luxel/campaign2-2026-09-29/`. The full measurements,
+`~/Pictures/Luxel/campaign2-2026-09-29/`. The full measurements,
 hashes, rejected experiments, and next frontier are in
 [`docs/archive/2026-10_graphics-sprint-reports/graphics-campaign-2-report.md`](../archive/2026-10_graphics-sprint-reports/graphics-campaign-2-report.md).
 

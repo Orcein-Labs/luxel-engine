@@ -2,8 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use serde::Serialize;
-use serde_json::json;
 use luxel_certification_authority::schema::NativeVisualQualityReceiptPayload;
 use luxel_certification_authority::{
     ArtifactBytes, CandidateContext, EvidenceBinding, NATIVE_GRAPHICS_FRAME_RECEIPT_KIND,
@@ -15,6 +13,8 @@ use luxel_certification_authority::{
 };
 use luxel_native_graphics_contract as graphics;
 use luxel_reference_runtime::{WorldBuild, build_from_layout_path};
+use serde::Serialize;
+use serde_json::json;
 
 const WORLD_ID: &str = "native-quality-world";
 const PACKET_ID: &str = "native-quality-packet";

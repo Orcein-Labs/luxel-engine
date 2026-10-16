@@ -2,8 +2,8 @@
 //! validated by `reference_runtime`, `intake_repair_contract`, and the asset
 //! contract; this module only identifies their raw candidate-bound bytes.
 
-use serde::{Deserialize, Serialize};
 use luxel_intake_repair_contract::{RepairEvidenceDelta, RepairEvidenceDeltaDraft, RepairProposal};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
