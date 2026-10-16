@@ -137,7 +137,16 @@ include(joinpath(@__DIR__, "support", "camera_fixture.jl"))
             Base.Libc.systemsleep(0.02)
         end
         for present in (:auto, :cpu)
-            @test LavaAdapter.render_window_frames!(state, packet, nothing, 2; present).frames_presented == 2
+            result = LavaAdapter.render_window_frames!(state, packet, nothing, 2; present)
+            @test result.frames_presented == 2
+            if present == :auto && state.gpu_timestamp_supported
+                for key in ("gpu_frame", "gpu_shadow", "gpu_reflection", "gpu_prepare",
+                            "gpu_scene_raster", "gpu_resolve", "gpu_overlay", "gpu_present_blit")
+                    @test haskey(result.stage_times_us, key)
+                    @test length(result.stage_times_us[key]) == result.frames_presented
+                end
+                @test all(>(0), result.stage_times_us["gpu_frame"])
+            end
         end
         @info "resized window" camera = (width, height) window = size(window)
         @test size(window) != (width, height)
