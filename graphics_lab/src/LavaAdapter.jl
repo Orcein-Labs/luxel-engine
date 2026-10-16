@@ -4645,11 +4645,13 @@ function _record_scene_with_reflection!(
                                      texture_enabled, scene_framebuffer, scene_target)
     end
     reflection_framebuffer = _framebuffer!(state, scene_framebuffer.width, scene_framebuffer.height, true, :reflection)
+    reflection_gpu_timing_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.reflection)
     _record_scene_passes!(state, packet, _mirrored_frame(camera_frame, water.surface_y_m), lighting,
                           environment_lighting, material, texture_enabled, reflection_framebuffer,
                           OffscreenTarget(reflection_framebuffer); reflection_pass=true,
                           shadow_camera_frame=camera_frame)
-    reflection = _framebuffer_texture(reflection_framebuffer, state)
+    _end_gpu_pass_timing!(state, reflection_gpu_timing_slot)
+    reflection =_framebuffer_texture(reflection_framebuffer, state)
     return _record_scene_passes!(state, packet, camera_frame, lighting, environment_lighting, material,
                                  texture_enabled, scene_framebuffer, scene_target; reflection_texture=reflection)
 end
@@ -5003,6 +5005,9 @@ const GPU_PASS_TIMING_LABELS = (
     scene_raster="luxel.graphics.pass.scene-raster",
     resolve="luxel.graphics.pass.resolve",
     overlay="luxel.graphics.pass.overlay",
+    shadow="luxel.graphics.pass.shadow",
+    reflection="luxel.graphics.pass.reflection",
+    present_blit="luxel.graphics.pass.present-blit",
 )
 
 function _begin_gpu_frame_timing(state::LavaBackend)::Union{Nothing,Int}
@@ -6180,6 +6185,7 @@ function _render_shadow_map_to!(
 )
     target = OffscreenTarget(framebuffer)
     terrain_vertices = 6 * (packet.terrain.resolution - 1)^2
+    shadow_gpu_timing_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.shadow)
     draw!(
         state.queue,
         state.terrain_shadow_pipeline,
@@ -6239,6 +6245,7 @@ function _render_shadow_map_to!(
             end
         end
     end
+    _end_gpu_pass_timing!(state, shadow_gpu_timing_slot)
     _transition_color_to_sampled!(state, framebuffer)
     return nothing
 end
@@ -7617,6 +7624,28 @@ function render_window_frames!(
     stage!(name, started_ns) = (push!(get!(stage_times_us, name, Int[]), Int(_elapsed_us(started_ns))); time_ns())
     input_samples = report_input ? Any[] : nothing
     presented = 0
+    # GPU pass times are timestamp intervals; prepare and scene_raster totals
+    # include the reflection pass's own prepare and raster (the labels
+    # aggregate), and prepare includes shadow-map rendering. Absent labels
+    # (shadows are cached while the camera is still) record 0 so the
+    # percentiles reflect that.
+    gpu_stage_labels = (
+        "gpu_frame" => GPU_FRAME_TIMING_LABEL,
+        "gpu_shadow" => GPU_PASS_TIMING_LABELS.shadow,
+        "gpu_reflection" => GPU_PASS_TIMING_LABELS.reflection,
+        "gpu_prepare" => GPU_PASS_TIMING_LABELS.prepare,
+        "gpu_scene_raster" => GPU_PASS_TIMING_LABELS.scene_raster,
+        "gpu_resolve" => GPU_PASS_TIMING_LABELS.resolve,
+        "gpu_overlay" => GPU_PASS_TIMING_LABELS.overlay,
+        "gpu_present_blit" => GPU_PASS_TIMING_LABELS.present_blit,
+    )
+    function record_gpu_stage_times!(reports)
+        reports === nothing && return nothing
+        for (key, label) in gpu_stage_labels
+            push!(get!(stage_times_us, key, Int[]), something(_timing_report_us(reports, label), 0))
+        end
+        return nothing
+    end
     for frame_index in 1:Int(frame_count)
         frame_started_ns = time_ns()
         Lava.GLFW.PollEvents()
@@ -7630,94 +7659,105 @@ function render_window_frames!(
             ))
             break
         end
-        active_camera = camera_override === nothing ? packet.camera : camera_override
-        width, height = _validate_dimensions(active_camera.width_px, active_camera.height_px)
-        camera_frame = _camera_frame(active_camera)
+        gpu_slot = _begin_gpu_frame_timing(state)
+        try
+            active_camera = camera_override === nothing ? packet.camera : camera_override
+            width, height = _validate_dimensions(active_camera.width_px, active_camera.height_px)
+            camera_frame = _camera_frame(active_camera)
 
-        stage_ns = time_ns()
-        Lava.acquire_next_image!(session.window)
-        # The window is resizable and the compositor may resize it on its own,
-        # so the swapchain extent is read only after acquire has synced it. The
-        # scene renders at the camera extent and is scaled into the window.
-        window_width, window_height = size(session.window)
-        stage_ns = stage!("acquire", stage_ns)
-        render_width = 2 * width
-        render_height = 2 * height
-        scene_framebuffer = _framebuffer!(state, render_width, render_height, true, :scene_hdr; samples=_scene_samples(packet))
-        scene_target = OffscreenTarget(scene_framebuffer)
-        scene = _record_scene_with_reflection!(
-            state,
-            packet,
-            camera_frame,
-            lighting,
-            environment_lighting,
-            material,
-            texture_enabled,
-            scene_framebuffer,
-            scene_target,
-        )
-        push!(get!(stage_times_us, "main_prepare", Int[]), Int(scene.prepare_time_us))
-        push!(get!(stage_times_us, "main_raster_record", Int[]), Int(scene.scene_raster_time_us))
-        stage_ns = stage!("scene_record", stage_ns)
-        overlay_resources = _overlay_resources!(state, packet, camera_frame)
-        composite = _composite_capture!(
-            state,
-            packet,
-            scene_framebuffer,
-            overlay_resources,
-            camera_frame,
-            width,
-            height,
-        )
+            stage_ns = time_ns()
+            Lava.acquire_next_image!(session.window)
+            # The window is resizable and the compositor may resize it on its own,
+            # so the swapchain extent is read only after acquire has synced it. The
+            # scene renders at the camera extent and is scaled into the window.
+            window_width, window_height = size(session.window)
+            stage_ns = stage!("acquire", stage_ns)
+            render_width = 2 * width
+            render_height = 2 * height
+            scene_framebuffer = _framebuffer!(state, render_width, render_height, true, :scene_hdr; samples=_scene_samples(packet))
+            scene_target = OffscreenTarget(scene_framebuffer)
+            scene = _record_scene_with_reflection!(
+                state,
+                packet,
+                camera_frame,
+                lighting,
+                environment_lighting,
+                material,
+                texture_enabled,
+                scene_framebuffer,
+                scene_target,
+            )
+            push!(get!(stage_times_us, "main_prepare", Int[]), Int(scene.prepare_time_us))
+            push!(get!(stage_times_us, "main_raster_record", Int[]), Int(scene.scene_raster_time_us))
+            stage_ns = stage!("scene_record", stage_ns)
+            overlay_resources = _overlay_resources!(state, packet, camera_frame)
+            composite = _composite_capture!(
+                state,
+                packet,
+                scene_framebuffer,
+                overlay_resources,
+                camera_frame,
+                width,
+                height,
+            )
 
-        stage_ns = stage!("composite_record", stage_ns)
-        capture = composite.capture_framebuffer
-        if present == :auto && _gpu_present_supported(state, capture.color_format, session.window.format)
-            # GPU present: the scene and composite go in their own submit, so
-            # only the blit batch waits on the swapchain acquire. The frame
-            # then waits for its batch, as the readback path did, because the
-            # next frame rewrites resources this one reads.
-            Lava.submit!(state.queue)
-            batch = Lava.ensure_active_batch!(state.queue)
-            _blit_color_image!(batch.cmd_buf, capture, session.window.images[session.window.current_image_idx+1],
-                window_width, window_height;
-                filter=_present_blit_filter(state, capture, window_width, window_height))
-            Lava.pin!(batch, capture)
-            signal = batch.signal_value
+            stage_ns = stage!("composite_record", stage_ns)
+            capture = composite.capture_framebuffer
+            if present == :auto && _gpu_present_supported(state, capture.color_format, session.window.format)
+                # GPU present: the scene and composite go in their own submit, so
+                # only the blit batch waits on the swapchain acquire. The frame
+                # then waits for its batch, as the readback path did, because the
+                # next frame rewrites resources this one reads.
+                Lava.submit!(state.queue)
+                batch = Lava.ensure_active_batch!(state.queue)
+                present_blit_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.present_blit)
+                _blit_color_image!(batch.cmd_buf, capture, session.window.images[session.window.current_image_idx+1],
+                    window_width, window_height;
+                    filter=_present_blit_filter(state, capture, window_width, window_height))
+                _end_gpu_pass_timing!(state, present_blit_slot)
+                _end_gpu_frame_timing!(state, gpu_slot)
+                Lava.pin!(batch, capture)
+                signal = batch.signal_value
+                state.draw_calls += 1
+                stage_ns = stage!("blit_record", stage_ns)
+                Lava.present_frame!(state.queue, session.window)
+                Lava.wait_semaphores!(state.queue, Vulkan.SemaphoreWaitInfo([state.queue.timeline_sem], [signal]))
+                stage!("present_wait", stage_ns)
+                record_gpu_stage_times!(_read_gpu_timing_reports(state, gpu_slot))
+                session.presented_frames += UInt64(1)
+                presented += 1
+                push!(frame_times_us, Int(_elapsed_us(frame_started_ns)))
+                continue
+            end
+
+            # CPU fallback. A window draw cannot use descriptor sets (Lava's
+            # `WindowTarget` `draw!` has no depth attachment and no descriptor
+            # kwargs), so the composite reaches the swapchain through Lava's own
+            # fullscreen blit of a window-sized RGBA buffer. `readback_framebuffer`
+            # flushes the scene batch, which carries no swapchain writes; the
+            # upload opens the next batch and `present_frame!` submits it with the
+            # acquire-semaphore wait, so the mid-frame readback hazard does not
+            # apply to this ordering.
+            _end_gpu_frame_timing!(state, gpu_slot)
+            pixels = readback_framebuffer(capture)
+            record_gpu_stage_times!(_read_gpu_timing_reports(state, gpu_slot))
+            stage_ns = stage!("gpu_wait_readback", stage_ns)
+            present_array = _present_pixels!(session, window_width, window_height)
+            present_data = _present_pixel_data(pixels, width, height, window_width, window_height)
+            stage_ns = stage!("convert", stage_ns)
+            Lava.upload!(present_array, present_data)
+            Lava.blit!(state.queue, Lava.WindowTarget(session.window), present_array; clear=false)
             state.draw_calls += 1
-            stage_ns = stage!("blit_record", stage_ns)
+            stage_ns = stage!("upload_blit", stage_ns)
+
             Lava.present_frame!(state.queue, session.window)
-            Lava.wait_semaphores!(state.queue, Vulkan.SemaphoreWaitInfo([state.queue.timeline_sem], [signal]))
-            stage!("present_wait", stage_ns)
+            stage!("present", stage_ns)
             session.presented_frames += UInt64(1)
             presented += 1
             push!(frame_times_us, Int(_elapsed_us(frame_started_ns)))
-            continue
+        finally
+            gpu_slot === nothing || Lava.enable_dispatch_timing!(false, state.context)
         end
-
-        # CPU fallback. A window draw cannot use descriptor sets (Lava's
-        # `WindowTarget` `draw!` has no depth attachment and no descriptor
-        # kwargs), so the composite reaches the swapchain through Lava's own
-        # fullscreen blit of a window-sized RGBA buffer. `readback_framebuffer`
-        # flushes the scene batch, which carries no swapchain writes; the
-        # upload opens the next batch and `present_frame!` submits it with the
-        # acquire-semaphore wait, so the mid-frame readback hazard does not
-        # apply to this ordering.
-        pixels = readback_framebuffer(capture)
-        stage_ns = stage!("gpu_wait_readback", stage_ns)
-        present_array = _present_pixels!(session, window_width, window_height)
-        present_data = _present_pixel_data(pixels, width, height, window_width, window_height)
-        stage_ns = stage!("convert", stage_ns)
-        Lava.upload!(present_array, present_data)
-        Lava.blit!(state.queue, Lava.WindowTarget(session.window), present_array; clear=false)
-        state.draw_calls += 1
-        stage_ns = stage!("upload_blit", stage_ns)
-
-        Lava.present_frame!(state.queue, session.window)
-        stage!("present", stage_ns)
-        session.presented_frames += UInt64(1)
-        presented += 1
-        push!(frame_times_us, Int(_elapsed_us(frame_started_ns)))
     end
     return (
         frames_presented=presented,
