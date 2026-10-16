@@ -114,6 +114,12 @@ end
     @test malformed_op["code"] == "malformed_request"
     malformed_dimension = JSON3.read(handle(JSON3.write((op="probe_backend", width_px="wide"))))
     @test malformed_dimension["code"] == "malformed_request"
+    # A render_window that names its packet by sha needs the worker to hold it.
+    sha = "sha256:" * repeat("2", 64)
+    RESIDENT_PACKET[] = nothing
+    not_resident = JSON3.read(handle(JSON3.write((op="render_window", frame_count=1, expected_packet_sha256=sha))))
+    @test not_resident["code"] == "packet_not_resident"
+    @test occursin(sha, not_resident["detail"])
 end
 
 @testset "protocol packet parser rejects authority-shaped fakes" begin

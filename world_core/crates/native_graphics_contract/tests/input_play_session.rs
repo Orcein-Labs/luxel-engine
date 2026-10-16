@@ -329,6 +329,7 @@ fn presented_evidence_records_live_frames_and_accepts_certified_samples() {
         frames_presented: 1,
         window_presented_frames: 1,
         frame_times_us: vec![2_000],
+        stage_times_us: Default::default(),
     };
     binder
         .observe_report(&report, &packet, 20)
@@ -339,6 +340,7 @@ fn presented_evidence_records_live_frames_and_accepts_certified_samples() {
         frames_presented: 1,
         window_presented_frames: 2,
         frame_times_us: vec![0],
+        stage_times_us: Default::default(),
     };
     assert!(binder.observe_report(&empty, &packet, 21).is_err());
 

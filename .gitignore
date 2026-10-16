@@ -22,7 +22,9 @@ venv/
 
 # Isolated research scratch (raw clones, binaries, logs). Curated reports
 # live under docs/research/.
-research/
+/research/
+# PJ-0 (performant Julia side quest) stays local; its outcome was "write better Julia".
+/docs/research/pj-0/
 
 # Generated reports, bundles, caches, and local orchestration state
 artifacts/
