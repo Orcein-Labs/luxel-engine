@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from reference_content import CONTENT_ROOT, ENGINE_ROOT  # noqa: E402
 
 from zone_compiler import ZoneCompileError, compile_annotations, compile_file
-from zone_spec_to_godot import adapt_zone_spec
 from zone_rasterizer import (
     _carve_hydrology,
     _flatten_landmark_pads,
@@ -26,7 +25,6 @@ from zone_rasterizer import (
 from zone_acceptance import evaluate_zone
 from asset_catalog import CATALOG_VERSION, _tags, build_catalog
 from asset_plan import ASSET_PLAN_VERSION, _attach_lod_siblings, resolve_asset_plan
-from zone_assets_to_godot import adapt_asset_plan
 from zone_to_unity import UNITY_VERSION, adapt_unity
 from zone_to_unreal import UNREAL_VERSION, adapt_unreal
 from unreal_artifacts import UNREAL_LANDSCAPE_RESOLUTION, write_unreal_artifacts
@@ -480,7 +478,7 @@ class ZoneCompilerTests(unittest.TestCase):
         with self.assertRaisesRegex(ZoneCompileError, "alpine_massif must use"):
             compile_annotations(bad)
 
-    def test_faction_keep_rejects_unknown_realm_and_adapter_retains_midgard_base(self):
+    def test_faction_keep_rejects_unknown_realm_and_accepts_midgard(self):
         bad = json.loads(json.dumps(self.annotations))
         keep = next(feature for feature in bad["features"] if feature["id"] == "albion_keep")
         keep["properties"]["realm"] = "unknown_realm"
@@ -493,16 +491,9 @@ class ZoneCompilerTests(unittest.TestCase):
             "properties": {"team": "team_c", "realm": "midgard", "name": "Midgard plateau keep", "facing_direction_xz": [0.0, -1.0]},
             "evidence": [{"image_id": "overview", "region": [0.35, 0.72, 0.65, 1.0], "note": "Norse faction keep"}], "confidence": 0.90, "review_state": "reviewed",
         })
-        adapted = adapt_zone_spec(compile_annotations(tri_realm).zone_spec)
-        self.assertEqual("midgard", adapted["faction_bases"]["team_c"]["realm"])
-
-    def test_godot_adapter_receives_world_space_geometry(self):
-        result = compile_annotations(self.annotations)
-        godot = adapt_zone_spec(result.zone_spec)
-        self.assertEqual(2400.0, godot["map_bounds"]["width"])
-        self.assertEqual(3, len(godot["lanes"]))
-        self.assertEqual(8, len(godot["mountain_polygons"]))
-        self.assertEqual([-876.0, -464.0], godot["team_a_base"]["center"])
+        compiled = compile_annotations(tri_realm).zone_spec
+        midgard = next(feature for feature in compiled["features"] if feature["id"] == "midgard_keep")
+        self.assertEqual("midgard", midgard["properties"]["realm"])
 
     def test_file_compilation_writes_deterministic_artifacts(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1086,7 +1077,7 @@ class ZoneCompilerTests(unittest.TestCase):
             "has repeated sidewall corrugation", " ".join(report["failures"])
         )
 
-    def test_asset_profiles_resolve_to_portable_then_godot_paths(self):
+    def test_asset_profiles_resolve_to_portable_paths(self):
         zone_spec = compile_annotations(self.annotations).zone_spec
         catalog = {
             "schema_version": CATALOG_VERSION,
@@ -1143,20 +1134,20 @@ class ZoneCompilerTests(unittest.TestCase):
         plan = resolve_asset_plan(zone_spec, catalog)
         self.assertEqual(ASSET_PLAN_VERSION, plan["schema_version"])
         self.assertEqual(42, len(plan["assignments"]))
-        godot = adapt_asset_plan(plan)
-        west = next(entry for entry in godot["assignments"] if entry["feature_id"] == "western_alps")
-        self.assertEqual(5, len(west["assets"]))
-        self.assertEqual(["assets/generated/codeweald_alpine_granite/cliff_5.glb"], west["unavailable_assets"])
-        portable_west = next(entry for entry in plan["assignments"] if entry["feature_id"] == "western_alps")
-        self.assertEqual(0.58, portable_west["layers"][0]["appearance_requirements"]["maximum_mean_luminance"])
-        forest = next(entry for entry in godot["assignments"] if entry["feature_id"] == "central_forest")
+        west = next(entry for entry in plan["assignments"] if entry["feature_id"] == "western_alps")
+        self.assertEqual(
+            ["cliff_%d.glb" % index for index in range(6)],
+            [Path(asset["source_path"]).name for asset in west["layers"][0]["assets"]],
+        )
+        self.assertEqual(0.58, west["layers"][0]["appearance_requirements"]["maximum_mean_luminance"])
+        forest = next(entry for entry in plan["assignments"] if entry["feature_id"] == "central_forest")
         self.assertEqual(["canopy", "undergrowth", "field_rock"], [layer["id"] for layer in forest["layers"]])
-        keep = next(entry for entry in godot["assignments"] if entry["feature_id"] == "albion_keep")
+        keep = next(entry for entry in plan["assignments"] if entry["feature_id"] == "albion_keep")
         self.assertEqual("faction_fortification", keep["role"])
-        self.assertEqual(3, len(keep["assets"]))
-        ruin = next(entry for entry in godot["assignments"] if entry["feature_id"] == "central_ruin")
+        self.assertEqual(3, len(keep["layers"][0]["assets"]))
+        ruin = next(entry for entry in plan["assignments"] if entry["feature_id"] == "central_ruin")
         self.assertEqual("objective_landmark", ruin["role"])
-        self.assertEqual(3, len(ruin["assets"]))
+        self.assertEqual(3, len(ruin["layers"][0]["assets"]))
 
     def test_asset_catalog_does_not_misclassify_alpine_as_pine(self):
         tags = _tags(Path("assets/generated/codeweald_alpine/alpine_cliff_ridge_a.glb"))

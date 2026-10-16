@@ -125,8 +125,6 @@ The following are deliberately outside the current runtime and certification pat
 | `engine_adapters/unreal/` | `ARCHIVE_COMPAT` | Unreal plugin/importer and preflight path |
 | `pipeline/zone_to_unity.py` | `ARCHIVE_COMPAT` | Unity delivery projection |
 | `pipeline/zone_to_unreal.py` / `unreal_artifacts.py` | `ARCHIVE_COMPAT` | Unreal delivery projection |
-| `pipeline/zone_spec_to_godot.py` / `zone_assets_to_godot.py` | `ARCHIVE_COMPAT` | Godot delivery projection |
-| `pipeline/*.gd` and `.gd.uid` scripts | `ARCHIVE_COMPAT` | Godot/editor/runtime-era scripts |
 | references to `godot_renderer/` and `Game Projects/Codeweald/` | `ARCHIVE_COMPAT` or stale documentation | paths are not inside the current Luxel workspace and appear in old examples/tests/docs |
 
 These paths should remain available for history and regression until Campaign 0.2 establishes a deliberate archive boundary, but they must not be in default native build/test discovery or active-agent examples.

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""One-command autonomous Godot ZoneSpec build orchestrator.
+"""One-command autonomous ZoneSpec build orchestrator.
 
 It is intentionally the only ordered entry point a model needs to call after a
 reviewed concept batch exists.  Every derived artifact is regenerated from the
-canonical annotations: terrain, asset catalog/plan, Godot adapter, candidate
-scene, render capture, and acceptance reports. Dormant cross-engine manifests
-are opt-in. It never treats a stale manifest as evidence of a new build.
+canonical annotations: terrain, asset catalog/plan, placement and render
+plans, collision and navigation plans, and their acceptance reports. Dormant
+cross-engine manifests are opt-in. It never treats a stale manifest as evidence of a new build.
 """
 
 from __future__ import annotations
@@ -36,18 +36,10 @@ from asset_visual_preflight import preflight as preflight_assets
 from evidence_overlay import render_overlay
 from material_catalog import resolve_terrain_materials
 from terrain_material_bake import bake_material_preview
-from navigation_acceptance import evaluate_navigation
-from overview_projection_acceptance import evaluate_projection
-from perspective_acceptance import evaluate_perspective
 from style_calibration import initial as initial_style_calibration
-from style_calibration import refine as refine_style_calibration
-from style_calibration import select_best_pass
-from style_reference import profile as style_profile, score as style_score
+from style_reference import profile as style_profile
 from traversal_probe import evaluate_traversal
-from visual_acceptance import evaluate_visual, _image
 from worldbuilder_dsl import apply_intent, compile_intent
-from zone_acceptance import evaluate_zone
-from zone_assets_to_godot import adapt_asset_plan
 from zone_compiler import ZoneCompileError, compile_file
 from zone_rasterizer import rasterize_zone_spec, write_raster
 from zone_runtime_effects import build_runtime_effects
@@ -800,9 +792,8 @@ def _provenance_path(path: Path, batch_dir: Path, project_root: Path) -> str:
 
 
 def build(
-    annotations: Path, project_root: Path, asset_root: Path, *, run_godot: bool = False,
-    capture: bool = False, godot_bin: str = "godot", blender_bin: str = "blender",
-    cross_engine_handoffs: bool = False, preview_active_on_failure: bool = False,
+    annotations: Path, project_root: Path, asset_root: Path, *,
+    blender_bin: str = "blender", cross_engine_handoffs: bool = False,
     catalog_path: Path | None = None,
 ) -> dict[str, Any]:
     project_root = project_root.resolve()
@@ -814,19 +805,8 @@ def build(
     asset_root = asset_root if asset_root.is_absolute() else (project_root / asset_root)
     asset_root = asset_root.resolve()
     annotations = annotations.resolve()
-    # A batch does not have to live inside the engine. It used to, because the
-    # Godot subprocess needs a `res://`-relative batch path and the guard was
-    # written for it -- but that requirement belongs to Godot, not to Luxel, and
-    # applying it to every build is what stopped the compiler from being
-    # pointable at a scratch directory (D8). A headless build now reads its
+    # A batch does not have to live inside the engine: the build reads its
     # inputs from wherever the batch is and writes every artifact beside it.
-    in_tree = project_root in annotations.parents
-    if run_godot and not in_tree:
-        raise ZoneCompileError(
-            "Concept annotations must be inside project root to compile a Godot "
-            "scene, which addresses batches as res:// paths. A headless build "
-            "(no --godot/--capture) has no such restriction."
-        )
     batch_dir = annotations.parent
     build_report_path = batch_dir / "build_report.json"
     build_marker_path = batch_dir / ".build-in-progress"
@@ -845,9 +825,6 @@ def build(
         + "\n",
         encoding="utf-8",
     )
-    # Only meaningful to the Godot compiler, which is the only consumer; an
-    # out-of-tree batch has no res:// address and never reaches that path.
-    batch_relative = batch_dir.relative_to(project_root).as_posix() if in_tree else None
     terrain_dir = batch_dir / "terrain"
     result = compile_file(annotations, batch_dir / "zone_spec.json", batch_dir / "validation_report.json")
     world_intent_source = batch_dir / "world_intent.py"
@@ -988,17 +965,6 @@ def build(
             dominant["key"],
         )
     )
-    godot_executable: str | None = None
-    if run_godot:
-        # Import readiness is catalog evidence, so Godot must scan newly
-        # generated assets before the catalog and asset plan are frozen.
-        # Importing only immediately before scene compilation leaves a stale
-        # plan that still calls valid new GLBs unavailable.
-        godot_executable = shutil.which(godot_bin) or godot_bin
-        _run(
-            [godot_executable, "--headless", "--path", str(project_root), "--import"],
-            project_root,
-        )
     catalog = build_catalog(project_root, asset_root)
     # Defaults into the engine tree, which is right for a normal build and
     # wrong for a sandbox: a shared read-only Luxel cannot be written to, and two
@@ -1161,7 +1127,6 @@ def build(
             "  navmesh: FAILED -- %d requirement(s) not met (see "
             "navmesh_acceptance.json, roadmap 1.4)" % len(navmesh["failures"])
         )
-    _write(batch_dir / "godot_asset_plan.json", adapt_asset_plan(asset_plan))
     stages = [
         "compile",
         "evidence_overlay",
@@ -1175,8 +1140,6 @@ def build(
     ]
     if world_intent is not None:
         stages.insert(1, "worldbuilder_dsl")
-    if run_godot:
-        stages.append("godot_import")
     stages.extend(
         [
             "asset_catalog",
@@ -1192,12 +1155,10 @@ def build(
             "silhouette",
             "navigation_plan",
             "navmesh_acceptance",
-            "godot_adapter",
         ]
     )
     if cross_engine_handoffs:
-        # Dormant compatibility path. Godot is the sole production target;
-        # these handoffs are emitted only when explicitly requested.
+        # Dormant compatibility path. These handoffs are emitted only when explicitly requested.
         from unreal_artifacts import write_unreal_artifacts
         from zone_to_unity import adapt_unity
         from zone_to_unreal import adapt_unreal
@@ -1235,223 +1196,8 @@ def build(
         "stages": stages,
     }
     _write(build_report_path, reports)
-    if run_godot:
-        executable = godot_executable or shutil.which(godot_bin) or godot_bin
-        candidate_scene_resource = "res://.codeweald_candidate_moba_3d.tscn"
-        candidate_scene_path = project_root / ".codeweald_candidate_moba_3d.tscn"
-        active_scene_path = project_root / "moba_3d.tscn"
-        _run(
-            [
-                executable, "--headless", "--path", str(project_root),
-                "--script", "res://pipeline/build_zone_spec_scene.gd", "--",
-                "--batch", batch_relative, "--output", candidate_scene_resource,
-            ],
-            project_root,
-        )
-        godot_build_report_path = terrain_dir / "godot_build_report.json"
-        build_report = json.loads(godot_build_report_path.read_text(encoding="utf-8"))
-        if build_report.get("scene_path") != candidate_scene_resource or not candidate_scene_path.is_file():
-            raise ZoneCompileError("Godot compiler did not write the expected candidate scene")
-        build_report["promotion_status"] = "pending_acceptance"
-        # The Godot compiler owns the scene data; the orchestrator owns the
-        # source-batch provenance.  Recording both closes the stale-output hole
-        # where a valid scene could be mistaken for another annotation revision.
-        build_report["input_annotations"] = reports["input_annotations"]
-        build_report["zone_spec_sha256"] = reports["zone_spec_sha256"]
-        _write(godot_build_report_path, build_report)
-        reports["stages"].append("godot_scene")
-        if capture:
-            xvfb = shutil.which("xvfb-run")
-            command = [
-                executable, "--path", str(project_root), "--rendering-driver", "opengl3",
-                "--script", "res://pipeline/capture_active_zone.gd", "--",
-                "--batch", batch_relative, "--scene", candidate_scene_resource,
-            ]
-            _run([xvfb, "-a", *command] if xvfb else command, project_root)
-            active_capture_path = terrain_dir / "godot_active_scene.png"
-            projection_path = terrain_dir / "godot_overview_projection.json"
-            first_scene_bytes = candidate_scene_path.read_bytes()
-            first_capture_bytes = active_capture_path.read_bytes()
-            first_projection_bytes = projection_path.read_bytes()
-            first_build_report = json.loads(json.dumps(build_report))
-            first_rendered_image = _image(active_capture_path)
-            first_style_report = style_score(reference_style, first_rendered_image)
-            if float(first_style_report.get("score", 0.0)) < float(
-                result.zone_spec.get("acceptance_policy", {}).get(
-                    "minimum_style_score", 0.42
-                )
-            ):
-                # One bounded feedback pass uses the actual engine capture to
-                # correct global exposure, contrast, and saturation. Geometry,
-                # materials, and regional fidelity remain separately gated.
-                feedback_calibration = refine_style_calibration(
-                    reference_style, first_style_report
-                )
-                _write(batch_dir / "style_calibration.json", feedback_calibration)
-                _run(
-                    [
-                        executable, "--headless", "--path", str(project_root),
-                        "--script", "res://pipeline/build_zone_spec_scene.gd", "--",
-                        "--batch", batch_relative, "--output", candidate_scene_resource,
-                    ],
-                    project_root,
-                )
-                build_report = json.loads(
-                    godot_build_report_path.read_text(encoding="utf-8")
-                )
-                if (
-                    build_report.get("scene_path") != candidate_scene_resource
-                    or not candidate_scene_path.is_file()
-                ):
-                    raise ZoneCompileError(
-                        "Godot style-calibrated compiler did not write the expected candidate scene"
-                    )
-                build_report["promotion_status"] = "pending_acceptance"
-                build_report["input_annotations"] = reports["input_annotations"]
-                build_report["zone_spec_sha256"] = reports["zone_spec_sha256"]
-                _write(godot_build_report_path, build_report)
-                _run([xvfb, "-a", *command] if xvfb else command, project_root)
-                feedback_style_report = style_score(
-                    reference_style, _image(active_capture_path)
-                )
-                selected_pass = select_best_pass(
-                    first_style_report, feedback_style_report
-                )
-                if selected_pass == 0:
-                    # Preserve the best measured candidate and all evidence that
-                    # describes it. A feedback controller must never leave a
-                    # worse scene behind merely because it ran later.
-                    candidate_scene_path.write_bytes(first_scene_bytes)
-                    active_capture_path.write_bytes(first_capture_bytes)
-                    projection_path.write_bytes(first_projection_bytes)
-                    build_report = first_build_report
-                    _write(godot_build_report_path, build_report)
-                    _write(
-                        batch_dir / "style_calibration.json",
-                        baseline_style_calibration,
-                    )
-                _write(
-                    batch_dir / "style_calibration_report.json",
-                    {
-                        "schema_version": "codeweald.style-calibration-report/v1",
-                        "baseline_score": first_style_report["score"],
-                        "feedback_score": feedback_style_report["score"],
-                        "selected_pass": selected_pass,
-                        "selected_score": (
-                            feedback_style_report["score"]
-                            if selected_pass == 1
-                            else first_style_report["score"]
-                        ),
-                        "feedback_adjustment": feedback_calibration["adjustment"],
-                        "baseline_metrics": first_style_report.get(
-                            "candidate", {}
-                        ).get("metrics", {}),
-                        "feedback_metrics": feedback_style_report.get(
-                            "candidate", {}
-                        ).get("metrics", {}),
-                    },
-                )
-                reports["stages"].append("style_calibration_feedback")
-            rendered = terrain_dir / "godot_active_scene.png"
-            rendered_image = _image(rendered)
-            raw_overview_projection = json.loads(
-                (terrain_dir / "godot_overview_projection.json").read_text(encoding="utf-8")
-            )
-            overview_projection = evaluate_projection(
-                result.zone_spec, raw_overview_projection,
-            )
-            _write(terrain_dir / "overview_projection_acceptance_report.json", overview_projection)
-            raw_navigation_probe = json.loads(
-                (terrain_dir / "godot_navigation_probe.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            navigation = evaluate_navigation(
-                result.zone_spec, raw_navigation_probe
-            )
-            _write(
-                terrain_dir / "navigation_acceptance_report.json", navigation
-            )
-            visual = evaluate_visual(
-                result.zone_spec,
-                _image(source_path),
-                rendered_image,
-                raw_overview_projection,
-            )
-            visual = apply_style_policy(
-                visual,
-                style_score(reference_style, rendered_image),
-                result.zone_spec.get("acceptance_policy", {}),
-            )
-            _write(terrain_dir / "visual_acceptance_report.json", visual)
-            for capture_script in ("capture_zone_vista.gd", "capture_zone_objective.gd"):
-                capture_command = [
-                    executable, "--path", str(project_root), "--rendering-driver", "opengl3",
-                    "--script", "res://pipeline/" + capture_script, "--",
-                    "--batch", batch_relative, "--scene", candidate_scene_resource,
-                ]
-                _run([xvfb, "-a", *capture_command] if xvfb else capture_command, project_root)
-            runtime_capture_command = [
-                executable, "--path", str(project_root), "--rendering-driver", "opengl3",
-                "--script", "res://pipeline/capture_runtime_effects.gd", "--",
-                "--batch", batch_relative, "--scene", candidate_scene_resource,
-            ]
-            _run(
-                [xvfb, "-a", *runtime_capture_command]
-                if xvfb
-                else runtime_capture_command,
-                project_root,
-            )
-            runtime_effects_acceptance = json.loads(
-                (terrain_dir / "runtime_effects_acceptance_report.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            perspective = evaluate_perspective(result.zone_spec, _image(terrain_dir / "godot_zone_vista.png"), _image(terrain_dir / "godot_objective.png"))
-            _write(terrain_dir / "perspective_acceptance_report.json", perspective)
-            semantic = evaluate_zone(
-                result.zone_spec, terrain.manifest, build_report, visual,
-                asset_preflight, perspective, overview_projection,
-                traversal_report=traversal,
-                navigation_report=navigation,
-                runtime_effects_report=runtime_effects_acceptance,
-            )
-            _write(terrain_dir / "acceptance_report.json", semantic)
-            if semantic["status"] == "failed":
-                reports["status"] = "failed"
-                reports["failure"] = "Compiled engine scene failed acceptance"
-                reports["stages"].extend(["godot_capture", "overview_projection_acceptance", "navigation_acceptance", "perspective_capture", "runtime_effects_acceptance", "visual_acceptance", "perspective_acceptance", "semantic_acceptance"])
-                if preview_active_on_failure:
-                    # Development preview mode is explicit and remains red. It
-                    # lets an autonomous art loop update the scene already open
-                    # in Godot without misrepresenting a failed fidelity gate as
-                    # production acceptance.
-                    shutil.copy2(candidate_scene_path, active_scene_path)
-                    build_report["candidate_scene_path"] = candidate_scene_resource
-                    build_report["scene_path"] = "res://moba_3d.tscn"
-                    build_report["scene_sha256"] = _sha256(active_scene_path)
-                    build_report["promotion_status"] = "preview_promoted_with_failed_acceptance"
-                    _write(godot_build_report_path, build_report)
-                    reports["stages"].append("active_scene_preview")
-                _write(build_report_path, reports)
-                raise ZoneCompileError("Compiled engine scene failed acceptance")
-            candidate_scene_path.replace(active_scene_path)
-            build_report["candidate_scene_path"] = candidate_scene_resource
-            build_report["scene_path"] = "res://moba_3d.tscn"
-            build_report["scene_sha256"] = _sha256(active_scene_path)
-            build_report["promotion_status"] = "promoted_after_acceptance"
-            _write(godot_build_report_path, build_report)
-            reports["stages"].extend(["godot_capture", "overview_projection_acceptance", "navigation_acceptance", "perspective_capture", "runtime_effects_acceptance", "visual_acceptance", "perspective_acceptance", "semantic_acceptance"])
-            reports["stages"].append("active_scene_promotion")
-    if capture:
-        reports["status"] = "passed"
-        reports["acceptance_status"] = "passed"
-    elif run_godot:
-        reports["status"] = "candidate_built"
-        reports["acceptance_status"] = "not_run"
-    else:
-        reports["status"] = "artifacts_built"
-        reports["acceptance_status"] = "not_run"
+    reports["status"] = "artifacts_built"
+    reports["acceptance_status"] = "not_run"
     _write(build_report_path, reports)
     build_marker_path.unlink(missing_ok=True)
     return reports
@@ -1462,16 +1208,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("annotations", type=Path)
     parser.add_argument("--project-root", type=Path, default=Path("."))
     parser.add_argument("--asset-root", type=Path, default=Path("assets"))
-    parser.add_argument("--godot", action="store_true", help="compile a Godot candidate scene without promoting it")
-    parser.add_argument("--capture", action="store_true", help="capture, accept, and atomically promote the Godot candidate; implies --godot")
-    parser.add_argument("--godot-bin", default="godot")
     parser.add_argument("--blender-bin", default="blender")
     parser.add_argument("--cross-engine-handoffs", action="store_true", help="emit dormant Unity/Unreal compatibility manifests")
-    parser.add_argument(
-        "--preview-active-on-failure",
-        action="store_true",
-        help="overwrite moba_3d.tscn with the best measured candidate even when acceptance remains red",
-    )
     parser.add_argument(
         "--catalog-path",
         type=Path,
@@ -1484,12 +1222,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             args.annotations,
             args.project_root,
             args.asset_root,
-            run_godot=args.godot or args.capture,
-            capture=args.capture,
-            godot_bin=args.godot_bin,
             blender_bin=args.blender_bin,
             cross_engine_handoffs=args.cross_engine_handoffs,
-            preview_active_on_failure=args.preview_active_on_failure,
             catalog_path=args.catalog_path,
         )
     except (OSError, ValueError, ZoneCompileError) as exc:
