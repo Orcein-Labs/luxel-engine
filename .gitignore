@@ -1,8 +1,11 @@
 # Luxel — the engine. Source only.
 #
-# Luxel compiles worlds; it does not own the art it places or the batches it
-# compiles. Those belong to whichever game is using it (Codeweald today), which
-# is why nothing asset-shaped is expected in this tree at all.
+# Fetched and built content (scanned models, terrain layers, kits, backdrops)
+# lands in the ignored artifacts/ tree from pinned manifests in tools/. The
+# only committed art is small source art under assets/ and docs/media/.
+
+# Machine-local MCP server config (absolute paths)
+.mcp.json
 
 # Rust build output (workspace and per-crate invocations)
 **/target/

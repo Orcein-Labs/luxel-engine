@@ -203,8 +203,8 @@ Do not delete these blindly: a later campaign may salvage an algorithm or use
 a regression specimen. Do not import them into active canonical code. Any
 resurrection requires a typed contract, an ownership decision, and evidence.
 
-Tracked intake reports under `asset_intake_reports/` are retained only as
-fixture/evidence records for asset controls; they are not source authority.
+The tracked intake report in `world_core/crates/asset_contract/tests/fixtures/`
+is retained only as a golden fixture for the asset controls; it is not source authority.
 New generated reports and caches belong under ignored output directories.
 
 ## Current execution rule

@@ -25,8 +25,8 @@ fn supplied_glb_matches_python_golden_facts_and_content_digest() {
         eprintln!("external supplied GLB is unavailable; golden benchmark skipped");
         return;
     };
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../");
-    let golden_path = root.join("asset_intake_reports/sample_2026-09-26T091412.074.intake.json");
+    let golden_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/sample_2026-09-26T091412.074.intake.json");
     let golden: Value = serde_json::from_slice(
         &std::fs::read(&golden_path).expect("checked-in intake report is readable"),
     )
