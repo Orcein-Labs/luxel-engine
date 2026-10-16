@@ -35,8 +35,6 @@ ARCHIVE_PATH_MARKERS = (
     "godot_renderer",
     "zone_to_unity",
     "zone_to_unreal",
-    "zone_spec_to_godot",
-    "zone_assets_to_godot",
     "Game Projects/Codeweald",
 )
 

@@ -192,8 +192,6 @@ engine_adapters/unity/
 engine_adapters/unreal/
 pipeline/zone_to_unity.py
 pipeline/zone_to_unreal.py
-pipeline/zone_spec_to_godot.py
-pipeline/zone_assets_to_godot.py
 pipeline/*unreal*
 legacy terrain/ecology/hydrology scripts not reached by the native path
 old Godot/Codeweald project material
