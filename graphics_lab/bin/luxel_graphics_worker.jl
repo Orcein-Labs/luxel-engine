@@ -33,6 +33,9 @@ function write_frame(io::IO, payload::AbstractString)
     return nothing
 end
 
+# The last packet validated by render_window, reused when a request names it by sha.
+const RESIDENT_PACKET = Ref{Any}(nothing)
+
 function failure(code::String, detail::String)
     return JSON3.write((schema=WORKER_SCHEMA, kind="failed", code=code, detail=detail))
 end
@@ -134,16 +137,27 @@ function handle(payload::AbstractString)::String
             report_input = haskey(value, "report_input") ? value["report_input"] : false
             report_input isa Bool ||
                 return failure("malformed_request", "report_input must be a boolean")
-            packet = validate_scene_packet(value["packet"])
             expected_packet_sha256 = LuxelGraphics._string(
                 value["expected_packet_sha256"],
                 "expected_packet_sha256",
             )
-            expected_packet_sha256 == packet.packet_sha256 ||
-                return failure(
-                    "provenance",
-                    "Rust packet identity does not match the worker packet",
-                )
+            if haskey(value, "packet")
+                packet = validate_scene_packet(value["packet"])
+                expected_packet_sha256 == packet.packet_sha256 ||
+                    return failure(
+                        "provenance",
+                        "Rust packet identity does not match the worker packet",
+                    )
+                RESIDENT_PACKET[] = packet
+            else
+                # A presenting session sends its packet once; later batches name it by sha.
+                packet = RESIDENT_PACKET[]
+                (packet !== nothing && packet.packet_sha256 == expected_packet_sha256) ||
+                    return failure(
+                        "packet_not_resident",
+                        "render_window omitted the packet and the worker does not hold $(expected_packet_sha256)",
+                    )
+            end
             camera_override = nothing
             if haskey(value, "camera_override") && value["camera_override"] isa JSON3.Object
                 camera_override = LuxelGraphics._parse_camera(value["camera_override"])
@@ -176,6 +190,7 @@ function handle(payload::AbstractString)::String
                 frames_presented=result.frames_presented,
                 frame_times_us=result.frame_times_us,
                 window_presented_frames=result.window_presented_frames,
+                stage_times_us=result.stage_times_us,
             )
             if report_input
                 response = merge(response, (input_samples=result.input_samples,))

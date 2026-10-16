@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use luxel_reference_runtime::{WorldArtifact, validate_world_artifact};
 
@@ -93,6 +93,10 @@ pub struct WindowFrameReport {
     pub frames_presented: u32,
     pub window_presented_frames: u64,
     pub frame_times_us: Vec<u64>,
+    /// Optional per-stage wall time of each frame, keyed by stage name, for
+    /// diagnosing where a presented frame spends its time. Not evidence.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub stage_times_us: BTreeMap<String, Vec<u64>>,
 }
 
 impl WindowFrameReport {
@@ -139,6 +143,9 @@ pub struct PresentedGraphicsSession {
     frames_presented: u64,
     window_presented_frames: u64,
     window_open: bool,
+    /// The worker was last sent this session's packet. It is a hint: the
+    /// worker checks the sha and answers `packet_not_resident` when it lost it.
+    packet_sent: bool,
 }
 
 impl PresentedGraphicsSession {
@@ -188,6 +195,7 @@ impl PresentedGraphicsSession {
             frames_presented: 0,
             window_presented_frames: 0,
             window_open: false,
+            packet_sent: false,
         })
     }
 
@@ -487,6 +495,30 @@ impl PresentedGraphicsSession {
         self.present_frames_internal(supervisor, frame_count, true)
     }
 
+    /// Send a render_window request, naming the packet by sha once the worker
+    /// holds it. Re-serializing the packet every batch dominated presented
+    /// frame time, so it is sent on the first batch and after the worker
+    /// reports it no longer holds it (restart, or another packet replaced it).
+    fn request_with_packet(
+        &mut self,
+        supervisor: &mut GraphicsWorkerSupervisor,
+        mut request: Value,
+    ) -> Result<Value, GraphicsWorkerError> {
+        if self.packet_sent {
+            match supervisor.request(request.clone()) {
+                Err(error) if error.message.starts_with("packet_not_resident:") => {}
+                result => return result,
+            }
+        }
+        self.packet_sent = false;
+        request["packet"] = serde_json::to_value(&self.base_packet).map_err(|error| {
+            GraphicsWorkerError::protocol(format!("packet serialization failed: {error}"))
+        })?;
+        let response = supervisor.request(request)?;
+        self.packet_sent = true;
+        Ok(response)
+    }
+
     fn present_frames_internal(
         &mut self,
         supervisor: &mut GraphicsWorkerSupervisor,
@@ -508,7 +540,6 @@ impl PresentedGraphicsSession {
         let unchanged_camera = camera_override == self.base_packet.body.camera;
         let mut request = json!({
             "op": "render_window",
-            "packet": self.base_packet,
             "frame_count": frame_count,
             "expected_packet_sha256": self.base_packet.packet_sha256,
         });
@@ -531,7 +562,7 @@ impl PresentedGraphicsSession {
                     ))
                 })?;
         }
-        let response = supervisor.request(request)?;
+        let response = self.request_with_packet(supervisor, request)?;
         let frames_presented =
             u32::try_from(response["frames_presented"].as_u64().ok_or_else(|| {
                 GraphicsWorkerError::protocol("frame report has no presented count")
@@ -544,10 +575,17 @@ impl PresentedGraphicsSession {
             .map_err(|error| {
             GraphicsWorkerError::protocol(format!("frame report times are not typed: {error}"))
         })?;
+        let stage_times_us: BTreeMap<String, Vec<u64>> = match response.get("stage_times_us") {
+            None => BTreeMap::new(),
+            Some(value) => serde_json::from_value(value.clone()).map_err(|error| {
+                GraphicsWorkerError::protocol(format!("frame report stage times are not typed: {error}"))
+            })?,
+        };
         let report = WindowFrameReport {
             frames_presented,
             window_presented_frames,
             frame_times_us,
+            stage_times_us,
         };
         if report.frames_presented == 0 || report.frames_presented > frame_count {
             return Err(GraphicsWorkerError::provenance(

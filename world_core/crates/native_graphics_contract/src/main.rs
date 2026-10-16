@@ -15,6 +15,7 @@ use luxel_native_graphics_contract::{
     lower_showcase_packet, lower_world_showcase_packet, sha256_prefixed,
     validate_campaign2_visual_evidence,
 };
+use luxel_native_graphics_contract::session::{PresentedGraphicsSession, PresentedSessionRequest};
 use luxel_reference_runtime::build_from_layout_path;
 use serde::Serialize;
 
@@ -427,6 +428,19 @@ fn run() -> Result<(), String> {
                     Some(_) => return Err("LUXEL_FOREST_PROFILE must be exactly heartwood or none".to_owned()),
                 },
             };
+            // Opt-in presented timing: after each view's offscreen promotion,
+            // open the native window on the same packet and time N frames
+            // (vsync off). Absent, the command is unchanged.
+            let present_frames = match env::var("LUXEL_PRESENT_FRAMES") {
+                Err(_) => None,
+                Ok(value) => Some(
+                    value
+                        .parse::<u32>()
+                        .ok()
+                        .filter(|frames| *frames > 0)
+                        .ok_or_else(|| "LUXEL_PRESENT_FRAMES must be a positive integer".to_owned())?,
+                ),
+            };
             let layout = canonical_path(
                 PathBuf::from(
                     arguments
@@ -640,6 +654,16 @@ fn run() -> Result<(), String> {
                         evidence.body.reasons
                     ));
                 }
+                let presented = match present_frames {
+                    None => None,
+                    Some(frames) => Some(present_view(
+                        &mut supervisor,
+                        &packet,
+                        &world.world,
+                        view_name,
+                        frames,
+                    )?),
+                };
                 view_summaries.push(serde_json::json!({
                     "view": view_name,
                     "camera_id": packet.body.camera.camera_id,
@@ -654,6 +678,10 @@ fn run() -> Result<(), String> {
                     "visual_vector": vector_evidence.body.measurements,
                     "output_dir": view_dir,
                 }));
+                if let Some(presented) = presented {
+                    view_summaries.last_mut().expect("view summary was just pushed")["presented"] =
+                        presented;
+                }
             }
             let mut summary = serde_json::json!({
                 "schema_version": "luxel.native-graphics-campaign2/v1",
@@ -1368,6 +1396,76 @@ fn sphere_probe(
 }
 
 /// Read each optional axis once before opening inputs or starting a worker.
+/// Present `frames` window frames of a promoted Campaign 2 view and summarize
+/// the worker's per-frame wall time. One untimed frame first allocates the
+/// swapchain and present buffer. `batch_fps` includes the per-batch IPC.
+fn present_view(
+    supervisor: &mut GraphicsWorkerSupervisor,
+    packet: &luxel_native_graphics_contract::GraphicsScenePacket,
+    world: &luxel_reference_runtime::WorldArtifact,
+    view_name: &str,
+    frames: u32,
+) -> Result<serde_json::Value, String> {
+    let camera = &packet.body.camera;
+    let request = PresentedSessionRequest::new(
+        format!("campaign2-{view_name}-presented"),
+        camera.width_px,
+        camera.height_px,
+        false,
+    )
+    .map_err(|error| error.to_string())?;
+    let mut session =
+        PresentedGraphicsSession::new(&request, packet, world).map_err(|error| error.to_string())?;
+    session
+        .open_window(supervisor)
+        .map_err(|error| format!("Campaign 2 {view_name} window failed to open: {error}"))?;
+    // Batches stay well inside the worker's per-request timeout even when a
+    // frame costs hundreds of milliseconds.
+    const PRESENT_BATCH: u32 = 30;
+    let measured = session.present_frames(supervisor, 1).and_then(|_| {
+        let started = Instant::now();
+        let mut frame_times_us = Vec::with_capacity(frames as usize);
+        let mut stage_times_us: std::collections::BTreeMap<String, Vec<u64>> = Default::default();
+        let mut frames_presented = 0;
+        while frames_presented < frames {
+            let report = session
+                .present_frames(supervisor, PRESENT_BATCH.min(frames - frames_presented))?;
+            frames_presented += report.frames_presented;
+            frame_times_us.extend(report.frame_times_us);
+            for (stage, times) in report.stage_times_us {
+                stage_times_us.entry(stage).or_default().extend(times);
+            }
+        }
+        Ok((frames_presented, frame_times_us, stage_times_us, started.elapsed()))
+    });
+    let closed = session.close_window(supervisor);
+    let (frames_presented, frame_times_us, stage_times_us, elapsed) =
+        measured.map_err(|error| format!("Campaign 2 {view_name} presenting failed: {error}"))?;
+    closed.map_err(|error| format!("Campaign 2 {view_name} window failed to close: {error}"))?;
+    let timing = summarize(&frame_times_us)?;
+    let batch_fps = f64::from(frames_presented) / elapsed.as_secs_f64();
+    eprintln!(
+        "presented {view_name} {}x{}: {frames_presented} frames, p50 {} us, p95 {} us, p99 {} us, {:.2} fps over the batch",
+        camera.width_px, camera.height_px, timing.p50_us, timing.p95_us, timing.p99_us, batch_fps,
+    );
+    let mut stages = serde_json::Map::new();
+    for (stage, times) in &stage_times_us {
+        let stage_timing = summarize(times)?;
+        eprintln!("  stage {stage}: p50 {} us, p95 {} us", stage_timing.p50_us, stage_timing.p95_us);
+        stages.insert(stage.clone(), serde_json::to_value(stage_timing).map_err(|error| error.to_string())?);
+    }
+    Ok(serde_json::json!({
+        "width_px": camera.width_px,
+        "height_px": camera.height_px,
+        "vsync": false,
+        "frames_presented": frames_presented,
+        "frame_time_us": timing,
+        "batch_wall_us": u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX),
+        "batch_fps": batch_fps,
+        "stage_time_us": stages,
+    }))
+}
+
 fn optional_feature(name: &str) -> Result<bool, String> {
     match env::var_os(name) {
         None => Ok(false),

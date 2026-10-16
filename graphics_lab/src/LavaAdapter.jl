@@ -5719,14 +5719,34 @@ function _mesh_bound_sphere(mesh::LuxelGraphics.MeshPacket)
     return center, Float32(radius)
 end
 
+const MeshBound = Tuple{NTuple{3,Float32},Float32}
+
+# Local bound spheres by mesh id for the most recent mesh list. Every visibility
+# test used to rescan the mesh's vertices, several sweeps over every instance per
+# pass. Packets never mutate their mesh list, so its identity is the key; one
+# slot keeps at most one packet's meshes alive.
+const MESH_BOUNDS_SLOT = Ref{Union{Nothing,Tuple{Vector{LuxelGraphics.MeshPacket},Dict{String,MeshBound}}}}(nothing)
+
+function _mesh_bounds(packet::LuxelGraphics.GraphicsScenePacket)::Dict{String,MeshBound}
+    cached = MESH_BOUNDS_SLOT[]
+    cached !== nothing && first(cached) === packet.meshes && return last(cached)
+    bounds = Dict{String,MeshBound}()
+    for mesh in packet.meshes
+        # First mesh wins on a duplicate id, as the old linear search did.
+        haskey(bounds, mesh.mesh_id) || (bounds[mesh.mesh_id] = _mesh_bound_sphere(mesh))
+    end
+    MESH_BOUNDS_SLOT[] = (packet.meshes, bounds)
+    return bounds
+end
+
 function _instance_world_bound(
     packet::LuxelGraphics.GraphicsScenePacket,
     instance::LuxelGraphics.InstancePacket,
 )
-    mesh_index = findfirst(mesh -> mesh.mesh_id == instance.mesh_id, packet.meshes)
-    mesh_index === nothing &&
+    bound = get(_mesh_bounds(packet), instance.mesh_id, nothing)
+    bound === nothing &&
         throw(AdapterError("provenance", "instance references an absent mesh"))
-    local_center, local_radius = _mesh_bound_sphere(packet.meshes[mesh_index])
+    local_center, local_radius = bound
     scale = instance.transform.scale_xyz
     rotated_center = _rotate_vector(
         Vec4f(instance.transform.rotation_xyzw...),
@@ -5882,8 +5902,23 @@ Packet `content_sha256` is sealed and does not change when a request-side
 instance override moves an actor. Mesh uploads and the shadow map both bake
 those transforms, so their cache key salts the packet digest with a
 fingerprint of every instance pose. Terrain, IBL, and overlay caches stay on
-`content_sha256`."""
+`content_sha256`.
+
+The key is computed once per instance list: a prepare asks for it several times
+per pass, and an override builds a new packet with a new list."""
 function _mesh_transform_cache_key(packet::LuxelGraphics.GraphicsScenePacket)::String
+    cached = MESH_TRANSFORM_KEY_SLOT[]
+    cached !== nothing && cached[1] === packet.instances && cached[2] == packet.content_sha256 &&
+        return cached[3]
+    key = _hash_mesh_transforms(packet)
+    MESH_TRANSFORM_KEY_SLOT[] = (packet.instances, packet.content_sha256, key)
+    return key
+end
+
+const MESH_TRANSFORM_KEY_SLOT =
+    Ref{Union{Nothing,Tuple{Vector{LuxelGraphics.InstancePacket},String,String}}}(nothing)
+
+function _hash_mesh_transforms(packet::LuxelGraphics.GraphicsScenePacket)::String
     io = IOBuffer()
     write(io, packet.content_sha256)
     for instance in packet.instances
@@ -7407,19 +7442,6 @@ function _window_session(state::LavaBackend)::WindowSession
     return session
 end
 
-function _window_target(
-    session::WindowSession,
-    width::Int,
-    height::Int,
-)::Lava.WindowTarget
-    win_width, win_height = size(session.window)
-    (win_width, win_height) == (width, height) || throw(AdapterError(
-        "window_extent_mismatch",
-        "camera extent ($width, $height) does not match the window ($win_width, $win_height)",
-    ))
-    return Lava.WindowTarget(session.window)
-end
-
 """Convert a swapchain readback (BGRA8, sRGB-encoded) into contract RGBA8 row
 order, mirroring the offscreen capture's row orientation. Reserved for the
 C3.4 presented-frame evidence slice; Lava's mid-frame readback flushes the
@@ -7455,19 +7477,25 @@ end
 Rebuild a capture readback into the flat layout `Lava.blit!` expects: pixel
 `(x, y)` at linear index `x * height + y + 1`. Vulkan packs image copies row by
 row, so the readback's column-major flattening is the transpose of the blit
-layout; the conversion is exact (no resampling) and keeps the presented frame
-faithful to the certified capture.
+layout. At the capture's own extent the conversion is exact (no resampling)
+and keeps the presented frame faithful to the certified capture. A window the
+compositor or the user has resized since gets a nearest-neighbour resample to
+`out_width` × `out_height`.
 """
 function _present_pixel_data(
     pixels::AbstractMatrix{<:NTuple{4,<:Real}},
     width::Int,
     height::Int,
+    out_width::Int=width,
+    out_height::Int=height,
 )::Vector{Vec4f}
-    data = Vector{Vec4f}(undef, width * height)
-    for column in 0:(width-1)
-        base = column * height
-        for row in 1:height
-            pixel = pixels[column+1, row]
+    data = Vector{Vec4f}(undef, out_width * out_height)
+    for column in 0:(out_width-1)
+        base = column * out_height
+        source_column = div((2column + 1) * width, 2out_width)
+        for row in 1:out_height
+            source_row = div((2row - 1) * height, 2out_height) + 1
+            pixel = pixels[source_column+1, source_row]
             data[base+row] = Vec4f(
                 clamp(Float32(pixel[1]), 0.0f0, 1.0f0),
                 clamp(Float32(pixel[2]), 0.0f0, 1.0f0),
@@ -7477,6 +7505,81 @@ function _present_pixel_data(
         end
     end
     return data
+end
+
+"""Whether the device can blit `source_format` into `destination_format` (both
+optimal tiling), which the GPU present path needs."""
+function _gpu_present_supported(
+    state::LavaBackend,
+    source_format::Vulkan.Format,
+    destination_format::Vulkan.Format,
+)::Bool
+    physical_device = state.context.physical_device
+    source = Vulkan.get_physical_device_format_properties(physical_device, source_format).optimal_tiling_features
+    destination = Vulkan.get_physical_device_format_properties(physical_device, destination_format).optimal_tiling_features
+    return (source & Vulkan.FORMAT_FEATURE_BLIT_SRC_BIT) == Vulkan.FORMAT_FEATURE_BLIT_SRC_BIT &&
+           (destination & Vulkan.FORMAT_FEATURE_BLIT_DST_BIT) == Vulkan.FORMAT_FEATURE_BLIT_DST_BIT
+end
+
+"""Blit filter for presenting a `source_format` capture into a `width` ×
+`height` swapchain: unfiltered at the capture's own extent, linear when a resized
+window needs scaling and the format allows it."""
+function _present_blit_filter(
+    state::LavaBackend,
+    source::Lava.LavaFramebuffer,
+    width::Int,
+    height::Int,
+)::Vulkan.Filter
+    (source.width, source.height) == (width, height) && return Vulkan.FILTER_NEAREST
+    features = Vulkan.get_physical_device_format_properties(
+        state.context.physical_device, source.color_format).optimal_tiling_features
+    linear = Vulkan.FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT
+    return (features & linear) == linear ? Vulkan.FILTER_LINEAR : Vulkan.FILTER_NEAREST
+end
+
+"""
+Record a blit of `source`'s color image into the `width` × `height`
+`destination`, leaving both in COLOR_ATTACHMENT_OPTIMAL. At the source's own
+extent with the default filter it is an unfiltered copy. The blit converts the
+float color to the destination format (clamped to unorm, sRGB-encoded for an
+sRGB target), the same conversion the CPU present path gets from clamping and
+Lava's fullscreen blit. The destination's previous contents are discarded; its
+first barrier waits at COLOR_ATTACHMENT_OUTPUT so it chains with a swapchain
+acquire wait at that stage.
+"""
+function _blit_color_image!(
+    cmd,
+    source::Lava.LavaFramebuffer,
+    destination::Vulkan.Image,
+    width::Integer=source.width,
+    height::Integer=source.height;
+    filter::Vulkan.Filter=Vulkan.FILTER_NEAREST,
+)
+    Lava.transition_image!(cmd, source.color_image,
+        Vulkan.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, Vulkan.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        Vulkan.PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, Vulkan.PIPELINE_STAGE_TRANSFER_BIT,
+        Vulkan.ACCESS_COLOR_ATTACHMENT_WRITE_BIT, Vulkan.ACCESS_TRANSFER_READ_BIT)
+    Lava.transition_image!(cmd, destination,
+        Vulkan.IMAGE_LAYOUT_UNDEFINED, Vulkan.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        Vulkan.PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, Vulkan.PIPELINE_STAGE_TRANSFER_BIT,
+        Vulkan.AccessFlag(0), Vulkan.ACCESS_TRANSFER_WRITE_BIT)
+    subresource = Vulkan.ImageSubresourceLayers(Vulkan.IMAGE_ASPECT_COLOR_BIT, UInt32(0), UInt32(0), UInt32(1))
+    source_corners = (Vulkan.Offset3D(0, 0, 0), Vulkan.Offset3D(Int32(source.width), Int32(source.height), 1))
+    destination_corners = (Vulkan.Offset3D(0, 0, 0), Vulkan.Offset3D(Int32(width), Int32(height), 1))
+    Vulkan.cmd_blit_image(cmd,
+        source.color_image, Vulkan.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        destination, Vulkan.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        [Vulkan.ImageBlit(subresource, source_corners, subresource, destination_corners)],
+        filter)
+    Lava.transition_image!(cmd, destination,
+        Vulkan.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, Vulkan.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        Vulkan.PIPELINE_STAGE_TRANSFER_BIT, Vulkan.PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        Vulkan.ACCESS_TRANSFER_WRITE_BIT, Vulkan.ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+    Lava.transition_image!(cmd, source.color_image,
+        Vulkan.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, Vulkan.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        Vulkan.PIPELINE_STAGE_TRANSFER_BIT, Vulkan.PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        Vulkan.AccessFlag(0), Vulkan.ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+    return nothing
 end
 
 """Render `frame_count` presented frames of the packet scene through the open
@@ -7492,8 +7595,11 @@ function render_window_frames!(
     camera_override::Union{Nothing,LuxelGraphics.CameraPacket},
     frame_count::Integer,
     report_input::Bool=false,
-    instance_overrides::Vector{LuxelGraphics.InstanceOverride}=LuxelGraphics.InstanceOverride[],
+    instance_overrides::Vector{LuxelGraphics.InstanceOverride}=LuxelGraphics.InstanceOverride[];
+    present::Symbol=:auto,
 )
+    present in (:auto, :cpu) ||
+        throw(AdapterError("invalid_request", "present must be :auto or :cpu"))
     session = _window_session(state)
     packet = LuxelGraphics.apply_instance_overrides(packet, instance_overrides)
     frame_count >= 1 ||
@@ -7506,6 +7612,9 @@ function render_window_frames!(
     environment_lighting = _environment_lighting(packet.environment)
     texture_enabled = _material_texture_enabled(material)
     frame_times_us = Int[]
+    # Per-stage wall time of each frame: diagnostic only, not evidence.
+    stage_times_us = Dict{String,Vector{Int}}()
+    stage!(name, started_ns) = (push!(get!(stage_times_us, name, Int[]), Int(_elapsed_us(started_ns))); time_ns())
     input_samples = report_input ? Any[] : nothing
     presented = 0
     for frame_index in 1:Int(frame_count)
@@ -7523,15 +7632,20 @@ function render_window_frames!(
         end
         active_camera = camera_override === nothing ? packet.camera : camera_override
         width, height = _validate_dimensions(active_camera.width_px, active_camera.height_px)
-        window_target = _window_target(session, width, height)
         camera_frame = _camera_frame(active_camera)
 
+        stage_ns = time_ns()
         Lava.acquire_next_image!(session.window)
+        # The window is resizable and the compositor may resize it on its own,
+        # so the swapchain extent is read only after acquire has synced it. The
+        # scene renders at the camera extent and is scaled into the window.
+        window_width, window_height = size(session.window)
+        stage_ns = stage!("acquire", stage_ns)
         render_width = 2 * width
         render_height = 2 * height
         scene_framebuffer = _framebuffer!(state, render_width, render_height, true, :scene_hdr; samples=_scene_samples(packet))
         scene_target = OffscreenTarget(scene_framebuffer)
-        _record_scene_with_reflection!(
+        scene = _record_scene_with_reflection!(
             state,
             packet,
             camera_frame,
@@ -7542,6 +7656,9 @@ function render_window_frames!(
             scene_framebuffer,
             scene_target,
         )
+        push!(get!(stage_times_us, "main_prepare", Int[]), Int(scene.prepare_time_us))
+        push!(get!(stage_times_us, "main_raster_record", Int[]), Int(scene.scene_raster_time_us))
+        stage_ns = stage!("scene_record", stage_ns)
         overlay_resources = _overlay_resources!(state, packet, camera_frame)
         composite = _composite_capture!(
             state,
@@ -7553,20 +7670,51 @@ function render_window_frames!(
             height,
         )
 
-        # A window draw cannot use descriptor sets (Lava's `WindowTarget`
-        # `draw!` has no depth attachment and no descriptor kwargs), so the
-        # composite reaches the swapchain through Lava's own fullscreen blit of
-        # a window-sized RGBA buffer. `readback_framebuffer` flushes the scene
-        # batch, which carries no swapchain writes; the upload opens the next
-        # batch and `present_frame!` submits it with the acquire-semaphore wait,
-        # so the mid-frame readback hazard does not apply to this ordering.
-        pixels = readback_framebuffer(composite.capture_framebuffer)
-        present_array = _present_pixels!(session, width, height)
-        Lava.upload!(present_array, _present_pixel_data(pixels, width, height))
-        Lava.blit!(state.queue, window_target, present_array; clear=false)
+        stage_ns = stage!("composite_record", stage_ns)
+        capture = composite.capture_framebuffer
+        if present == :auto && _gpu_present_supported(state, capture.color_format, session.window.format)
+            # GPU present: the scene and composite go in their own submit, so
+            # only the blit batch waits on the swapchain acquire. The frame
+            # then waits for its batch, as the readback path did, because the
+            # next frame rewrites resources this one reads.
+            Lava.submit!(state.queue)
+            batch = Lava.ensure_active_batch!(state.queue)
+            _blit_color_image!(batch.cmd_buf, capture, session.window.images[session.window.current_image_idx+1],
+                window_width, window_height;
+                filter=_present_blit_filter(state, capture, window_width, window_height))
+            Lava.pin!(batch, capture)
+            signal = batch.signal_value
+            state.draw_calls += 1
+            stage_ns = stage!("blit_record", stage_ns)
+            Lava.present_frame!(state.queue, session.window)
+            Lava.wait_semaphores!(state.queue, Vulkan.SemaphoreWaitInfo([state.queue.timeline_sem], [signal]))
+            stage!("present_wait", stage_ns)
+            session.presented_frames += UInt64(1)
+            presented += 1
+            push!(frame_times_us, Int(_elapsed_us(frame_started_ns)))
+            continue
+        end
+
+        # CPU fallback. A window draw cannot use descriptor sets (Lava's
+        # `WindowTarget` `draw!` has no depth attachment and no descriptor
+        # kwargs), so the composite reaches the swapchain through Lava's own
+        # fullscreen blit of a window-sized RGBA buffer. `readback_framebuffer`
+        # flushes the scene batch, which carries no swapchain writes; the
+        # upload opens the next batch and `present_frame!` submits it with the
+        # acquire-semaphore wait, so the mid-frame readback hazard does not
+        # apply to this ordering.
+        pixels = readback_framebuffer(capture)
+        stage_ns = stage!("gpu_wait_readback", stage_ns)
+        present_array = _present_pixels!(session, window_width, window_height)
+        present_data = _present_pixel_data(pixels, width, height, window_width, window_height)
+        stage_ns = stage!("convert", stage_ns)
+        Lava.upload!(present_array, present_data)
+        Lava.blit!(state.queue, Lava.WindowTarget(session.window), present_array; clear=false)
         state.draw_calls += 1
+        stage_ns = stage!("upload_blit", stage_ns)
 
         Lava.present_frame!(state.queue, session.window)
+        stage!("present", stage_ns)
         session.presented_frames += UInt64(1)
         presented += 1
         push!(frame_times_us, Int(_elapsed_us(frame_started_ns)))
@@ -7576,6 +7724,7 @@ function render_window_frames!(
         frame_times_us=frame_times_us,
         window_presented_frames=Int(session.presented_frames),
         input_samples=input_samples,
+        stage_times_us=stage_times_us,
     )
 end
 
