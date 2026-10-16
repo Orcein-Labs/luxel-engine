@@ -26,7 +26,7 @@ fn supplied_glb_matches_python_golden_facts_and_content_digest() {
         return;
     };
     let golden_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/sample_2026-09-26T091412.074.intake.json");
+        .join("tests/fixtures/2026-09-26_sample-glb.intake.json");
     let golden: Value = serde_json::from_slice(
         &std::fs::read(&golden_path).expect("checked-in intake report is readable"),
     )
