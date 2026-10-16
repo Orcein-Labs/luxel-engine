@@ -1,237 +1,185 @@
 # Luxel missing inventory
 
-> **Historical inventory.** This snapshot records the pre-convergence
-> Codeweald/target-engine gap and is useful as archaeology only. It does not
-> override the current native-engine doctrine. See
-> [`../ACTIVE_ARCHITECTURE.md`](active-architecture.md) and
-> [`../LUXEL_DEMO_READY_NATIVE_ENGINE_MEGA_SPRINT.md`](../archive/2026-09_roadmaps-and-audits/demo-ready-mega-sprint.md)
-> for current authority boundaries and campaign scope.
+Written 2026-10-16. This file lists what the native engine does **not have
+yet**. Two other ledgers cover the rest:
 
-Written 2026-07-31. Things that **do not exist yet**, as distinct from things
-that exist and are wrong ([docs/platform/debt-ledger.md](debt-ledger.md)) and things that are
-built and ranked ([docs/platform/tooling-upgrades.md](tooling-upgrades.md)).
+- things that exist but are wrong: [debt-ledger.md](debt-ledger.md);
+- things that are built and ranked: [tooling-upgrades.md](tooling-upgrades.md).
 
-Scope: Luxel **and the game gap**. Codeweald is a real-time three-lane MOBA; Luxel
-compiles the world it is played on. As of this audit the pipeline compiles a
-certified, renderable world and stops there. Nothing below is broken — it is
-unbuilt, and the distinction matters because unbuilt work needs a decision
-before it needs a fix.
+The [graphical parity audit](../world/graphical-parity-audit.md) and the
+[engine readiness reset](2026-10-12-engine-readiness-reset.md) hold the
+graphics detail. This file covers the whole engine at one level of detail
+across every system. Each entry says what exists, so every gap is measured
+against the code.
 
-Each entry states what does exist, so the gap is measured rather than asserted.
+The July 31 version of this file was a Codeweald/MOBA gap list written against
+the Bevy viewer and a Unity backend. Both have since been superseded by the
+native engine. That version is in git history (last at `d002292`). Its still-open
+items are carried over below.
 
----
+## Where the engine stands
 
-## Part 1 — Luxel (the compiler and its instrument)
+The platform underneath is built and verified:
 
-### M1. Silhouette complexity has no metric
+- the Rust authority builds and validates every scene packet;
+- a persistent Julia/Lava Vulkan worker renders it, offscreen or into a live
+  window;
+- receipts and deterministic replay record what was rendered and simulated;
+- the "absent axis = same bytes" identity check (`tools/verify_identity.py`)
+  guards existing frames.
 
-**Exists:** `detail_density`, `surface_variation_coverage`, `coarse_contrast`,
-`foreground_edge_density` — all surface/texture measures.
+What remains is breadth. Most of the systems a game or a Witcher-3-class scene
+needs are missing or exist only as a first slice. Two items carried over from
+July are not re-checked here and stay in git history: terrain metric gaps
+(M1–M3) and provenance and reachability coverage (M5–M7).
 
-**Missing:** anything measuring the terrain/sky boundary. This is the reason
-`spine_count` and the jitters still have no honest optimisation target even now
-that they provably reach geometry. The 2026-07-31 sensitivity matrix makes this
-concrete: driving `spine_count` from ~3.5 to 8 moved every tracked metric by
-under 1.5% **except** `water_fraction` (+79.7%) — so the strongest signal from
-the "how many ridges" knob is *drainage*, not skyline. The knob has real
-geometric authority and no metric that represents what it is for.
+## Graphics
 
-**Blocks:** any automated loop that tries to improve landform shape. Until it
-exists, composition scalars can only be tuned by eye.
+| Area | Exists | Missing |
+|---|---|---|
+| Terrain | Gaea landforms, scanned terrain layers, km-scale backdrop | Ground integration: surface scale, transitions, wear/moss/wetness, paths, decals. Caves, overhangs and arches: terrain is a heightfield (July M4; needs a representation decision first). |
+| Atmosphere | Analytic sky, aerial perspective, km-scale haze | Volumetric light shafts, height/forest fog |
+| Materials | Scanned PBR sets, normal/roughness/occlusion/emissive roles | Foliage, layered natural surfaces, stylized shading. The IBL arm was rejected on review. |
+| Lighting | One directional light with two shadow cascades and contact AO; up to 4 point lights (`MAX_POINT_LIGHTS`), optionally shadowed through a cube atlas | More than 4 local lights, useful key/fill/environment balance, stable shadows under a moving camera |
+| Transparency | Alpha-mask cutouts with alpha-to-coverage | Alpha blending (`alpha_mode == :blend` throws), so no glass, smoke, real water surface or particles |
+| Water | Still water painted by the terrain shader, with a planar reflection | Flowing water, rivers, shorelines, waves |
+| Vegetation | Scatter and a one-species forest | Atlases, crown volume, two-sided shading, wind, hero-scale trees, biome variety |
+| Architecture | One imported ruin kit | Settlement kit: paths, bridges, interiors |
+| Post | Tonemap, ordered dither; opt-in bloom, grade and vignette (off in the frozen baseline) | Temporal AA or upscaling, depth of field, motion blur |
+| VFX | — | Particles, trails, decals, screen-space effects |
+| Scale | CPU frustum culling; texture mips | Mesh LOD selection (assets carry LOD metadata the renderer never reads), occlusion culling, streaming, GPU-driven rendering. The adapter has no compute pipeline (`dispatch_calls` is hard-coded to 0). |
+| Style | `RenderPolicy` carries the policy the renderer can execute | Four style axes are fenced as unsupported: reflection expectation, volumetrics, outline, posterization. One photoreal-leaning look has been proven. |
+| Resolution | 960×640 with 2× supersampling plus MSAA | 1080p and above at a playable frame rate |
+| Performance | 10–13 fps presented on CONVERGE-4 ([2026-10-16 note](../research/luxel-consolidation/2026-10-16_presented-fps.md)) | 60 fps. The GPU takes 48–70 ms per frame, and about 22 ms of CPU recording runs before the GPU work each frame instead of alongside it. |
 
-### M2. Conditions-of-use metrics beyond terrain material
+## Engine systems
 
-**Exists:** `coarse_contrast` (tooling item 4's template) measures terrain
-material the way it is actually sampled at overview distance.
+### Animated characters
 
-**Missing:** the equivalent for prop LOD selection, foliage cards, and normal
-maps — all currently judged at 1:1 in isolation.
+**Exists:** CPU evaluation (CHAR-CPU-1): GLB rig and clip decoding, STEP and
+LINEAR sampling, skinning, sockets, posed bounds.
 
-### M3. Adversarial / honesty guards on metrics
+**Missing:**
+- Rendering skinned meshes: `MeshPacket` has no joints, weights or pose
+  streams, so the renderer draws static meshes only (parity audit GP-09).
+- Animation blending, state machines, root motion, IK.
+- Facial animation and morph targets.
 
-**Exists:** documented gaming vectors in prose (tooling item 6).
+TetCage also waits on this path. It can only be used in a shipped scene once
+skinned meshes render.
 
-**Missing:** the automated check. Known-bad today: `detail_density` is a cliff
-at its threshold and pure film grain at sigma 0.065 scores better than honest
-texture; `surface_variation_coverage` hits 1.000 from sigma 0.02 noise; an
-un-mipmapped render scores *higher* on both than the correctly filtered one,
-because moire is high-frequency variation. Nothing runs a noise-injected
-control.
+### Physics
 
-### M4. A second geometric representation
+**Exists:**
+- A deterministic kinematic controller (`reference_runtime/src/physics.rs`): a
+  grounded disc that collides with terrain, obstacles, world bounds, blocked
+  regions and slope limits, at a fixed tick, with replay.
+- Collision descriptors from the pipeline (`collision_plan.py`).
 
-**Exists:** a heightfield — one height per point.
+**Missing:** rigid bodies, joints, ragdolls, projectiles, triggers, vehicles,
+destruction. The module calls itself "not a force-based physics engine".
+Adopting an existing Rust physics library is the likely route rather than
+writing one.
 
-**Missing:** caves, overhangs, arches, and tunnels. The README describes "cave
-tunnels threading through the peaks with neutral mobs inside"; a heightfield
-cannot express any of them. This is the project's one genuinely
-blocked-on-a-decision item: it needs a chosen representation (mesh volumes in
-the render plan, SDF, voxel patch) before anything can be built.
+### Audio
 
-### M5. Provenance beyond the viewer binary
+**Exists:** nothing in code. The gameplay capability model has an "audio intent"
+field and nothing consumes it.
 
-**Exists:** tooling item 1 — the viewer self-reports a source digest and
-`capture_bevy` refuses a mismatch.
+**Missing:** everything: playback, mixing, 3D positional audio, streaming music,
+ambience, and the intent → sound binding.
 
-**Missing:** the same discipline for the WGSL shader (loaded from disk at
-runtime, so it needs a capture-time digest rather than a build-time one) and for
-the asset/material generators.
+### UI and text
 
-### M6. Reachability beyond heightfield scalars
+**Exists:** debug evidence overlays only.
 
-**Exists:** tooling item 2 — composition scalars declare and prove they move the
-heightfield.
+**Missing:** gameplay UI: HUD, menus, inventory and dialogue screens, text
+rendering and fonts in the native window, and UI input focus.
 
-**Missing:** declarations for the categorical composition keys (`silhouette`,
-`massing`, `surface`, `dressing`) and for the material/asset lanes, each of
-which controls a different artifact and needs its own digest.
+### Input
 
-### M7. Authoring-time feasibility validation
+**Exists:** typed HID sampling (keyboard, mouse, gamepad) in the worker, a
+Rust-owned action map and third-person camera, and a deterministic input trace
+(C3.2).
 
-**Missing:** the DSL accepts values the pipeline then rejects (see
-[D1](debt-ledger.md)). There is no way for an author to know a legal value is
-unbuildable except by building it.
+**Missing:** rebinding, multiple local players, and text input for UI.
 
----
+### Gameplay framework
 
-## Part 2 — The game gap
+**Exists:**
+- The gameplay contract with capability (GCS) resolution.
+- The deterministic reference runtime.
+- The C3.2 drive loop and playable session contracts.
 
-The pipeline currently emits: terrain (heightfield, splat, normal, water and
-wetland masks), a render plan of placed instances, compiled road corridors,
-terrain materials, and per-engine handoff manifests. Gameplay semantics exist
-in the **spec** but stop there.
+**Missing:**
+- Live gameplay entities: actors, stats, combat, damage. The model is specified
+  and resolvable but nothing plays on it.
+- Spawns, objectives and gameplay volumes in the native path (July G3).
 
-**What already survives into `zone_spec.json`** — more than expected, and worth
-not rebuilding:
-- Portal keeps tagged by team (`albion_keep` → `team_a`, `hibernia_keep` →
-  `team_b`)
-- Three lanes tagged `top` / `mid` / `bottom` as `corridor` features
-- Bridges tagged with the `lane_id` they serve
-- 20 `structure`, 13 `landmark`, 8 `hydrology`, 4 `biome` features
+### AI and navigation
 
-So the world *knows* it is a three-lane MOBA. Nothing downstream consumes that.
+**Exists:** the pipeline emits a walkable mask, a clearance field and connected
+components (`navigation_plan.py`). It deliberately bakes no polygon navmesh.
 
-### G1. Collision geometry
+**Missing:** runtime pathfinding, a navmesh or flow field consumed at runtime,
+NPC behaviour (perception, decisions, schedules), crowds.
 
-**Evidence:** `collision` appears only in `intake_manifest.json` and
-`vision_annotation_packet.json` — the intake brief. No emitted artifact carries
-collision data. The Bevy viewer renders terrain with no collider.
+### World streaming
 
-**Needed:** terrain collision export, per-structure colliders, and the
-playable-vs-render boundary (the map-border cliff from the visual review is the
-same gap wearing an art-shaped name).
+**Exists:** one scene packet, kept resident by the worker for a presenting
+session.
 
-### G2. Navigation mesh
+**Missing:** world partitioning, streaming cells in and out, memory and residency
+budgets, persistent large worlds. Everything has to fit in one packet.
 
-**Evidence:** `navmesh` appears in zero files. `navigation` appears only in
-intake. `traversal_probe.py` exists and gates *whether* terrain is walkable
-(slope percentiles) but emits no navigable surface.
+### Save and load
 
-**Needed:** a navmesh or flow-field for minion pathing down lanes. This is the
-single largest missing piece between "a world" and "a MOBA map", and
-`traversal_probe` already computes much of the input.
+**Missing:** game-state persistence. The deterministic traces and digests are a
+good basis, but there is no save format.
 
-### G3. Spawn points, objectives, and gameplay volumes
+### Networking
 
-**Evidence:** `spawn_point` appears in zero files. Keeps carry a team tag but no
-spawn transform. No tower/objective placements — the README's Laser Towers and
-Archwizards do not exist as data.
+**Exists:** authority and network fields in the GCS, which are descriptive
+metadata only (`docs/gameplay/gcs-foundation-design.md`).
 
-**Needed:** spawn transforms, lane waypoints, tower sites, jungle camp volumes,
-and the inter-lane/jungle regions Matt described. Some of this is derivable from
-existing corridor centerlines.
+**Missing:**
+- The authority-model decision: client-server or deterministic lockstep (July
+  G7, still open).
+- Replication, prediction, sessions.
 
-### G4. A gameplay ability system
+This is only needed if multiplayer or MMO add-ons become real.
 
-**Exists:** nothing. Matt's framing: "our version of GAS".
+### Authoring and editor
 
-**Needed:** the whole thing — attributes, effects, cooldowns, costs,
-application/removal, replication boundaries. This is the largest single unbuilt
-system and the one most worth borrowing rather than inventing (per the
-workspace rule on mature libraries for undifferentiated work).
+**Exists:**
+- The DSL (frozen spec), the semantic facade and kernel, and construction plans.
+- Blender and Gaea act as the external editors.
 
-### G5. Physics
+**Missing:**
+- An in-engine editor: scene layout, live tweaking, an asset browser.
+- Add-on implementations: Missions, Armory/Grindstone, Studio and Reforge are
+  specs only.
 
-**Exists:** nothing. Bevy is running with no physics plugin.
+### Live2D / Cubism
 
-**Needed:** at minimum character movement against terrain collision; projectile
-motion if abilities are physical.
+**Exists:** the avatar quality contract and the Cyan audit.
 
-### G6. Units, entities, and combat
+**Missing:** an editable rig, a visual runtime proof, and Cubism-format
+compatibility. A native 2D puppet is not Cubism compatibility.
 
-**Exists:** nothing in the current tree. The prior tick-based hex-combat sim was
-archived 2026-07-31 as superseded (`_archive/codeweald-pre-luxel/`) — a real-time
-MOBA does not reuse it, though its combat-resolution logic is readable
-reference.
-
-**Needed:** entity model, champions, minions, towers, stats, targeting,
-damage — all of it, real-time rather than tick-resolved.
-
-### G7. Netcode / authority model
-
-**Exists:** nothing. No decision recorded on client-server vs deterministic
-lockstep, which constrains everything above it.
-
-**Needed:** the decision first. This is architecture, not implementation, and it
-should be made before G4 and G6 harden.
-
-### G8. A chosen target backend
-
-**Exists:** adapter directories for `unity` and `unreal`; a Godot adapter was
-removed with Godot on 2026-07-31. Bevy is the reference renderer and
-[explicitly not a backend](tooling-upgrades.md).
-
-**DECIDED 2026-08-05: Unity for the arena and the toolkit; UE5 reserved for
-Sidhe.**
-
-The decision splits rather than resolving to one engine, which the artifact
-layer exists to permit: Luxel emits engine-neutral certified artifacts, so the
-compiler and the asset pipeline do not care what renders them.
-
-**Why Unity here.** The MOBA arena is an *LLM arena* -- a test ground where
-agents are given the rules and compete -- not a netcoded product. That removes
-the only strong argument for Unreal, since GAS and replication were the case for
-it and neither is needed.
-
-What remains favours Unity decisively:
-
-- **AI operability, measured rather than assumed.** `unrealMCP` is configured in
-  this workspace and exposes **zero tools**. `UnityMCP` exposes scene, GameObject,
-  prefab, material, shader, texture, physics, animation, UI, VFX, build and test
-  control, plus `execute_code` for arbitrary C# inside the editor. `godotMCP` is
-  modest. On the axis this project is *about*, it is not close.
-- **Commercial.** The Asset Store is the strongest marketplace for tools and
-  editor extensions, which is the high-margin piece. Since Fab went cross-engine,
-  generated *content* is not locked to the runtime choice -- only the importer
-  plugin is.
-- **Adapter maturity.** `engine_adapters/unity` is the further along of the two.
-
-**Why UE5 stays reserved.** GAS has no real equivalent in Unity or Godot, and its
-replication integration is most of its value. Sidhe wants it. Nothing about
-choosing Unity here forecloses that -- both adapters are scaffolded.
-
-**Caveat that shapes the workflow.** UnityMCP requires the editor *running and
-connected*; it is a live-session dependency, not headless CI. Luxel's own pipeline
-therefore stays headless, and Unity is the presentation and sale target rather
-than the place work happens.
-
----
-
-## The shortest path to something playable
+## Shortest path to a first playable prototype
 
 Ordered by what unblocks the most:
 
-1. ~~**G8** (pick a backend)~~ — **DONE 2026-08-05: Unity here, UE5 for Sidhe.**
-2. **G7** (authority model) — same: a decision that constrains G4/G6.
-3. **G1 + G2** (collision + navmesh) — the pipeline already has the inputs;
-   this converts a rendered world into a traversable one and is squarely Luxel's
-   job rather than the game's.
-4. **G3** (spawns, lanes, objectives) — largely derivable from data the spec
-   already carries.
-5. **G4/G5/G6** — the game proper, and the point at which "Luxel and the game are
-   built side by side" starts being literally true.
+1. **30+ fps presented.** Overlap CPU recording with GPU work across frames,
+   then profile and cut the GPU cost.
+2. **Skinned characters rendered on the GPU.** Without them nothing in the
+   world moves except the camera.
+3. **Rigid-body physics**, most likely from an existing library, behind the
+   existing kinematic seam.
+4. **Basic audio and UI**: positional sound effects, a HUD, a pause menu.
+5. **Live gameplay entities** on the GCS model, with runtime navigation for
+   NPCs.
 
-Items 3 and 4 are Luxel work and can proceed now, independent of the decisions in
-1 and 2. That is the useful observation from this audit: **the compiler can be
-taken meaningfully further toward a playable map before any game-side
-architecture is chosen.**
+None of these depends on finishing graphics parity, so the graphics and game
+tracks can alternate.
