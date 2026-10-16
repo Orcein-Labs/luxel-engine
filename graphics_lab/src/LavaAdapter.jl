@@ -58,6 +58,14 @@ struct MeshBatchResources
     instance_count::Int
 end
 
+struct MeshGeometryResources
+    positions::Lava.LavaArray{Vec4f,1}
+    normals::Lava.LavaArray{Vec4f,1}
+    uvs::Lava.LavaArray{Vec2f,1}
+    tangents::Lava.LavaArray{Vec4f,1}
+    vertex_count::Int
+end
+
 struct MeshVisibility
     instance_count::Int
     visible_instance_count::Int
@@ -309,6 +317,10 @@ mutable struct LavaBackend{MCVP,C,Q,PP,SP,SVP,TP,TLP,TWP,OP,MP,MCP,TXP,DP,TSP,MS
     # descriptor set every frame.
     reflection_mesh_resources::Union{Nothing,MeshResources}
     wet_terrain_bindings::Dict{Tuple{String,UInt},WetTerrainBindingResources}
+    # Expanded mesh streams, shared by every view cache. Keyed by mesh_id and valid
+    # for one packet content digest; a camera never changes them.
+    mesh_geometry_cache::Dict{String,MeshGeometryResources}
+    mesh_geometry_content_sha256::String
     # L-2a: alpha-mask meshes on a multisampled target write coverage.
     mesh_coverage_pipeline::MCVP
     mesh_coverage_compiled::Bool
@@ -3621,6 +3633,8 @@ function backend()::LavaBackend
             false,
             nothing,
             Dict{Tuple{String,UInt},WetTerrainBindingResources}(),
+            Dict{String,MeshGeometryResources}(),
+            "",
             mesh_coverage_pipeline,
             false,
             cascade_terrain_pipeline,
@@ -5955,6 +5969,51 @@ function _store_mesh_resources!(state::LavaBackend, cache::Symbol, resources::Me
     return resources
 end
 
+function _mesh_geometry!(state::LavaBackend, packet::LuxelGraphics.GraphicsScenePacket,
+                         mesh_packet::LuxelGraphics.MeshPacket)::MeshGeometryResources
+    if state.mesh_geometry_content_sha256 != packet.content_sha256
+        empty!(state.mesh_geometry_cache)
+        state.mesh_geometry_content_sha256 = packet.content_sha256
+    end
+    cached = get(state.mesh_geometry_cache, mesh_packet.mesh_id, nothing)
+    cached === nothing || return cached
+    positions = Vec4f[]
+    normals = Vec4f[]
+    uvs = Vec2f[]
+    tangents = Vec4f[]
+    for triangle_start in 1:3:length(mesh_packet.indices)
+        first_index = Int(mesh_packet.indices[triangle_start]) + 1
+        second_index = Int(mesh_packet.indices[triangle_start + 1]) + 1
+        third_index = Int(mesh_packet.indices[triangle_start + 2]) + 1
+        triangle_tangent = _mesh_triangle_tangent(
+            mesh_packet,
+            first_index,
+            second_index,
+            third_index,
+        )
+        for vertex in (first_index, second_index, third_index)
+            push!(positions, Vec4f(mesh_packet.positions_m[vertex]..., 0.0f0))
+            push!(normals, Vec4f(mesh_packet.normals[vertex]..., 0.0f0))
+            push!(uvs, Vec2f(mesh_packet.uv0[vertex]...))
+            push!(
+                tangents,
+                isempty(mesh_packet.tangents) ?
+                triangle_tangent :
+                Vec4f(mesh_packet.tangents[vertex]...),
+            )
+        end
+    end
+    gpu_positions = Lava.LavaArray{Vec4f,1}(positions; bq=state.queue)
+    gpu_normals = Lava.LavaArray{Vec4f,1}(normals; bq=state.queue)
+    gpu_uvs = Lava.LavaArray{Vec2f,1}(uvs; bq=state.queue)
+    gpu_tangents = Lava.LavaArray{Vec4f,1}(tangents; bq=state.queue)
+    state.upload_bytes += UInt64(sizeof(Vec4f) * (length(positions) + length(normals) + length(tangents)))
+    state.upload_bytes += UInt64(sizeof(Vec2f) * length(uvs))
+    geometry = MeshGeometryResources(gpu_positions, gpu_normals, gpu_uvs, gpu_tangents, length(positions))
+    state.mesh_geometry_cache[mesh_packet.mesh_id] = geometry
+    return geometry
+end
+
 function _mesh_resources!(
     state::LavaBackend,
     packet::LuxelGraphics.GraphicsScenePacket,
@@ -6013,38 +6072,9 @@ function _mesh_resources!(
             total_vertices += prior.vertex_count
             continue
         end
-        # Geometry is packet-owned; a camera changes instance membership, not
-        # mesh streams. Retain the old mesh buffers even when membership changes.
-        geometry_index = reusable ? findfirst(batch -> batch.mesh_id == mesh_id, current.batches) : nothing
-        geometry = geometry_index === nothing ? nothing : current.batches[geometry_index]
-        positions = Vec4f[]
-        normals = Vec4f[]
-        uvs = Vec2f[]
-        tangents = Vec4f[]
-        if geometry === nothing
-            for triangle_start in 1:3:length(mesh_packet.indices)
-                first_index = Int(mesh_packet.indices[triangle_start]) + 1
-                second_index = Int(mesh_packet.indices[triangle_start + 1]) + 1
-                third_index = Int(mesh_packet.indices[triangle_start + 2]) + 1
-                triangle_tangent = _mesh_triangle_tangent(
-                    mesh_packet,
-                    first_index,
-                    second_index,
-                    third_index,
-                )
-                for vertex in (first_index, second_index, third_index)
-                    push!(positions, Vec4f(mesh_packet.positions_m[vertex]..., 0.0f0))
-                    push!(normals, Vec4f(mesh_packet.normals[vertex]..., 0.0f0))
-                    push!(uvs, Vec2f(mesh_packet.uv0[vertex]...))
-                    push!(
-                        tangents,
-                        isempty(mesh_packet.tangents) ?
-                        triangle_tangent :
-                        Vec4f(mesh_packet.tangents[vertex]...),
-                    )
-                end
-            end
-        end
+        # Geometry comes from the packet-scoped cache, shared by every view cache;
+        # a camera changes instance membership, not mesh streams.
+        geometry = _mesh_geometry!(state, packet, mesh_packet)
         translations = Vec4f[
             Vec4f(instance.transform.translation_xyz_m..., 0.0f0) for instance in batch_instances
         ]
@@ -6076,10 +6106,6 @@ function _mesh_resources!(
             # texture's BLUE channel (glTF packing), 1 = factor only.
             Vec4f(material.emissive_factor_rgb..., material.metallic_from_texture ? 2.0f0 : 1.0f0) for _ in batch_instances
         ]
-        gpu_positions = geometry === nothing ? Lava.LavaArray{Vec4f,1}(positions; bq=state.queue) : geometry.positions
-        gpu_normals = geometry === nothing ? Lava.LavaArray{Vec4f,1}(normals; bq=state.queue) : geometry.normals
-        gpu_uvs = geometry === nothing ? Lava.LavaArray{Vec2f,1}(uvs; bq=state.queue) : geometry.uvs
-        gpu_tangents = geometry === nothing ? Lava.LavaArray{Vec4f,1}(tangents; bq=state.queue) : geometry.tangents
         gpu_translations = Lava.LavaArray{Vec4f,1}(translations; bq=state.queue)
         gpu_rotations = Lava.LavaArray{Vec4f,1}(rotations; bq=state.queue)
         gpu_scales = Lava.LavaArray{Vec4f,1}(scales; bq=state.queue)
@@ -6089,23 +6115,22 @@ function _mesh_resources!(
         gpu_emissive_parameters = Lava.LavaArray{Vec4f,1}(emissive_parameters; bq=state.queue)
         state.upload_bytes += UInt64(
             sizeof(Vec4f) *
-                ((geometry === nothing ? length(positions) + length(normals) + length(tangents) : 0) + length(translations) +
+                (length(translations) +
                 length(rotations) + length(scales) + length(colors) +
                 length(material_parameters) + length(surface_parameters) +
                 length(emissive_parameters)),
         )
-        state.upload_bytes += UInt64(sizeof(Vec2f) * (geometry === nothing ? length(uvs) : 0))
-        vertex_count = geometry === nothing ? length(positions) : geometry.vertex_count
+        vertex_count = geometry.vertex_count
         push!(
             batches,
             MeshBatchResources(
                 mesh_id,
                 material.material_id,
                 instance_ids,
-                gpu_positions,
-                gpu_normals,
-                gpu_uvs,
-                gpu_tangents,
+                geometry.positions,
+                geometry.normals,
+                geometry.uvs,
+                geometry.tangents,
                 gpu_translations,
                 gpu_rotations,
                 gpu_scales,

@@ -100,6 +100,7 @@ end
 function camera_test_clear_view!(state)
     state.mesh_resources = nothing
     state.reflection_mesh_resources = nothing
+    empty!(state.mesh_geometry_cache)
     state.overlay_resources = nothing
 end
 
