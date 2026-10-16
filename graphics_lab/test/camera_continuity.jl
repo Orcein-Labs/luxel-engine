@@ -63,6 +63,18 @@ include(joinpath(@__DIR__, "support", "camera_fixture.jl"))
     @test only(reflection_b.batches).positions === only(reflection_a.batches).positions
     @test LavaAdapter._mesh_resources!(state, packet_a, frame_b; cache=:reflection) === reflection_b
 
+    # Mesh streams are packet-scoped: the main and reflection caches share them.
+    main_a = LavaAdapter._mesh_resources!(state, packet_a, frame_a; cache=:main)
+    reflection_c = LavaAdapter._mesh_resources!(state, packet_a, frame_b; cache=:reflection)
+    @test only(reflection_c.batches).positions === only(main_a.batches).positions
+    # With the packet's geometry warm, a main-cache rebuild uploads only the
+    # per-instance streams: 7 Vec4f arrays of one instance each.
+    state.mesh_resources = nothing
+    upload_before = state.upload_bytes
+    main_b = LavaAdapter._mesh_resources!(state, packet_a, frame_b; cache=:main)
+    @test main_b.visible_instance_ids == ["instance-40.0"]
+    @test state.upload_bytes - upload_before == 7 * sizeof(LavaAdapter.Vec4f) * 1
+
     # A new packet identity invalidates every mesh stream even if IDs and view
     # membership match. Authority rejects unsealed source changes upstream.
     original_mesh = only(packet_a.meshes)

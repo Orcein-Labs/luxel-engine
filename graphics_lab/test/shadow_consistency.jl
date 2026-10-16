@@ -146,6 +146,7 @@ end
             # Force cold view resources while preserving the same packet data.
             state.mesh_resources = nothing
             state.reflection_mesh_resources = nothing
+            empty!(state.mesh_geometry_cache)
             state.overlay_resources = nothing
             state.shadow_resources = nothing
             # The material descriptor embeds the shadow texture handle. Rebuild
