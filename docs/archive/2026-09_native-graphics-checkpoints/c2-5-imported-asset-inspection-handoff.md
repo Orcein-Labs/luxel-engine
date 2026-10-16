@@ -30,7 +30,7 @@ or a complete game renderer.
 GPU proof:
 
 ```sh
-LUXEL_C2_4_CAPTURE_DIR=/home/mattc/Pictures/Luxel/c2.5-imported-asset \
+LUXEL_C2_4_CAPTURE_DIR=~/Pictures/Luxel/c2.5-imported-asset \
 cargo test --manifest-path world_core/Cargo.toml --offline \
   --package luxel-native-graphics-contract \
   --test real_asset_composition -- --ignored --nocapture
@@ -80,12 +80,12 @@ substituted for the close evidence.
 
 Bundle:
 
-`/home/mattc/Pictures/Luxel/c2.5-imported-asset/`
+`~/Pictures/Luxel/c2.5-imported-asset/`
 
 Visual captures:
 
-- [close inspection](</home/mattc/Pictures/Luxel/c2.5-imported-asset/native_capture.png>)
-- [context composition](</home/mattc/Pictures/Luxel/c2.5-imported-asset/context_capture.png>)
+- [close inspection](<~/Pictures/Luxel/c2.5-imported-asset/native_capture.png>)
+- [context composition](<~/Pictures/Luxel/c2.5-imported-asset/context_capture.png>)
 
 The known-good source fixture is the five-mesh assembled log hut:
 `sha256:9560590b27ca1b847cc4b96f7659e99acf5b8fb18622e80ef0b4c2ae7ffd068f`.

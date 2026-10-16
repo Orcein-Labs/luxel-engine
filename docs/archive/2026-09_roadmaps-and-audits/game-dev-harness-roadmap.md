@@ -350,7 +350,7 @@ The first real content-pipeline test asset is the user-provided GLB:
 
 Source path:
 
-    /home/mattc/Pictures/Generated 2D Images/sample_2026-09-26T091412.074.glb
+    ~/Pictures/Generated 2D Images/sample_2026-09-26T091412.074.glb
 
 Recorded intake facts:
 

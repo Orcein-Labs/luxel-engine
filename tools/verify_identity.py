@@ -21,11 +21,12 @@ Exit status 0 only when every compared frame is identical.
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-JULIA = "/home/mattc/.juliaup/bin/julia"
+JULIA = os.environ.get("LUXEL_JULIA") or shutil.which("julia") or "julia"
 LAYOUT = "world_core/crates/reference_runtime/examples/riverwatch.layout.json"
 WORKER = "graphics_lab/bin/luxel_graphics_worker.jl"
 

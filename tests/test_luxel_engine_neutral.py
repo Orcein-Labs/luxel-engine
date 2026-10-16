@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import json
 import shutil
 import subprocess
@@ -18,7 +19,12 @@ ALPINE = ROOT.parent / "Game Projects/Codeweald/godot_renderer/concept_batches/c
 BRIEF = ALPINE / "vision_annotation_task.md"
 CONCEPT = ALPINE / "source/overview.png"
 LAYOUT = ROOT / "world_core/crates/reference_runtime/examples/riverwatch.layout.json"
-BAD_GLB = Path("/home/mattc/Pictures/Generated 2D Images/sample_2026-09-26T091412.074.glb")
+BAD_GLB = Path(
+    os.environ.get(
+        "LUXEL_NEGATIVE_CONTROL_GLB",
+        ROOT / "research/2026-10-15_external-test-inputs/sample_2026-09-26T091412.074.glb",
+    )
+)
 
 
 def digest(data: bytes) -> str:

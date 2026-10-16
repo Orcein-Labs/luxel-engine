@@ -387,7 +387,7 @@ independently revalidates the runtime/render receipts, recomposes the exact
 bound packet, promotes the Lava capture through Rust authority, restarts the
 worker, and proves byte-identical capture plus deterministic certification
 receipt replay. The saved 640x480 capture bundle is under
-`/home/mattc/Pictures/Luxel/c2.4-real-asset/`. This closes the permanent static
+`~/Pictures/Luxel/c2.4-real-asset/`. This closes the permanent static
 asset C2.4 integration slice.
 
 #### C2.5 — Imported-asset authored inspection fidelity
@@ -402,7 +402,7 @@ Rust derives a deterministic
 promotion. The GPU proof renders a context frame and close frame, restarts the
 worker, repeats the warm-up context frame, and replays the close frame with
 byte-identical capture and deterministic receipt. Evidence is preserved in
-`/home/mattc/Pictures/Luxel/c2.5-imported-asset/`; the checkpoint is
+`~/Pictures/Luxel/c2.5-imported-asset/`; the checkpoint is
 `docs/archive/2026-09_native-graphics-checkpoints/c2-5-imported-asset-inspection-handoff.md`.
 
 This closes technical imported-asset inspection, not production asset quality:

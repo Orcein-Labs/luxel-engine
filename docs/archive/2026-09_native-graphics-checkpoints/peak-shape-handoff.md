@@ -30,7 +30,7 @@ comparison is not part of the Luxel certification scope.
 
 ### Closed / permanent negative control — the supplied GLB is not a rigging input
 
-`/home/mattc/Pictures/Generated 2D Images/sample_2026-09-26T091412.074.glb`
+`~/Pictures/Generated 2D Images/sample_2026-09-26T091412.074.glb`
 
 - 13,980,532 bytes; SHA-256
   `858fa104880822d081405579fb5b39d533d3b3b341d38aa1490a44b634f5e2b4`.

@@ -45,13 +45,13 @@ the terrain-coverage requirement by relabeling themselves as terrain.
 
 This is a deterministic technical floor, not an aesthetic, AAA, or imported
 hero-asset claim. The visual artifact is preserved under
-`/home/mattc/Pictures/Luxel/native-world-showcase-certified-2026-09-29.png`.
+`~/Pictures/Luxel/native-world-showcase-certified-2026-09-29.png`.
 
 The same profile was then run against the distinct non-fixture
 `cedar_saddle_relay` layout. It passed with `2,571 bp` terrain coverage,
 `3,255 bp` combined content coverage, `529 bp` spatial edges, `28/314`
 luminance/RGB bins, and `33/64` varied tiles. The capture is preserved at
-`/home/mattc/Pictures/Luxel/cedar-world-showcase-certified-2026-09-29.png`.
+`~/Pictures/Luxel/cedar-world-showcase-certified-2026-09-29.png`.
 
 ## Campaign 2 authored-frame measurement
 
@@ -62,7 +62,7 @@ the same Riverwatch input. `live-twelfth` is the final current-binary run and
 ```text
 world_core/target/debug/luxel-native-graphics-contract render-campaign2-layout \
   world_core/crates/reference_runtime/examples/riverwatch.layout.json \
-  /home/mattc/.juliaup/bin/julia terrain_lab graphics_lab \
+  julia terrain_lab graphics_lab \
   graphics_lab/bin/luxel_graphics_worker.jl artifacts/campaign2/live-twelfth
 ```
 
@@ -99,7 +99,7 @@ non-deterministic runtime receipt/timing identity. This is recorded rather than
 folded into deterministic provenance.
 
 The final PNG/PPM/evidence bundle is available at
-`/home/mattc/Pictures/Luxel/campaign2-2026-09-29/`. This campaign did not add an
+`~/Pictures/Luxel/campaign2-2026-09-29/`. This campaign did not add an
 external-engine comparison gate.
 
 ## Current adapter-v6 close sample
@@ -294,50 +294,50 @@ cargo run -q -p luxel-reference-runtime -- verify \
 
 cargo run -q -p luxel-native-graphics-contract -- render-layout \
   crates/reference_runtime/examples/riverwatch.layout.json \
-  /home/mattc/.juliaup/bin/julia \
-  "/mnt/d/Code Projects/luxel-engine/terrain_lab" \
-  "/mnt/d/Code Projects/luxel-engine/graphics_lab" \
-  "/mnt/d/Code Projects/luxel-engine/graphics_lab/bin/luxel_graphics_worker.jl" \
+  julia \
+  "$PWD/terrain_lab" \
+  "$PWD/graphics_lab" \
+  "$PWD/graphics_lab/bin/luxel_graphics_worker.jl" \
   /tmp/luxel-riverwatch-native.ppm
 
 cargo run -q -p luxel-native-graphics-contract -- render-close-layout \
   crates/reference_runtime/examples/riverwatch.layout.json \
-  /home/mattc/.juliaup/bin/julia \
-  "/mnt/d/Code Projects/luxel-engine/terrain_lab" \
-  "/mnt/d/Code Projects/luxel-engine/graphics_lab" \
-  "/mnt/d/Code Projects/luxel-engine/graphics_lab/bin/luxel_graphics_worker.jl" \
+  julia \
+  "$PWD/terrain_lab" \
+  "$PWD/graphics_lab" \
+  "$PWD/graphics_lab/bin/luxel_graphics_worker.jl" \
   /tmp/luxel-riverwatch-objective-close.ppm
 
 cargo run -q -p luxel-native-graphics-contract -- render-showcase-layout \
   crates/reference_runtime/examples/riverwatch.layout.json \
-  /home/mattc/.juliaup/bin/julia \
-  "/mnt/d/Code Projects/luxel-engine/terrain_lab" \
-  "/mnt/d/Code Projects/luxel-engine/graphics_lab" \
-  "/mnt/d/Code Projects/luxel-engine/graphics_lab/bin/luxel_graphics_worker.jl" \
+  julia \
+  "$PWD/terrain_lab" \
+  "$PWD/graphics_lab" \
+  "$PWD/graphics_lab/bin/luxel_graphics_worker.jl" \
   /tmp/luxel-riverwatch-native-showcase.ppm
 
 cargo run -q -p luxel-native-graphics-contract -- render-world-showcase-layout \
   crates/reference_runtime/examples/riverwatch.layout.json \
-  /home/mattc/.juliaup/bin/julia \
-  "/mnt/d/Code Projects/luxel-engine/terrain_lab" \
-  "/mnt/d/Code Projects/luxel-engine/graphics_lab" \
-  "/mnt/d/Code Projects/luxel-engine/graphics_lab/bin/luxel_graphics_worker.jl" \
+  julia \
+  "$PWD/terrain_lab" \
+  "$PWD/graphics_lab" \
+  "$PWD/graphics_lab/bin/luxel_graphics_worker.jl" \
   /tmp/luxel-riverwatch-native-world-showcase.ppm
 
 cargo run -q -p luxel-native-graphics-contract -- benchmark-layout \
   crates/reference_runtime/examples/riverwatch.layout.json \
-  /home/mattc/.juliaup/bin/julia \
-  "/mnt/d/Code Projects/luxel-engine/terrain_lab" \
-  "/mnt/d/Code Projects/luxel-engine/graphics_lab" \
-  "/mnt/d/Code Projects/luxel-engine/graphics_lab/bin/luxel_graphics_worker.jl" \
+  julia \
+  "$PWD/terrain_lab" \
+  "$PWD/graphics_lab" \
+  "$PWD/graphics_lab/bin/luxel_graphics_worker.jl" \
   30
 
 cargo run -q -p luxel-native-graphics-contract -- benchmark-dense-layout \
   crates/reference_runtime/examples/riverwatch.layout.json \
-  /home/mattc/.juliaup/bin/julia \
-  "/mnt/d/Code Projects/luxel-engine/terrain_lab" \
-  "/mnt/d/Code Projects/luxel-engine/graphics_lab" \
-  "/mnt/d/Code Projects/luxel-engine/graphics_lab/bin/luxel_graphics_worker.jl" \
+  julia \
+  "$PWD/terrain_lab" \
+  "$PWD/graphics_lab" \
+  "$PWD/graphics_lab/bin/luxel_graphics_worker.jl" \
   2 512
 ```
 

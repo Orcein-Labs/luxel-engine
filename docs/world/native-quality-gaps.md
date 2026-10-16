@@ -40,7 +40,7 @@ payload was single-level; C2.7 provides the versioned authority-side chain
 representation and C2.8 closes GPU residency with a sampler LOD span. The
 close/context
 captures and their receipts are preserved in
-`/home/mattc/Pictures/Luxel/c2.5-imported-asset/`.
+`~/Pictures/Luxel/c2.5-imported-asset/`.
 
 This is a technical inspection closure, not a visual-quality closure. The hut
 is still framed inside the calibration shrine, and the next visual frontier is

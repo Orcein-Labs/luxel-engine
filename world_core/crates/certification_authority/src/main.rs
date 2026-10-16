@@ -4,8 +4,6 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
-use serde::Deserialize;
-use serde_json::{Value, json};
 use luxel_certification_authority::{
     ArtifactBytes, CandidateContext, GateRequirement, MAX_ARTIFACT_BYTES, MAX_CANDIDATES,
     MAX_ENVELOPE_BYTES, MAX_RECEIPTS, MAX_TOTAL_ARTIFACT_BYTES, REQUEST_SCHEMA, ReceiptEnvelope,
@@ -15,6 +13,8 @@ use luxel_certification_authority::{
     sha256_prefixed, validate_candidate_identity, validate_request,
 };
 use luxel_intake_repair_contract as repair_contract;
+use serde::Deserialize;
+use serde_json::{Value, json};
 
 const MAX_REQUEST_FILE_BYTES: u64 = 16 * 1024 * 1024;
 

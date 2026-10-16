@@ -18,7 +18,7 @@ The final command was:
 ```text
 world_core/target/debug/luxel-native-graphics-contract render-campaign2-layout \
   world_core/crates/reference_runtime/examples/riverwatch.layout.json \
-  /home/mattc/.juliaup/bin/julia terrain_lab graphics_lab \
+  julia terrain_lab graphics_lab \
   graphics_lab/bin/luxel_graphics_worker.jl artifacts/campaign2/live-twelfth
 ```
 
@@ -214,7 +214,7 @@ or broad post-campaign features from this report.
 - clean replay: `artifacts/campaign2/live-eleventh/`;
 - prior campaign iteration: `artifacts/campaign2/live-tenth/`;
 - screenshots and handoff copies:
-  `/home/mattc/Pictures/Luxel/campaign2-2026-09-29/`;
+  `~/Pictures/Luxel/campaign2-2026-09-29/`;
 - baseline freeze: `artifacts/campaign2/CAMPAIGN2_BASELINE.md`;
 - architecture: `docs/platform/native-graphics-architecture.md`;
 - benchmark: `docs/world/native-graphics-benchmark.md`;

@@ -16,6 +16,10 @@ from pathlib import Path
 from pipeline import luxel_mvp
 
 
+@unittest.skipUnless(
+    luxel_mvp.DEFAULT_CONCEPT.is_file() and luxel_mvp.DEFAULT_ASSET.is_file(),
+    "the external MVP concept sheet and hero GLB are unavailable",
+)
 class LuxelMvpOrchestrationTests(unittest.TestCase):
     def test_fixture_candidate_validates_but_cannot_claim_unity(self) -> None:
         with tempfile.TemporaryDirectory(prefix="luxel-mvp-test-") as temporary:
