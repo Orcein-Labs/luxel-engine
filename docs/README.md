@@ -7,6 +7,8 @@ Start with [roadmap.md](roadmap.md). For the October 12 continuation, read the
 [camera continuity contract](world/converge/2026-10-12-camera-continuity.md), followed by
 [camera-relative shadows](world/converge/2026-10-12-shadow-continuity.md) and
 [resolution attribution](world/converge/2026-10-12-crispness-attribution.md).
+For what the engine does not have yet, and the shortest path to a playable
+prototype, see the [missing inventory](platform/missing-inventory.md).
 The engine's name and the internal `luxel` prefix: [adr/0001-luxel-engine-name.md](adr/0001-luxel-engine-name.md). Docs are filed by roadmap layer; closed
 handoffs and reports live in `archive/`, bundled by month and topic, each with
 a `SUMMARY.md`.
