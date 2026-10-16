@@ -141,7 +141,8 @@ include(joinpath(@__DIR__, "support", "camera_fixture.jl"))
             @test result.frames_presented == 2
             if present == :auto && state.gpu_timestamp_supported
                 for key in ("gpu_frame", "gpu_shadow", "gpu_reflection", "gpu_prepare",
-                            "gpu_scene_raster", "gpu_resolve", "gpu_overlay", "gpu_present_blit")
+                            "gpu_scene_raster", "gpu_scene_sky", "gpu_scene_terrain", "gpu_scene_meshes",
+                            "gpu_resolve", "gpu_overlay", "gpu_present_blit")
                     @test haskey(result.stage_times_us, key)
                     @test length(result.stage_times_us[key]) == result.frames_presented
                 end
