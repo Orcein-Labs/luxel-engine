@@ -11,10 +11,12 @@
 |---|---|---|
 | `lava-0001-fragment-discard.patch` | `Lava.discard()`: a fragment-stage block terminator emitted as SPIR-V `OpKill` | Alpha-mask materials (CONVERGE-2 N-6). Upstream has no discard. |
 | `lava-0002-multisample.patch` | Multisampled offscreen targets (`LavaFramebuffer(samples=)`, drawn into an MSAA image and resolved by average into the readable one), `GraphicsPipeline(alpha_to_coverage=)`, and `alphaToOne` enabled at device creation when supported | Alpha-to-coverage foliage (CONVERGE-3 L-2a). Upstream renders single-sample only. Single-sample pipelines, framebuffers and cache keys are exactly upstream's. |
+| `lava-0003-draw-resolve.patch` | `draw!(...; resolve=false)` on an offscreen target skips the multisample resolve for that draw | One resolve per scene pass instead of one per draw (985600e). The default `resolve=true` is upstream's behaviour. |
 
 The patches only add code. A shader that does not call `discard()` compiles
-to the same SPIR-V as upstream, and a single-sample target creates the same
-pipelines and images as upstream, so `LAVA_REVISION` stays the base commit.
+to the same SPIR-V as upstream, a single-sample target creates the same
+pipelines and images as upstream, and `draw!` without `resolve=` resolves as
+upstream does, so `LAVA_REVISION` stays the base commit.
 
 To verify: check out upstream at the commit above, copy `src/` over a clean
 directory, apply the patches with `patch -p1`, and `diff -r` against
