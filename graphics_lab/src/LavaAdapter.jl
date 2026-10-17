@@ -7924,7 +7924,13 @@ function render_window_frames!(
             present_data = _present_pixel_data(pixels, width, height, window_width, window_height)
             stage_ns = stage!("convert", stage_ns)
             Lava.upload!(present_array, present_data)
-            Lava.blit!(state.queue, Lava.WindowTarget(session.window), present_array; clear=false)
+            # `clear=true`, not `clear=false`: a just-acquired swapchain image is
+            # in PRESENT_SRC_KHR (UNDEFINED after a recreate), and a load-mode
+            # draw records its transition from COLOR_ATTACHMENT_OPTIMAL
+            # (VUID-vkCmdBeginRendering-pRenderingInfo-09592). The clear path
+            # transitions from UNDEFINED; the opaque fullscreen blit then covers
+            # every pixel, so the clear never shows.
+            Lava.blit!(state.queue, Lava.WindowTarget(session.window), present_array; clear=true)
             state.draw_calls += 1
             stage_ns = stage!("upload_blit", stage_ns)
 
