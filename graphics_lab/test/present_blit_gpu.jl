@@ -140,13 +140,31 @@ include(joinpath(@__DIR__, "support", "camera_fixture.jl"))
             result = LavaAdapter.render_window_frames!(state, packet, nothing, 2; present)
             @test result.frames_presented == 2
             if present == :auto && state.gpu_timestamp_supported
+                # Frames overlap, so a frame is timed only while no timed frame is
+                # in flight, and its report arrives with the next frame: two frames
+                # carry one report.
                 for key in ("gpu_frame", "gpu_shadow", "gpu_reflection", "gpu_prepare",
                             "gpu_scene_raster", "gpu_scene_sky", "gpu_scene_terrain", "gpu_scene_meshes",
                             "gpu_resolve", "gpu_overlay", "gpu_present_blit")
                     @test haskey(result.stage_times_us, key)
-                    @test length(result.stage_times_us[key]) == result.frames_presented
+                    @test length(result.stage_times_us[key]) == 1
                 end
                 @test all(>(0), result.stage_times_us["gpu_frame"])
+                # The last frame was timed and is still in flight; an offscreen
+                # render drains it before reusing the timestamp pool.
+                session = LavaAdapter.WINDOW_SESSION_REF[]
+                @test session.pending_signal != 0
+                @test session.pending_timing_slot isa Int
+                LavaAdapter.render_scene(packet, state)
+                @test session.pending_signal == 0
+                @test session.pending_timing_slot === nothing
+                four = LavaAdapter.render_window_frames!(state, packet, nothing, 4)
+                @test length(four.stage_times_us["gpu_frame"]) == 2
+                @test all(>(0), four.stage_times_us["gpu_frame"])
+                # The probes drain the in-flight frame too.
+                @test session.pending_signal != 0
+                LavaAdapter.render_probe(16, 16, state)
+                @test session.pending_signal == 0
             end
         end
         @info "resized window" camera = (width, height) window = size(window)

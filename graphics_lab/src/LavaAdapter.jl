@@ -3898,6 +3898,7 @@ function render_probe(
     state::LavaBackend=backend(),
 )
     width, height = _validate_dimensions(width_px, height_px)
+    _drain_window_frame!(state)
     draw_calls_start = state.draw_calls
     readback_bytes_start = state.readback_bytes
     pipeline_compilations_start = state.pipeline_compilations
@@ -3937,6 +3938,7 @@ function render_probe(
 end
 
 function render_depth_probe(state::LavaBackend=backend())
+    _drain_window_frame!(state)
     width, height = (16, 16)
     framebuffer = _framebuffer!(state, width, height, true)
     target = OffscreenTarget(framebuffer)
@@ -4740,6 +4742,7 @@ function _material_texture_enabled(material::LuxelGraphics.MaterialPacket)::Floa
 end
 
 function render_texture_probe(state::LavaBackend=backend())
+    _drain_window_frame!(state)
     resource = _texture_resources!(state)
     width, height = (16, 16)
     framebuffer = _framebuffer!(state, width, height, false)
@@ -6755,6 +6758,7 @@ function render_scene(
     packet::LuxelGraphics.GraphicsScenePacket,
     state::LavaBackend=backend(),
 )
+    _drain_window_frame!(state)
     gpu_timing_slot = _begin_gpu_frame_timing(state)
     try
         return _render_scene(packet, state, gpu_timing_slot)
@@ -7453,6 +7457,11 @@ mutable struct WindowSession
     present_pixels::Union{Nothing,Lava.LavaArray{Vec4f,1}}
     present_width::Int
     present_height::Int
+    # The presented frame still running on the GPU: its batch's timeline value
+    # (0 when none) and, if it was timed, its frame timing slot. The next frame
+    # records while it runs; see `_drain_window_frame!`.
+    pending_signal::UInt64
+    pending_timing_slot::Union{Nothing,Int}
 end
 
 const WINDOW_SESSION_REF = Ref{Union{Nothing,WindowSession}}(nothing)
@@ -7522,7 +7531,7 @@ function open_window_session(
         vsync=vsync,
         ctx=state.context,
     )
-    session = WindowSession(window, UInt64(0), nothing, 0, 0)
+    session = WindowSession(window, UInt64(0), nothing, 0, 0, UInt64(0), nothing)
     WINDOW_SESSION_REF[] = session
     win_width, win_height = size(window)
     return (
@@ -7537,9 +7546,44 @@ reported honestly rather than treated as a fault."""
 function close_window_session!(state::LavaBackend)
     session = WINDOW_SESSION_REF[]
     session === nothing && return (closed=false, presented_frames=UInt64(0))
-    WINDOW_SESSION_REF[] = nothing
-    Lava.close(session.window)
+    try
+        _drain_window_frame!(state, session)
+    finally
+        WINDOW_SESSION_REF[] = nothing
+        Lava.close(session.window)
+    end
     return (closed=true, presented_frames=session.presented_frames)
+end
+
+"""Wait for the presented frame still running on the GPU, if any, and return
+its GPU timing reports when it was timed (otherwise `nothing`). Work outside the
+presented loop drains first: the frame's timing report shares the one timestamp
+pool, and only the loop's own frames start with the barrier that orders them
+after it."""
+_drain_window_frame!(state::LavaBackend) = _drain_window_frame!(state, WINDOW_SESSION_REF[])
+_drain_window_frame!(::LavaBackend, ::Nothing) = nothing
+
+function _drain_window_frame!(state::LavaBackend, session::WindowSession)
+    signal = session.pending_signal
+    signal == 0 && return nothing
+    timing_slot = session.pending_timing_slot
+    session.pending_signal = UInt64(0)
+    session.pending_timing_slot = nothing
+    Lava.wait_semaphores!(state.queue, Vulkan.SemaphoreWaitInfo([state.queue.timeline_sem], [signal]))
+    return _read_gpu_timing_reports(state, timing_slot)
+end
+
+"""Record a full memory barrier on the active batch, so every command recorded
+after it waits for every command submitted before it. A presented frame records
+while the previous one still runs; this keeps the GPU order a CPU wait gave."""
+function _record_frame_barrier!(state::LavaBackend)
+    batch = Lava.ensure_active_batch!(state.queue)
+    Vulkan.cmd_pipeline_barrier(batch.cmd_buf,
+        [Vulkan.MemoryBarrier(; src_access_mask=Vulkan.ACCESS_MEMORY_WRITE_BIT,
+            dst_access_mask=Vulkan.ACCESS_MEMORY_READ_BIT | Vulkan.ACCESS_MEMORY_WRITE_BIT)], [], [];
+        src_stage_mask=Vulkan.PIPELINE_STAGE_ALL_COMMANDS_BIT,
+        dst_stage_mask=Vulkan.PIPELINE_STAGE_ALL_COMMANDS_BIT)
+    return nothing
 end
 
 function _window_session(state::LavaBackend)::WindowSession
@@ -7762,19 +7806,20 @@ function render_window_frames!(
             ))
             break
         end
-        gpu_slot = _begin_gpu_frame_timing(state)
+        # Frames overlap: this one records while the GPU still runs the previous
+        # one, and the barrier comes first so the frame timestamp after it does
+        # not count the previous frame's work. The timestamp pool holds one
+        # frame, so a frame is timed only when no timed frame is in flight:
+        # presented frames alternate, and a timed frame's report is read when
+        # the next frame waits for it.
+        _record_frame_barrier!(state)
+        gpu_slot = session.pending_timing_slot === nothing ? _begin_gpu_frame_timing(state) : nothing
         try
             active_camera = camera_override === nothing ? packet.camera : camera_override
             width, height = _validate_dimensions(active_camera.width_px, active_camera.height_px)
             camera_frame = _camera_frame(active_camera)
 
             stage_ns = time_ns()
-            Lava.acquire_next_image!(session.window)
-            # The window is resizable and the compositor may resize it on its own,
-            # so the swapchain extent is read only after acquire has synced it. The
-            # scene renders at the camera extent and is scaled into the window.
-            window_width, window_height = size(session.window)
-            stage_ns = stage!("acquire", stage_ns)
             render_width = 2 * width
             render_height = 2 * height
             scene_framebuffer = _framebuffer!(state, render_width, render_height, true, :scene_hdr; samples=_scene_samples(packet))
@@ -7808,10 +7853,19 @@ function render_window_frames!(
             capture = composite.capture_framebuffer
             if present == :auto && _gpu_present_supported(state, capture.color_format, session.window.format)
                 # GPU present: the scene and composite go in their own submit, so
-                # only the blit batch waits on the swapchain acquire. The frame
-                # then waits for its batch, as the readback path did, because the
-                # next frame rewrites resources this one reads.
+                # only the blit batch waits on the swapchain acquire. The CPU then
+                # waits for the previous frame, not this one, and returns with
+                # this one in flight; the next frame's barrier orders the GPU.
                 Lava.submit!(state.queue)
+                record_gpu_stage_times!(_drain_window_frame!(state, session))
+                stage_ns = stage!("previous_frame_wait", stage_ns)
+                Lava.acquire_next_image!(session.window)
+                # The window is resizable and the compositor may resize it on its
+                # own, so the swapchain extent is read only after acquire has
+                # synced it. The scene renders at the camera extent and is scaled
+                # into the window.
+                window_width, window_height = size(session.window)
+                stage_ns = stage!("acquire", stage_ns)
                 batch = Lava.ensure_active_batch!(state.queue)
                 present_blit_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.present_blit)
                 _blit_color_image!(batch.cmd_buf, capture, session.window.images[session.window.current_image_idx+1],
@@ -7824,9 +7878,9 @@ function render_window_frames!(
                 state.draw_calls += 1
                 stage_ns = stage!("blit_record", stage_ns)
                 Lava.present_frame!(state.queue, session.window)
-                Lava.wait_semaphores!(state.queue, Vulkan.SemaphoreWaitInfo([state.queue.timeline_sem], [signal]))
-                stage!("present_wait", stage_ns)
-                record_gpu_stage_times!(_read_gpu_timing_reports(state, gpu_slot))
+                session.pending_signal = signal
+                session.pending_timing_slot = gpu_slot
+                stage!("present", stage_ns)
                 session.presented_frames += UInt64(1)
                 presented += 1
                 push!(frame_times_us, Int(_elapsed_us(frame_started_ns)))
@@ -7840,7 +7894,12 @@ function render_window_frames!(
             # flushes the scene batch, which carries no swapchain writes; the
             # upload opens the next batch and `present_frame!` submits it with the
             # acquire-semaphore wait, so the mid-frame readback hazard does not
-            # apply to this ordering.
+            # apply to this ordering. The readback waits only for in-flight
+            # batches, so the previous frame's present batch is drained first.
+            record_gpu_stage_times!(_drain_window_frame!(state, session))
+            Lava.acquire_next_image!(session.window)
+            window_width, window_height = size(session.window)
+            stage_ns = stage!("acquire", stage_ns)
             _end_gpu_frame_timing!(state, gpu_slot)
             pixels = readback_framebuffer(capture)
             record_gpu_stage_times!(_read_gpu_timing_reports(state, gpu_slot))

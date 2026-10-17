@@ -9,6 +9,11 @@ did it:
 2. Keeping the scene packet resident in the worker.
 3. Presenting with a GPU image blit instead of a CPU readback.
 
+Four later fixes, each pixel-neutral, brought the still close view to
+21–23 fps (from 13.6) and the moving camera to 10.8–12.7 fps (from 7.6). See
+[Fix 1](#fix-1-share-mesh-geometry-across-view-caches) through
+[Fix 4](#fix-4-record-the-next-frame-while-the-gpu-runs-the-last-one).
+
 The scenes still look the same. Offscreen, the 18 parity frames render
 byte-identical with and without these changes. The frozen references
 themselves have drifted from current code for an unrelated reason; see
@@ -141,7 +146,9 @@ decision and is not part of this change.
 Presented frames now report GPU timestamp intervals per pass next to the CPU
 stage times (`gpu_frame`, `gpu_shadow`, `gpu_reflection`, `gpu_prepare`,
 `gpu_scene_raster`, `gpu_resolve`, `gpu_overlay`, `gpu_present_blit`). A pass
-that did not run in a frame reports 0.
+that did not run in a frame reports 0. The `present_wait` stage in the tables
+below and in the results table above existed until fix 4, which replaced it
+with `previous_frame_wait`.
 
 The benchmark also has a moving-camera mode. `LUXEL_PRESENT_MOTION=pan`
 yaws the camera up to 15° and slides it up to 4 m. It sends one
@@ -293,27 +300,75 @@ On the close pan:
 On the close still view, `main_prepare` went from 3.3 ms to 0.4 ms, and
 `scene_record` from 27 ms to 15 ms.
 
+## Fix 4: record the next frame while the GPU runs the last one
+
+- **Old behaviour:** each presented frame waited on its own GPU work before
+  returning (`present_wait`, 39–50 ms). The CPU then recorded the next frame
+  while the GPU sat idle.
+- **Fix:** a presented frame now returns as soon as it is submitted. The window
+  session keeps its timeline value. The next frame:
+  1. records a full memory barrier, so its GPU work starts only after the
+     previous frame's;
+  2. records its scene;
+  3. waits for the previous frame (`previous_frame_wait`), then acquires the
+     swapchain image (`acquire`), records the blit (`blit_record`) and presents
+     (`present`).
+- **Other entry points drain first:** `render_scene`, the three probes,
+  `capture_scene_depth` and `close_window_session!` all wait for the frame in
+  flight before they reuse its resources.
+- **Timing is now every other frame.** All frames share one timestamp pool. A
+  frame is timed only when no timed frame is still in flight, and its report
+  arrives with the next frame. A 30-frame run therefore has 15 `gpu_*` samples.
+- **Pixels:** the 18 parity frames match the fix 3 digests, 18/18.
+- **Tests:** `present_blit_gpu.jl` checks the alternate-frame report counts. It
+  also checks that `render_scene` and `render_probe` clear the in-flight frame.
+- **Not checked:** Vulkan sync validation. The Khronos validation layer is not
+  installed on the benchmark machine.
+
+p50 in ms, fix 3 → fix 4. Batch fps is frames over the whole run's wall time,
+so it is the honest throughput number. Two fix 4 runs gave these ranges:
+
+| View | Still frame | Still batch fps | Pan frame | Pan batch fps |
+|---|---|---|---|---|
+| close | 54.5 → 43.6–45.6 | 17.7 → 21.4–23.2 | 80.7 → 65.2–66.4 | 11.0 → 10.8–12.7 |
+| medium | 64.8 → 53.5–55.8 | 15.1 → 12.3–16.7 | 85.0 → 79.8–80.7 | 11.2 → 11.7–11.8 |
+| wide | 67.3 → 56.0–59.4 | 13.9 → 15.8–16.3 | 87.7 → 83.3–83.7 | 10.7 → 11.4–11.5 |
+
+- **Still:** the frame time now equals `gpu_frame` on every view. CPU recording
+  is fully hidden behind the GPU.
+- **Pan:** the p50 dropped, but throughput barely moved. `scene_record` grew
+  from 36–40 ms to 64–82 ms because it now absorbs the wait. Every upload
+  that still happens during recording flushes and waits on all GPU work in
+  flight, and in flight now includes the whole previous frame. While
+  the CPU waits, the GPU idles. The pan `gpu_scene_raster` p95 is 144 ms
+  against a 42 ms p50; those idle gaps sit inside its timed intervals.
+- **Spikes, not yet traced:** each fix 4 run had one isolated long frame, in a
+  different view each time: 478 ms (pan close) and 560 ms (still medium). The
+  single fix 3 run peaked at 170 ms. A frame that long drags down that view's
+  batch fps, which explains the low end of the ranges above.
+
 ## Where the time goes now
 
-The close pan frame takes 81 ms, and 73 ms of it is GPU (`gpu_frame`). The
-GPU is now the bottleneck, panning or still:
+The still frame is bound by the GPU alone. The close view takes 44 ms:
 
 - **Mesh draws:** about 41 ms of the scene raster on the close view. This is
   the largest single cost.
-- **Reflection:** 25 ms panning, against 14 ms still. The reflection renders the
+- **Reflection:** 14 ms still, 21–26 ms panning. The reflection renders the
   scene again at full resolution.
 - **Shadows:** about 7 ms panning. The shadow cascades are cached when the view
   is still.
-- **CPU recording:** `scene_record` takes 15 ms still and 40 ms panning. It runs
-  before the GPU work, not alongside it.
+- **Pan uploads:** each Lava upload flushes and waits for the previous frame,
+  so a moving camera still runs CPU and GPU in series.
 
 Next steps, in order:
 
-1. **Overlap recording with GPU work** across frames, so the CPU records frame
-   N+1 while the GPU runs frame N. This needs safe reuse of per-frame
-   resources. Pixel-neutral.
-2. **Reduce reflection cost**, for example a half-resolution reflection or
-   culling to the water's view. This changes pixels and needs a decision
-   first.
-3. **Cut mesh raster cost.** The next step is to find out whether the mesh draws
+1. **Uploads that do not wait.** A freshly allocated buffer has no GPU readers
+   or writers, so its upload needs neither a flush nor a wait. Record the
+   staging copy into the active batch and free the staging buffer through
+   Lava's timeline-gated deferred free. This is Lava sync work, so it needs
+   its own hazard review. Pixel-neutral.
+2. **Trace the isolated long frames** with per-frame samples.
+3. **Reduce reflection cost** behind the graphics quality setting, for example
+   a half-resolution reflection. The top preset keeps today's pixels.
+4. **Cut mesh raster cost.** The next step is to find out whether the mesh draws
    are bound by vertex work, fragment work or draw count.
