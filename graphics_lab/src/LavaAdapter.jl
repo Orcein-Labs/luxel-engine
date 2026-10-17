@@ -1562,7 +1562,7 @@ end
     return base_color
 end
 
-"""Every terrain vertex output (locations 0-17), shared by the single-material
+"""Every terrain vertex output (locations 0-20), shared by the single-material
 and the layered terrain pipelines so their geometry cannot drift apart."""
 @inline function _emit_terrain_vertex(
     heights::Lava.LavaDeviceArray{Float32,1},
@@ -1837,7 +1837,14 @@ function _terrain_layered_vertex(
     return nothing
 end
 
-"""`_terrain_layered_vertex` plus the W-1 wet zone on varyings 28-31."""
+"""`_terrain_layered_vertex` plus the W-1 wet zone on varyings 28-30 and 14.
+
+`wet_d` rides in location 14, the emissive slot, which no layered fragment
+reads. A 32nd location would put the vertex outputs at 128 components plus the
+built-in `Position`, past `maxVertexOutputComponents` (VUID-RuntimeSpirv-
+Location-06272, audit L-16); 31 locations plus `Position` is exactly 128.
+`emissive_factor` stays in the signature so the host passes the same argument
+list to every layered terrain pipeline; this shader ignores it."""
 function _terrain_layered_wet_vertex(
     heights::Lava.LavaDeviceArray{Float32,1},
     slopes::Lava.LavaDeviceArray{Float32,1},
@@ -1902,7 +1909,7 @@ function _terrain_layered_wet_vertex(
     cascade_selection_position::Vec4f,
     cascade_selection_forward::Vec4f,
 )
-    _emit_terrain_vertex(heights, slopes, regions, resolution, width_m, length_m, camera_position, camera_right, camera_up, camera_forward, camera_projection, camera_mode, light_position, light_right, light_up, light_forward, light_projection, light_mode, base_color, metallic, roughness, clearcoat, clearcoat_roughness, normal_scale, occlusion_strength, light_direction, light_color, light_intensity, environment_top, environment_horizon, environment_ground, fog_color, fog_density, exposure, texture_enabled, emissive_factor, shadow, uv_repeat, sky_parameters, atmosphere_parameters, surface_options, cascade_far_position, cascade_far_right, cascade_far_up, cascade_far_forward, cascade_far_projection, cascade_far_mode, cascade_parameters, cascade_far_bias, cascade_selection_position, cascade_selection_forward)
+    _emit_terrain_vertex(heights, slopes, regions, resolution, width_m, length_m, camera_position, camera_right, camera_up, camera_forward, camera_projection, camera_mode, light_position, light_right, light_up, light_forward, light_projection, light_mode, base_color, metallic, roughness, clearcoat, clearcoat_roughness, normal_scale, occlusion_strength, light_direction, light_color, light_intensity, environment_top, environment_horizon, environment_ground, fog_color, fog_density, exposure, texture_enabled, wet_d, shadow, uv_repeat, sky_parameters, atmosphere_parameters, surface_options, cascade_far_position, cascade_far_right, cascade_far_up, cascade_far_forward, cascade_far_projection, cascade_far_mode, cascade_parameters, cascade_far_bias, cascade_selection_position, cascade_selection_forward)
     Lava.gfx_output(21, layer0_a)
     Lava.gfx_output(22, layer0_b)
     Lava.gfx_output(23, layer1_a)
@@ -1913,7 +1920,6 @@ function _terrain_layered_wet_vertex(
     Lava.gfx_output(28, wet_a)
     Lava.gfx_output(29, wet_b)
     Lava.gfx_output(30, wet_c)
-    Lava.gfx_output(31, wet_d)
     return nothing
 end
 
@@ -3196,7 +3202,7 @@ end
         wet_a = Lava.gfx_input(Vec4f, 28)
         wet_b = Lava.gfx_input(Vec4f, 29)
         wet_c = Lava.gfx_input(Vec4f, 30)
-        wet_d = Lava.gfx_input(Vec4f, 31)
+        wet_d = Lava.gfx_input(Vec4f, 14)  # the emissive slot; see `_terrain_layered_wet_vertex`
         shore_noise = Lava.sample_texture_2d(UInt32(13), u * wet_d[2], v * wet_d[2], UInt32(0))
         weights = _wet_zone_weights(world_position, wet_a, wet_b, wet_c, wet_d, shore_noise)
         wetness = weights[1]
