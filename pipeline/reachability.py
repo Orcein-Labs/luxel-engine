@@ -307,11 +307,17 @@ _SKIPPED_DIRS = frozenset({
     "target", "__pycache__", ".git", ".pytest_cache", "node_modules",
 })
 
+# The hygiene standard's scratch homes, skipped only at the walk root so the
+# committed `docs/research/` stays scanned. ~10 GB of raw capture JSON in
+# `research/` hung the same test again (found 2026-10-17).
+_SKIPPED_ROOT_DIRS = frozenset({"research", ".local"})
+
 
 def _source_files(root: Path):
-    """Source-suffixed files under `root`, never descending into `_SKIPPED_DIRS`."""
+    """Source-suffixed files under `root`, never descending into skipped trees."""
     for directory, subdirectories, files in os.walk(root):
-        subdirectories[:] = [name for name in subdirectories if name not in _SKIPPED_DIRS]
+        skipped = _SKIPPED_DIRS | _SKIPPED_ROOT_DIRS if directory == str(root) else _SKIPPED_DIRS
+        subdirectories[:] = [name for name in subdirectories if name not in skipped]
         for name in files:
             path = Path(directory) / name
             if path.suffix in _SOURCE_SUFFIXES:
