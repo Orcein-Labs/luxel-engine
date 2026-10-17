@@ -12,7 +12,7 @@ PIPELINE = Path(__file__).resolve().parents[1] / "pipeline"
 sys.path.insert(0, str(PIPELINE))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from reference_content import CONTENT_ROOT, ENGINE_ROOT  # noqa: E402
+from reference_content import CONTENT_ROOT, ENGINE_ROOT, content_available  # noqa: E402
 
 from zone_compiler import ZoneCompileError, compile_annotations, compile_file
 from zone_rasterizer import (
@@ -51,6 +51,7 @@ from traversal_probe import evaluate_traversal
 from worldbuilder_dsl import apply_intent, compile_intent
 
 
+@unittest.skipUnless(content_available(), f"reference content not found at {CONTENT_ROOT}")
 class ZoneCompilerTests(unittest.TestCase):
     def setUp(self):
         self.annotations_path = CONTENT_ROOT / "concept_batches" / "caledonia_v1" / "annotations.json"
