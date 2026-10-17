@@ -4655,9 +4655,14 @@ function _record_scene_with_reflection!(
     zone = packet.terrain.wet_zone
     water = zone === nothing ? nothing : zone.standing_water
     if water === nothing || packet.terrain.layers === nothing
+        _mesh_resources!(state, packet, camera_frame; cache=:main)
         return _record_scene_passes!(state, packet, camera_frame, lighting, environment_lighting, material,
                                      texture_enabled, scene_framebuffer, scene_target)
     end
+    # Build the view caches up front: every upload flushes and waits on the batch, so
+    # uploading after a pass is recorded would stall the CPU on that pass's GPU work.
+    _mesh_resources!(state, packet, camera_frame; cache=:main)
+    _mesh_resources!(state, packet, _mirrored_frame(camera_frame, water.surface_y_m); cache=:reflection)
     reflection_framebuffer = _framebuffer!(state, scene_framebuffer.width, scene_framebuffer.height, true, :reflection)
     reflection_gpu_timing_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.reflection)
     _record_scene_passes!(state, packet, _mirrored_frame(camera_frame, water.surface_y_m), lighting,
@@ -4966,8 +4971,9 @@ function _shadow_frame(
         ),
         1.0f0,
     )
-    for instance in packet.instances
-        world_center, bound_radius = _instance_world_bound(packet, instance)
+    bounds = _instance_world_bounds(packet)
+    for index in eachindex(packet.instances)
+        world_center, bound_radius = bounds[index]
         offset = Vec4f(
             world_center[1] - center[1],
             world_center[2] - center[2],
@@ -5788,6 +5794,18 @@ function _instance_world_bound(
     return world_center, max(scale...) * local_radius
 end
 
+# World bound spheres by instance position for the most recent instance list. Packets
+# never mutate their lists; an instance override builds a new packet with a new list.
+const INSTANCE_BOUNDS_SLOT = Ref{Union{Nothing,Tuple{Vector{LuxelGraphics.InstancePacket},Vector{LuxelGraphics.MeshPacket},Vector{Tuple{Vec4f,Float32}}}}}(nothing)
+
+function _instance_world_bounds(packet::LuxelGraphics.GraphicsScenePacket)::Vector{Tuple{Vec4f,Float32}}
+    cached = INSTANCE_BOUNDS_SLOT[]
+    cached !== nothing && cached[1] === packet.instances && cached[2] === packet.meshes && return cached[3]
+    bounds = Tuple{Vec4f,Float32}[_instance_world_bound(packet, instance) for instance in packet.instances]
+    INSTANCE_BOUNDS_SLOT[] = (packet.instances, packet.meshes, bounds)
+    return bounds
+end
+
 function _sphere_visible(frame::CameraFrame, world_center::Vec4f, radius::Float32)::Bool
     relative = Vec4f(
         world_center[1] - frame.position[1],
@@ -5816,13 +5834,19 @@ end
 
 function _instance_visible(
     frame::CameraFrame,
-    packet::LuxelGraphics.GraphicsScenePacket,
     instance::LuxelGraphics.InstancePacket,
+    bound::Tuple{Vec4f,Float32},
 )
-    world_center, mesh_radius = _instance_world_bound(packet, instance)
+    world_center, mesh_radius = bound
     radius = mesh_radius + _importance_margin(instance.importance)
     return _sphere_visible(frame, world_center, radius)
 end
+
+_instance_visible(
+    frame::CameraFrame,
+    packet::LuxelGraphics.GraphicsScenePacket,
+    instance::LuxelGraphics.InstancePacket,
+) = _instance_visible(frame, instance, _instance_world_bound(packet, instance))
 
 _importance_margin(::LuxelGraphics.BackgroundImportance)::Float32 = 0.0f0
 
@@ -5842,8 +5866,9 @@ function _mesh_visibility(
     landmark_culled_count = 0
     gameplay_critical_visible_count = 0
     gameplay_critical_culled_count = 0
-    for instance in packet.instances
-        visible = _instance_visible(frame, packet, instance)
+    bounds = _instance_world_bounds(packet)
+    for (index, instance) in enumerate(packet.instances)
+        visible = _instance_visible(frame, instance, bounds[index])
         visible && (visible_instance_count += 1)
         if instance.importance isa LuxelGraphics.BackgroundImportance
             visible ? (background_visible_count += 1) : (background_culled_count += 1)
@@ -6034,8 +6059,9 @@ function _mesh_resources!(
     reusable && current.frame == frame && return current
     visible_instance_ids = String[]
     groups = Dict{Tuple{String,String},Vector{LuxelGraphics.InstancePacket}}()
-    for instance in packet.instances
-        _instance_visible(frame, packet, instance) || continue
+    bounds = _instance_world_bounds(packet)
+    for (index, instance) in enumerate(packet.instances)
+        _instance_visible(frame, instance, bounds[index]) || continue
         # The mirrored pass clips terrain at the water plane but not meshes.
         # The N-3 backdrop is sunk under the world, so its mirror image filled
         # the pool; a puddle's mirrored rays from the authored cameras rise
@@ -6058,7 +6084,10 @@ function _mesh_resources!(
     end
     isempty(groups) && return nothing
 
-    batches = MeshBatchResources[]
+    # New batches keep their slot in `batches` (sorted key order) and are filled in
+    # after the loop, from one shared upload of all their per-instance streams.
+    batches = Union{Nothing,MeshBatchResources}[]
+    pending = NamedTuple[]
     total_vertices = 0
     for (mesh_id, material_id) in sort!(collect(keys(groups)))
         mesh_index = findfirst(mesh -> mesh.mesh_id == mesh_id, packet.meshes)
@@ -6109,27 +6138,42 @@ function _mesh_resources!(
             # texture's BLUE channel (glTF packing), 1 = factor only.
             Vec4f(material.emissive_factor_rgb..., material.metallic_from_texture ? 2.0f0 : 1.0f0) for _ in batch_instances
         ]
-        gpu_translations = Lava.LavaArray{Vec4f,1}(translations; bq=state.queue)
-        gpu_rotations = Lava.LavaArray{Vec4f,1}(rotations; bq=state.queue)
-        gpu_scales = Lava.LavaArray{Vec4f,1}(scales; bq=state.queue)
-        gpu_colors = Lava.LavaArray{Vec4f,1}(colors; bq=state.queue)
-        gpu_material_parameters = Lava.LavaArray{Vec4f,1}(material_parameters; bq=state.queue)
-        gpu_surface_parameters = Lava.LavaArray{Vec4f,1}(surface_parameters; bq=state.queue)
-        gpu_emissive_parameters = Lava.LavaArray{Vec4f,1}(emissive_parameters; bq=state.queue)
-        state.upload_bytes += UInt64(
-            sizeof(Vec4f) *
-                (length(translations) +
-                length(rotations) + length(scales) + length(colors) +
-                length(material_parameters) + length(surface_parameters) +
-                length(emissive_parameters)),
-        )
-        vertex_count = geometry.vertex_count
-        push!(
-            batches,
-            MeshBatchResources(
-                mesh_id,
-                material.material_id,
-                instance_ids,
+        push!(batches, nothing)
+        push!(pending, (
+            slot=length(batches),
+            mesh_id=mesh_id,
+            material_id=material.material_id,
+            instance_ids=instance_ids,
+            geometry=geometry,
+            streams=(translations, rotations, scales, colors, material_parameters,
+                     surface_parameters, emissive_parameters),
+            instance_count=length(batch_instances),
+        ))
+        total_vertices += geometry.vertex_count
+    end
+    if !isempty(pending)
+        # One upload for every new batch: each LavaArray construction flushes and waits
+        # on all GPU work recorded so far, so per-array uploads stall the CPU repeatedly.
+        packed = Vec4f[]
+        for batch in pending, stream in batch.streams
+            append!(packed, stream)
+        end
+        gpu_packed = Lava.LavaArray{Vec4f,1}(packed; bq=state.queue)
+        state.upload_bytes += UInt64(sizeof(Vec4f) * length(packed))
+        cursor = 0
+        for batch in pending
+            views = Lava.LavaArray{Vec4f,1}[]
+            for stream in batch.streams
+                push!(views, Lava.GPUArrays.derive(Vec4f, gpu_packed, (length(stream),), cursor))
+                cursor += length(stream)
+            end
+            gpu_translations, gpu_rotations, gpu_scales, gpu_colors,
+                gpu_material_parameters, gpu_surface_parameters, gpu_emissive_parameters = views
+            geometry = batch.geometry
+            batches[batch.slot] = MeshBatchResources(
+                batch.mesh_id,
+                batch.material_id,
+                batch.instance_ids,
                 geometry.positions,
                 geometry.normals,
                 geometry.uvs,
@@ -6141,12 +6185,12 @@ function _mesh_resources!(
                 gpu_material_parameters,
                 gpu_surface_parameters,
                 gpu_emissive_parameters,
-                vertex_count,
-                length(batch_instances),
-            ),
-        )
-        total_vertices += vertex_count
+                geometry.vertex_count,
+                batch.instance_count,
+            )
+        end
     end
+    batches = MeshBatchResources[batch for batch in batches]
     created = MeshResources(
         cache_key,
         frame,

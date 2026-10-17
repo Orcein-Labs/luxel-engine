@@ -75,6 +75,45 @@ include(joinpath(@__DIR__, "support", "camera_fixture.jl"))
     @test main_b.visible_instance_ids == ["instance-40.0"]
     @test state.upload_bytes - upload_before == 7 * sizeof(LavaAdapter.Vec4f) * 1
 
+    # Instance bounds are cached per instance list and match the direct computation.
+    bounds = LavaAdapter._instance_world_bounds(packet_a)
+    @test bounds == [LavaAdapter._instance_world_bound(packet_a, instance) for instance in packet_a.instances]
+    @test LavaAdapter._instance_world_bounds(packet_a) === bounds
+
+    # Several new batches in one view share one upload: every per-instance stream of
+    # every batch is a view into one backing buffer, with its own length and contents.
+    second_mesh = camera_test_replace(only(packet_a.meshes); mesh_id="second-mesh")
+    # Distinct transforms, so a view at the wrong offset reads visibly wrong data.
+    two_instances = [
+        LuxelGraphics.InstancePacket("instance-$(mesh_id)", mesh_id, "bounds-material",
+            LuxelGraphics.BackgroundImportance(),
+            LuxelGraphics.TransformPacket(translation, (0f0, 0f0, 0f0, 1f0), scale))
+        for (mesh_id, translation, scale) in (
+            ("rotated-bounds-mesh", (0f0, 0f0, 0f0), (1f0, 1f0, 1f0)),
+            ("second-mesh", (1.5f0, 0f0, -1f0), (1.25f0, 1f0, 0.75f0)))
+    ]
+    two_packet = camera_test_replace(packet_a; meshes=[only(packet_a.meshes), second_mesh], instances=two_instances)
+    camera_test_clear_view!(state)
+    two = LavaAdapter._mesh_resources!(state, two_packet, LavaAdapter._camera_frame(packet_a.camera); cache=:main)
+    @test length(two.batches) == 2
+    first_batch = first(two.batches)
+    for batch in two.batches, field in (:translations, :rotations, :scales, :colors,
+            :material_parameters, :surface_parameters, :emissive_parameters)
+        array = getfield(batch, field)
+        @test array.buf[] === first_batch.translations.buf[]
+        @test length(array) == batch.instance_count
+    end
+    expected_translations = [LavaAdapter.Vec4f(instance.transform.translation_xyz_m..., 0f0)
+        for instance in two_packet.instances if instance.mesh_id == first_batch.mesh_id]
+    @test Array(first_batch.translations) == expected_translations
+    # The last batch's streams sit at nonzero offsets in the shared buffer.
+    last_batch = last(two.batches)
+    @test Array(last_batch.translations) == [LavaAdapter.Vec4f(instance.transform.translation_xyz_m..., 0f0)
+        for instance in two_packet.instances if instance.mesh_id == last_batch.mesh_id]
+    @test Array(last_batch.scales) == [LavaAdapter.Vec4f(instance.transform.scale_xyz..., 0f0)
+        for instance in two_packet.instances if instance.mesh_id == last_batch.mesh_id]
+    camera_test_clear_view!(state)
+
     # A new packet identity invalidates every mesh stream even if IDs and view
     # membership match. Authority rejects unsealed source changes upstream.
     original_mesh = only(packet_a.meshes)
