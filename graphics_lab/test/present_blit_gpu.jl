@@ -155,3 +155,36 @@ include(joinpath(@__DIR__, "support", "camera_fixture.jl"))
         @test LavaAdapter.close_window_session!(state).closed
     end
 end
+
+# A pass timing slot left open must fail the readback, not hang it: the readback
+# waits on every timestamp, and an unwritten end never arrives.
+@testset "an open GPU timing slot fails instead of hanging" begin
+    state = LavaAdapter.backend()
+    frame_slot = LavaAdapter._begin_gpu_frame_timing(state)
+    if frame_slot === nothing
+        @test_skip "GPU timestamps unsupported"
+    else
+        pass_slot = LavaAdapter._begin_gpu_pass_timing(state, "luxel.test.open-pass")
+        @test pass_slot isa Int
+        LavaAdapter._end_gpu_frame_timing!(state, frame_slot)
+        error = try
+            LavaAdapter._read_gpu_timing_reports(state, frame_slot)
+            nothing
+        catch caught
+            caught
+        end
+        @test error isa LavaAdapter.AdapterError
+        @test occursin("luxel.test.open-pass", error.detail)
+        # Closing the slot first reads normally, and the next frame starts clean.
+        LavaAdapter._end_gpu_pass_timing!(state, pass_slot)
+        Lava.flush!(state.queue, state.context.device)
+        @test LavaAdapter._read_gpu_timing_reports(state, frame_slot) isa Vector
+        frame_slot = LavaAdapter._begin_gpu_frame_timing(state)
+        pass_slot = LavaAdapter._begin_gpu_pass_timing(state, "luxel.test.closed-pass")
+        LavaAdapter._end_gpu_pass_timing!(state, pass_slot)
+        LavaAdapter._end_gpu_frame_timing!(state, frame_slot)
+        Lava.flush!(state.queue, state.context.device)
+        @test isempty(state.open_gpu_timing_slots)
+        @test LavaAdapter._read_gpu_timing_reports(state, frame_slot) isa Vector
+    end
+end
