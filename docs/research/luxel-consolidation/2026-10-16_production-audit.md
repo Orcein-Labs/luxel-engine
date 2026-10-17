@@ -1,7 +1,8 @@
 # Luxel production engineering audit
 
 2026-10-16 · PEA Mode 1, full audit · branch `luxel-consolidation`, audited at
-a9e4dd4 · fix pass 2026-10-17, through 705f059
+a9e4dd4 · fix pass 2026-10-17, through 705f059 · validation fixes (L-15,
+L-16, L-17) and the GPU gate 2026-10-17
 
 ## 1. Executive result
 
@@ -14,18 +15,17 @@ defect in this branch.
   digests (18/18 parity frames). The GPU suites pass: lava_adapter 26/26,
   present_blit 61/61, camera_continuity 88/88, plus the full lighting, shadow
   and material suites.
-- The fix pass closed 7 of 17 findings: L-01, L-03, L-04, L-06, L-12, L-13
-  and L-14. The Rust workspace is green again (the CPU gate passes locally and
+- The fix pass closed 10 of 17 findings: L-01, L-03, L-04, L-06, L-12, L-13,
+  L-14, L-15, L-16 and L-17. The Rust workspace is green again (the CPU gate passes locally and
   `live.rs` passes 5/5), and fmt and clippy are clean.
 - The first Khronos validation-layer run found no sync hazards in the
   frame-overlap paths it reached. It found two spec violations in generated
-  shaders and one image-layout error after a window resize. This driver
-  tolerates all three (L-15, L-16, L-17).
+  shaders and one image-layout error after a window resize (L-15, L-16,
+  L-17). All three are fixed without changing a pixel, and the six GPU suites
+  now run under the layer, sync validation on, with an empty log. That run is
+  the local GPU gate, `tools/gpu-gate.sh`.
 - The main production risks still open are:
-  - frame rate (11–23 fps against a 60 fps target; L-02, L-05, L-10);
-  - the three validation errors, which another driver may reject or
-    render wrongly, and which stop the validation run before it covers every
-    suite (L-15, L-16, L-17).
+  - frame rate (11–23 fps against a 60 fps target; L-02, L-05, L-10).
 - No Blockers.
 
 ## 2. Ranked findings
@@ -37,9 +37,9 @@ defect in this branch.
 | L-13 | D | Important | Reachability test read ~10 GB of scratch and ran past an hour | Fixed, 444241c |
 | L-02 | C | Important | In-recording uploads wait on the whole previous frame; pan throughput is flat | Open, planned |
 | L-03 | D | Important | No CI, and no Vulkan validation-layer run, for the new frame-overlap sync | Fixed, 705f059 and the validation run; findings in L-15, L-16, L-17 |
-| L-15 | D | Important | Terrain shaders emit invalid SPIR-V (`OpConstantNull` of a Function-storage pointer) | Open |
-| L-16 | D | Important | Wet-terrain point-light pipeline exceeds the 128-component vertex output limit | Open |
-| L-17 | D | Important | After a window resize, a render pass begins on a swapchain image still in `PRESENT_SRC_KHR` | Open |
+| L-15 | D | Important | Terrain shaders emit invalid SPIR-V (`OpConstantNull` of a Function-storage pointer) | Fixed, f3b7681 (Lava patch 0004) |
+| L-16 | D | Important | Wet-terrain point-light pipeline exceeds the 128-component vertex output limit | Fixed, b7324b2 |
+| L-17 | D | Important | After a window resize, a render pass begins on a swapchain image still in `PRESENT_SRC_KHR` | Fixed, b382fb7 |
 | L-04 | D | Important | Bare `catch` in GPU timing permanently disables timestamps and misreports the capability | Fixed, 4099abb |
 | L-05 | D / C | Important | Isolated 478 ms and 560 ms frames, not traced | Open |
 | L-06 | E | Important | Docs index and debt ledger out of date | Fixed, 842a808 |
@@ -289,7 +289,26 @@ defect in this branch.
   Then either rewrite it in the shader or fix the lowering in Lava, as a
   `lava-000N` patch. Check with `spirv-val` on the dumped module, then
   confirm the 18 digests are unchanged.
-- **Status:** open. It is codegen work, so it was not attempted overnight.
+- **Cause:** StructurizeCFG leaves `phi ptr` chains over an SROA-split `sret`
+  box that only one branch writes. They lower to an `OpPhi` that yields a
+  Function-storage pointer, with an `undef` edge that becomes
+  `OpConstantNull`, and in three modules an illegal pointer `OpBitcast`.
+  14 terrain and point-light fragment shaders were affected.
+- **Fix:** Lava patch 0004 adds `fold_uniform_function_ptr_phis!` to
+  `run_llvm_passes!`. A pointer phi whose incoming values all name one
+  Function-storage address (or are `undef`) becomes that address. Modules
+  without such a phi are untouched. The patch is recorded in
+  `graphics_lab/vendor/README.md`, and the rebuild recipe diffs clean.
+- **Verified:**
+  - all 18 parity frames are byte-identical to a render of the commit before
+    the fix;
+  - no Function-pointer phi remains in the dumped modules, and
+    `spirv-val --target-env vulkan1.3 --scalar-block-layout` passes them;
+  - the GPU suites pass with an empty validation log.
+- **Tooling gap:** the validator in `SPIRV_Tools_jll` (v2025.4) accepts these
+  shaders. A current `spirv-val` (v2026.4) rejects them. Do not treat the
+  bundled validator as proof of validity.
+- **Status:** fixed.
 
 ### L-16 — Wet-terrain point-light pipeline exceeds the vertex output limit
 
@@ -308,7 +327,15 @@ defect in this branch.
   it already has. The wet terrain and point light varyings are the
   candidates. Pixel-neutral if done exactly. Verify with the 18 digests and a
   rerun under the layer.
-- **Status:** open.
+- **Fix:** `_terrain_layered_wet_vertex` sends `wet_d` in location 14, the
+  emissive slot, which no layered fragment reads, and no longer writes
+  location 31. The outputs are now 31 locations plus `Position`, exactly 128
+  components. `_terrain_layered_shade` reads `wet_d` from location 14.
+- **Verified:** all 18 parity frames byte-identical to the pre-fix render;
+  lava_adapter, camera_continuity 88/88, local_lighting_gpu 45/45,
+  local_shadows_gpu 11/11 and shadow_cascades_gpu 49/49 pass with an empty
+  validation log.
+- **Status:** fixed.
 
 ### L-17 — Image layout error after a window resize
 
@@ -338,7 +365,18 @@ defect in this branch.
   really holds, tracked per image and reset when the swapchain is recreated.
   Do this as a `lava-000N` patch. Verify the resize set under the layer, then
   run present_blit 61/61 and the 18 digests.
-- **Status:** open. It is sync and layout work, best done with L-02.
+- **Cause, confirmed:** the `:cpu` present fallback uploaded the frame and
+  blitted it with `clear=false`. A load-mode draw records its transition from
+  `COLOR_ATTACHMENT_OPTIMAL`, but the image was just acquired, so it was in
+  `PRESENT_SRC_KHR` (or `UNDEFINED` after the swapchain was recreated).
+- **Fix:** the fallback blits with `clear=true`, which transitions from
+  `UNDEFINED`. The opaque fullscreen blit covers every pixel, so the clear
+  never shows. The fix is one adapter call; no Lava layout-tracking patch was
+  needed.
+- **Verified:** present_blit_gpu passes every set (GPU blit matches CPU,
+  resize, session survives resize 36/36, timing slots) with an empty
+  validation log; 18 parity frames byte-identical.
+- **Status:** fixed.
 
 ### L-07 — `verify_identity.py` cannot pass
 
@@ -423,6 +461,10 @@ commits on `luxel-consolidation`. None is pushed.
 | 444241c | L-13 | Stopped the reachability walker reading the research scratch tree |
 | 4099abb | L-04 | Kept the GPU timestamp capability when one timing write fails |
 | 705f059 | L-03, L-14 | CPU-only gate script and CI workflow; zone compiler skip guard |
+| f3b7681 | L-15 | Lava patch 0004 folds uniform Function-pointer phis |
+| b7324b2 | L-16 | Wet-terrain `wet_d` varying moved to location 14 |
+| b382fb7 | L-17 | CPU present fallback blits with `clear=true` |
+| (this commit) | L-03 | `tools/gpu-gate.sh`: the GPU suites under the validation layer |
 
 Not attempted, and why:
 - L-02 and L-05 are feature and measurement work on the roadmap.
@@ -430,8 +472,8 @@ Not attempted, and why:
 - L-08 and L-09 are deferred by their own remedies.
 - L-10 belongs with the quality presets.
 - L-11 deletes files, so it needs approval.
-- L-15, L-16 and L-17 were found at the end of the pass. They are shader,
-  codegen and sync work.
+- L-15, L-16 and L-17 were found at the end of the pass and fixed in a
+  second pass the same day (see their sections), with `tools/gpu-gate.sh`.
 
 ## 4. Evidence
 
@@ -441,7 +483,7 @@ Not attempted, and why:
 | Julia GPU: present blit, resize, open-slot guard | 52/52 at audit; 61/61 after L-04; GPU vs CPU present bytes differing = 0 |
 | Julia GPU: moving camera continuity | 88/88 |
 | Julia GPU: cascades, point lights, point shadows, GGX, contact AO, materials | all pass at audit (107, 49, 84, 45, 48, 36, 17, 12, 11, …) |
-| Identity digests (parity frames) | 18/18 |
+| Identity digests (parity frames) | 18/18 byte-identical, A/B against a render of the pre-change commit (the frozen references fail by L-07) |
 | `cargo test --workspace --no-fail-fast` at audit | 451 passed, **10 failed** (all L-12), 15 ignored |
 | `cargo test --workspace --no-fail-fast` after L-12 | 460 passed, 1 failed: the source-identity guard in `native_graphics_contract/tests/live.rs`, tripped because L-04 edited `graphics_lab` during the run. Rerun after: `live` 5/5 passed |
 | `cargo fmt --all -- --check` | clean after 73f89a8 |
@@ -450,7 +492,7 @@ Not attempted, and why:
 | CPU gate, local, Julia off `PATH`, no reference content | exit 0; Rust 379 passed, 0 failed, 15 ignored; Python 690 OK, 99 skipped |
 | Python error handling | 0 bare `except:`; the `except …: pass` sites in `pipeline/erosion.py` are subprocess-shutdown cleanup (fine) |
 | Rust non-test `unwrap`/`expect` | `native_graphics_contract`: 6, all invariant `expect`s with messages; `project_ledger`: 1; `luxel_control_plane` and `world_viewer`: 0 |
-| Vulkan validation layer, sync validation on | run 1: stopped at L-15 in every suite. Run 2 (L-15 filtered): no sync hazard in the sets reached; lava_adapter stopped at L-16; camera_continuity 88/88 clean; present_blit stopped at L-17 in the resize set |
+| Vulkan validation layer, sync validation on | run 1: stopped at L-15 in every suite. Run 2 (L-15 filtered): no sync hazard in the sets reached; lava_adapter stopped at L-16; camera_continuity 88/88 clean; present_blit stopped at L-17 in the resize set. After the L-15–L-17 fixes, no filter: all six GPU suites exit 0 with an empty log, confirmed by a full `tools/gpu-gate.sh` run at b382fb7 |
 | Presented fps (CONVERGE-4, fix 4) | still 12.3–23.2, pan 10.8–12.7 batch fps (presented-fps note) |
 
 Warnings in the GPU logs that are known and not findings:
@@ -494,8 +536,9 @@ The fixes the audit recommended before merge are in: L-01 (patch file) and L-12
 Accepted risks, each with an owner (user) and a next step:
 
 1. L-02 pan throughput: next is Part 2, non-waiting uploads.
-2. L-15, L-16 and L-17 validation errors: fix them, then make a clean
-   validation run part of the local GPU gate, before Part 2 changes the sync.
+2. L-15, L-16 and L-17 validation errors: fixed, and a clean validation run
+   is now the local GPU gate (`tools/gpu-gate.sh`). Run it on every sync
+   change in Part 2.
 3. L-05 untraced spikes: next is spike tracing.
 
 This is not a release of a production engine. The 60 fps target, 1080p, LOD,
@@ -505,7 +548,7 @@ streaming and animation are roadmap work (`missing-inventory.md`).
 
 In order:
 
-1. L-15, L-16 and L-17, then a clean full validation run.
+1. ~~L-15, L-16 and L-17, then a clean full validation run.~~ Done.
 2. L-02 non-waiting uploads, validated under the layer.
 3. L-05 spike trace.
 4. L-10 frame budget, with the quality presets and half-resolution reflection.
