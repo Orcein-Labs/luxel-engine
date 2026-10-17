@@ -812,9 +812,10 @@ fn style_axis_supported(field: &str) -> bool {
 }
 
 fn capability_for_axis(field: &str) -> &'static str {
-    if field.starts_with("composition.") || field.starts_with("camera.") {
-        "graphics.scene.packet/v1"
-    } else if field.starts_with("effects.") || field.starts_with("animation.") {
+    if ["composition.", "camera.", "effects.", "animation."]
+        .iter()
+        .any(|prefix| field.starts_with(prefix))
+    {
         "graphics.scene.packet/v1"
     } else {
         "style.profile.compile/v1"

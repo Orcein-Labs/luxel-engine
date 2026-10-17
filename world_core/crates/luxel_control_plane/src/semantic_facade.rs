@@ -421,6 +421,7 @@ impl SemanticFacadeCatalog {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn operation(
     id: &str,
     status: FacadeStatus,
