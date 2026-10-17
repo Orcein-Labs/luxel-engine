@@ -243,6 +243,8 @@ minimum positive depth of its source 2x2 block, retaining the nearest visible
 surface. Identity fields bind the diagnostic to the capture.
 """
 function capture_scene_depth(packet::LuxelGraphics.GraphicsScenePacket, state)
+    # A presented frame may still be writing the depth target this reads back.
+    _drain_window_frame!(state)
     resources = state.contact_ao_resources
     resources === nothing && throw(AdapterError("depth_unavailable", "contact AO depth was not captured"))
     resources.packet_sha256 == packet.packet_sha256 || throw(AdapterError(
