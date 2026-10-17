@@ -1,0 +1,132 @@
+diff -ruN a/src/compiler/compilation.jl b/src/compiler/compilation.jl
+--- a/src/compiler/compilation.jl
++++ b/src/compiler/compilation.jl
+@@ -1319,6 +1319,13 @@
+     fix_gep_alloca_type_mismatches!(mod)
+     lift_byte_geps_on_allocas!(mod)
+ 
++    # ── Fold Function-storage pointer phis that name one address ──
++    # StructurizeCFG leaves `phi ptr [gep %box 0 3], [undef]` chains over a
++    # partially written sret box; logical SPIR-V forbids a Function-pointer
++    # OpPhi (VUID-...-08737).  Runs before the typepun decomposition below so
++    # the folded `load float, ptr gep [4 x i32]` is decomposed like any other.
++    fold_uniform_function_ptr_phis!(mod)
++
+     # The final lift_byte_geps_on_allocas! may convert byte GEPs (gep i8, alloca, <off>)
+     # to typed GEPs (gep [2 x double], alloca, 0, 0), but the load users still have the
+     # wrong type (e.g., load i32 from a double*). Run the typepun GEP load decomposition
+diff -ruN a/src/compiler/passes/prepare_vulkan.jl b/src/compiler/passes/prepare_vulkan.jl
+--- a/src/compiler/passes/prepare_vulkan.jl
++++ b/src/compiler/passes/prepare_vulkan.jl
+@@ -4740,6 +4740,111 @@
+ end
+ 
+ """
++    fold_uniform_function_ptr_phis!(mod::LLVM.Module)
++
++Replace a `phi` of Function-storage (addrspace 0) pointers whose incoming
++values all name one address with that address.
++
++Pattern (StructurizeCFG flow blocks over an SROA-split `sret` box that is
++written on one branch only):
++
++    %p1 = phi ptr [ %gep_a, %bb1 ], [ undef, %Flow2 ]
++    %p2 = phi ptr [ %p1, %Flow3 ], [ %gep_b, %bb4 ]
++    %v  = load float, ptr %p2
++    ; %gep_a and %gep_b are both `getelementptr [4 x i32], ptr %box, i32 0, i32 3`
++
++Logical addressing forbids an `OpPhi` that yields a Function-storage pointer,
++and the `undef` edge becomes an illegal `OpConstantNull`, so such modules
++fail `spirv-val` and VUID-VkShaderModuleCreateInfo-pCode-08737.  Every leaf
++is the same constant-index GEP on one entry-block alloca (or argument), so the
++phi is rebuilt as that GEP at the top of its block.  `undef`/`poison` edges may
++name any address, so choosing this one is a refinement.  No load moves, unlike
++`lower_phi_select_function_ptrs!`, which handles phis over distinct allocas.
++"""
++function fold_uniform_function_ptr_phis!(mod::LLVM.Module)
++    for fn in LLVM.functions(mod)
++        isempty(LLVM.blocks(fn)) && continue
++        entry_bb = LLVM.entry(fn)
++        changed = true
++        while changed
++            changed = false
++            for bb in LLVM.blocks(fn)
++                for inst in LLVM.instructions(bb)
++                    inst isa LLVM.PHIInst || break   # phis lead the block
++                    ptr_ty = LLVM.value_type(inst)
++                    (ptr_ty isa LLVM.PointerType && LLVM.addrspace(ptr_ty) == 0) || continue
++                    leaf = uniform_function_ptr_leaf(inst, entry_bb, Set{LLVM.Value}())
++                    leaf isa LLVM.Value || continue
++                    addr = leaf
++                    if leaf isa LLVM.GetElementPtrInst
++                        ops = collect(LLVM.operands(leaf))
++                        src_ty = LLVM.LLVMType(LLVM.API.LLVMGetGEPSourceElementType(leaf))
++                        top = first(i for i in LLVM.instructions(bb) if !(i isa LLVM.PHIInst))
++                        addr = LLVM.@dispose builder=LLVM.IRBuilder() begin
++                            LLVM.position!(builder, top)
++                            LLVM.gep!(builder, src_ty, ops[1], ops[2:end], "uniform_ptr")
++                        end
++                    end
++                    LLVM.replace_uses!(inst, addr)
++                    erase_dead_ptr_chain!(inst)
++                    changed = true
++                    break
++                end
++                changed && break
++            end
++        end
++    end
++end
++
++is_function_ptr_base(val::LLVM.Value, entry_bb::LLVM.BasicBlock) =
++    ((val isa LLVM.AllocaInst && LLVM.parent(val) == entry_bb) || val isa LLVM.Argument) &&
++    LLVM.value_type(val) isa LLVM.PointerType && LLVM.addrspace(LLVM.value_type(val)) == 0
++
++"""
++The one address the pointer `val` names through a phi chain: an entry-block
++alloca or argument in addrspace 0, or a constant-index GEP on one.  Returns
++`nothing` when it names none (only `undef`/`poison` or revisited phis) and
++`missing` when it names more than one or something else.
++"""
++function uniform_function_ptr_leaf(val::LLVM.Value, entry_bb::LLVM.BasicBlock,
++                                   visited::Set{LLVM.Value})
++    (val isa LLVM.UndefValue || val isa LLVM.PoisonValue) && return nothing
++    if val isa LLVM.PHIInst
++        val in visited && return nothing
++        push!(visited, val)
++        found = nothing
++        for (v, _) in LLVM.incoming(val)
++            leaf = uniform_function_ptr_leaf(v, entry_bb, visited)
++            leaf === missing && return missing
++            leaf === nothing && continue
++            if found === nothing
++                found = leaf
++            elseif !same_function_address(found, leaf)
++                return missing
++            end
++        end
++        return found
++    end
++    is_function_ptr_base(val, entry_bb) && return val
++    if val isa LLVM.GetElementPtrInst
++        ops = collect(LLVM.operands(val))
++        is_function_ptr_base(ops[1], entry_bb) || return missing
++        all(op -> op isa LLVM.ConstantInt, ops[2:end]) || return missing
++        return val
++    end
++    return missing
++end
++
++"""Whether two leaves from `uniform_function_ptr_leaf` name the same address."""
++function same_function_address(a::LLVM.Value, b::LLVM.Value)
++    a == b && return true
++    (a isa LLVM.GetElementPtrInst && b isa LLVM.GetElementPtrInst) || return false
++    LLVM.API.LLVMGetGEPSourceElementType(a) == LLVM.API.LLVMGetGEPSourceElementType(b) ||
++        return false
++    return collect(LLVM.operands(a)) == collect(LLVM.operands(b))
++end
++
++"""
+     lower_phi_select_function_ptrs!(mod::LLVM.Module)
+ 
+ Lower `phi`/`select` of Function-storage (addrspace 0) pointers to value-level.

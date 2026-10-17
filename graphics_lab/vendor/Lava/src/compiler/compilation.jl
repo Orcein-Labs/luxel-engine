@@ -1319,6 +1319,13 @@ function run_llvm_passes!(mod::LLVM.Module, entry_fn::LLVM.Function;
     fix_gep_alloca_type_mismatches!(mod)
     lift_byte_geps_on_allocas!(mod)
 
+    # ── Fold Function-storage pointer phis that name one address ──
+    # StructurizeCFG leaves `phi ptr [gep %box 0 3], [undef]` chains over a
+    # partially written sret box; logical SPIR-V forbids a Function-pointer
+    # OpPhi (VUID-...-08737).  Runs before the typepun decomposition below so
+    # the folded `load float, ptr gep [4 x i32]` is decomposed like any other.
+    fold_uniform_function_ptr_phis!(mod)
+
     # The final lift_byte_geps_on_allocas! may convert byte GEPs (gep i8, alloca, <off>)
     # to typed GEPs (gep [2 x double], alloca, 0, 0), but the load users still have the
     # wrong type (e.g., load i32 from a double*). Run the typepun GEP load decomposition
