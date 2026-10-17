@@ -200,9 +200,19 @@ impl GraphicsWorkerSupervisor {
         let julia = julia.as_ref().to_owned();
         let project = project.as_ref().to_owned();
         let worker = worker.as_ref().to_owned();
-        let mut child = Command::new(&julia)
+        let mut command = Command::new(&julia);
+        command
             .arg(format!("--project={}", project.display()))
-            .arg("--startup-file=no")
+            .arg("--startup-file=no");
+        // The render loop allocates a few MiB per frame. With Julia's default
+        // single GC thread, one collection stalled a presented frame for about
+        // 500 ms; four parallel mark threads plus a concurrent sweeper cut the
+        // worst pause to 40-64 ms (audit L-05). An explicit
+        // JULIA_NUM_GC_THREADS still wins.
+        if std::env::var_os("JULIA_NUM_GC_THREADS").is_none() {
+            command.arg("--gcthreads=4,1");
+        }
+        let mut child = command
             .arg(&worker)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

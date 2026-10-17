@@ -9,11 +9,11 @@ did it:
 2. Keeping the scene packet resident in the worker.
 3. Presenting with a GPU image blit instead of a CPU readback.
 
-Five later fixes, each pixel-neutral, brought the still close view to
-21–23 fps (from 13.6) and the moving camera to 15–16 fps on the close and
-medium views (from 7.6). See
+Six later fixes, each pixel-neutral, brought the still close view to
+23 fps (from 13.6) and the moving camera to 15–17 fps on every view (from
+7.6), and removed the half-second GC hitches. See
 [Fix 1](#fix-1-share-mesh-geometry-across-view-caches) through
-[Fix 5](#fix-5-uploads-that-do-not-wait).
+[Fix 6](#fix-6-gc-threads-and-allocation-cuts).
 
 The scenes still look the same. Offscreen, the 18 parity frames render
 byte-identical with and without these changes. The frozen references
@@ -343,7 +343,7 @@ so it is the honest throughput number. Two fix 4 runs gave these ranges:
   flight, and in flight now includes the whole previous frame. While
   the CPU waits, the GPU idles. The pan `gpu_scene_raster` p95 is 144 ms
   against a 42 ms p50; those idle gaps sit inside its timed intervals.
-- **Spikes, not yet traced:** each fix 4 run had one isolated long frame, in a
+- **Spikes, traced in fix 6:** each fix 4 run had one isolated long frame, in a
   different view each time: 478 ms (pan close) and 560 ms (still medium). The
   single fix 3 run peaked at 170 ms. A frame that long drags down that view's
   batch fps, which explains the low end of the ranges above.
@@ -386,11 +386,90 @@ One run each, b382fb7 → fix 5, p50 in ms:
   the still frame does.
 - **Wide pan batch fps did not move.** Its p50 dropped 16 ms, but one 558 ms
   frame and a 239 ms p95 cancel that out over 30 frames. This is the
-  untraced-spike problem (audit L-05), not a regression in the p50 path. One
+  spike problem (audit L-05, traced to GC in fix 6), not a regression in the
+  p50 path. One
   candidate to check in that trace: each upload now allocates its own staging
   buffer (at least 64 KiB).
 - **Still:** unchanged within noise (frame 44.6 → 44.1 close, 56.1 → 56.1
   wide). Still views upload nothing new per frame.
+
+## Fix 6: GC threads and allocation cuts
+
+Audit finding L-05.
+
+**Frame trace.** Set `LUXEL_FRAME_TRACE=<path>` and the worker appends one
+JSON line per presented frame:
+- GC pause time, pause count, full collections, mark, sweep and safepoint time;
+- live heap and bytes allocated during the frame;
+- compile time, pipelines built and upload bytes;
+- `stages_us`: the CPU stage timings plus the GPU pass timings, as in
+  frame telemetry. GPU timings arrive one frame late, with the frame that read
+  them back.
+
+Unset, the trace costs nothing. It does not change the packet or telemetry
+schema.
+
+**Cause.** The spikes were Julia GC. With one GC thread, a single collection
+took 491 ms (pan) or 541 ms (still). The worker allocated 7.4 MiB a frame
+still and 17.4 MiB panning.
+
+**Changes:**
+- **GC threads.** The supervisor starts the worker with `--gcthreads=4,1`,
+  unless `JULIA_NUM_GC_THREADS` is set. The worst pause fell to 40 ms (pan)
+  and 64 ms (still) before any allocation cut.
+- **Lava patch 0006, `map_args`.** Base `map` over a tuple of more than 31
+  elements falls back to a boxed path. The mesh draw passes 47 arguments, so
+  converting them allocated about 7 MiB a frame. `map_args` is a `@generated`,
+  type-stable tuple map, used for draw, compute launch and ray-tracing
+  argument conversion. It changes no generated shader code.
+- **`_mesh_resources!`.** Instances are grouped by index and viewed in place,
+  not copied, and the seven per-instance streams are packed into one buffer
+  with one upload.
+
+Allocation under `render_window_frames!` (pan, 93 requests, sampled):
+1298 MiB → 1067 MiB after patch 0006 → 235 MiB after the
+`_mesh_resources!` change.
+
+Traces, steady-state frames (84 per trace):
+
+| Trace | Worst GC (ms) | GC total (ms) | Worst frame (ms) | Alloc/frame (MiB) |
+|---|---|---|---|---|
+| still, 1 GC thread | 541 | 894 | 564 | 7.4 |
+| still, 4,1 GC threads | 64 | 250 | 81 | 7.4 |
+| still, fix 6 | 0 | 0 | 61 | 1.1 |
+| pan, 1 GC thread | 491 | 742 | 521 | 17.4 |
+| pan, 4,1 GC threads | 40 | 322 | 79 | 17.4 |
+| pan, fix 6 | 35 | 89 | 99 | 4.9 |
+
+The still trace now runs without a single collection.
+
+One run each, fix 5 → fix 6, frame p50 / p95 / max in ms:
+
+| Run | View | Fix 5 | Fix 6 | Batch fps |
+|---|---|---|---|---|
+| still | close | 44.1 / 45.6 / 45.8 | 43.8 / 43.9 / 44.0 | 22.5 → 23.2 |
+| still | medium | 53.4 / 87.1 / 114.2 | 53.7 / 59.5 / 110.4 | 17.7 → 18.0 |
+| still | wide | 56.1 / 100.2 / 107.7 | 56.2 / 56.8 / 98.9 | 16.95 → 17.08 |
+| pan | close | 48.6 / 97.0 / 165.3 | 48.8 / 58.4 / 76.1 | 16.3 → 17.2 |
+| pan | medium | 62.3 / 98.5 / 115.8 | 62.1 / 65.5 / 126.2 | 15.3 → 15.6 |
+| pan | wide | 67.2 / 238.8 / 558.4 | 65.5 / 79.0 / 100.1 | 10.8 → 14.8 |
+
+- **Pixels:** the 18 parity frames match HEAD, 18/18.
+- **Validation:** `tools/gpu-gate.sh`, all 6 GPU suites, with sync validation
+  on and an empty validation log.
+- **p95 is now within 10 ms of p50 on every view.** Wide pan batch fps rose by
+  4 fps because its 558 ms frame is gone.
+- **Still `scene_record`** fell from 17–21 ms to 11–13 ms. It overlaps the GPU,
+  so the frame time does not change.
+
+**Left: first-use warmup.** These long frames remain, and they are not GC:
+- the first frame of a process, about 200 ms, mostly compile time (182 ms);
+- the first frame of each new view, 200–235 ms of GPU time against 45–65 ms
+  steady;
+- one pan frame of 99 ms, 54 ms of it compile and 25 ms GC.
+
+Prewarming (compile and pipeline creation before the first frame, or a
+precompile workload) is a separate follow-up.
 
 ## Where the time goes now
 
@@ -408,8 +487,11 @@ The still frame is bound by the GPU alone. The close view takes 44 ms:
 Next steps, in order:
 
 1. ~~**Uploads that do not wait.**~~ Done, fix 5.
-2. **Trace the isolated long frames** with per-frame samples.
+2. ~~**Trace the isolated long frames** with per-frame samples.~~ Done,
+   fix 6. First-use warmup frames remain (step 5).
 3. **Reduce reflection cost** behind the graphics quality setting, for example
    a half-resolution reflection. The top preset keeps today's pixels.
 4. **Cut mesh raster cost.** The next step is to find out whether the mesh draws
    are bound by vertex work, fragment work or draw count.
+5. **Prewarm first use.** Compile and create pipelines before the first frame
+   of a process and of a new view (fix 6, "Left").

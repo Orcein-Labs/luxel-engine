@@ -6073,6 +6073,40 @@ function _mesh_geometry!(state::LavaBackend, packet::LuxelGraphics.GraphicsScene
     return geometry
 end
 
+# A mesh batch draws with seven per-instance streams, packed back to back in this
+# order: translation, rotation, scale, colour, material, surface and emissive
+# parameters.
+const MESH_INSTANCE_STREAMS = 7
+
+function _pack_instance_streams!(packed::Vector{Vec4f}, cursor::Int, material, instances)
+    n = length(instances)
+    for (i, instance) in enumerate(instances)
+        transform = instance.transform
+        packed[cursor + i] = Vec4f(transform.translation_xyz_m..., 0.0f0)
+        packed[cursor + n + i] = Vec4f(transform.rotation_xyzw...)
+        packed[cursor + 2n + i] = Vec4f(transform.scale_xyz..., 0.0f0)
+        # N-7: each instance's tint multiplies the material's colour; an
+        # untinted instance multiplies by exactly 1.0 (byte-identical).
+        packed[cursor + 3n + i] = Vec4f(
+            material.base_color_rgba[1] * instance.tint_rgb[1],
+            material.base_color_rgba[2] * instance.tint_rgb[2],
+            material.base_color_rgba[3] * instance.tint_rgb[3],
+            material.base_color_rgba[4],
+        )
+        packed[cursor + 4n + i] = Vec4f(material.metallic, material.roughness, material.normal_scale, material.occlusion_strength)
+        packed[cursor + 5n + i] = Vec4f(
+            material.clearcoat,
+            material.clearcoat_roughness,
+            material.alpha_cutoff === nothing ? 0.0f0 : material.alpha_cutoff,
+            material.double_sided ? 1.0f0 : 0.0f0,
+        )
+        # w is a flag the shader reads: 2 = metallic from the roughness
+        # texture's BLUE channel (glTF packing), 1 = factor only.
+        packed[cursor + 6n + i] = Vec4f(material.emissive_factor_rgb..., material.metallic_from_texture ? 2.0f0 : 1.0f0)
+    end
+    return cursor + MESH_INSTANCE_STREAMS * n
+end
+
 function _mesh_resources!(
     state::LavaBackend,
     packet::LuxelGraphics.GraphicsScenePacket,
@@ -6089,7 +6123,8 @@ function _mesh_resources!(
     reusable = current !== nothing && current.cache_key == cache_key
     reusable && current.frame == frame && return current
     visible_instance_ids = String[]
-    groups = Dict{Tuple{String,String},Vector{LuxelGraphics.InstancePacket}}()
+    # Groups hold indices into `packet.instances`, not copies of the packets.
+    groups = Dict{Tuple{String,String},Vector{Int}}()
     bounds = _instance_world_bounds(packet)
     for (index, instance) in enumerate(packet.instances)
         _instance_visible(frame, instance, bounds[index]) || continue
@@ -6100,10 +6135,10 @@ function _mesh_resources!(
         cache === :reflection && startswith(instance.instance_id, BACKDROP_INSTANCE_PREFIX) && continue
         push!(visible_instance_ids, instance.instance_id)
         key = (instance.mesh_id, instance.material_id)
-        instances = get!(groups, key) do
-            LuxelGraphics.InstancePacket[]
+        indices = get!(groups, key) do
+            Int[]
         end
-        push!(instances, instance)
+        push!(indices, index)
     end
     if reusable && current.visible_instance_ids == visible_instance_ids
         # Only metadata changes when a pan retains the same draw membership.
@@ -6125,7 +6160,7 @@ function _mesh_resources!(
         mesh_index === nothing && throw(AdapterError("provenance", "instance references an absent mesh"))
         mesh_packet = packet.meshes[mesh_index]
         material = _material(packet, material_id)
-        batch_instances = groups[(mesh_id, material_id)]
+        batch_instances = view(packet.instances, groups[(mesh_id, material_id)])
         instance_ids = [instance.instance_id for instance in batch_instances]
         prior_index = reusable ? findfirst(batch -> batch.mesh_id == mesh_id &&
             batch.material_id == material_id && batch.instance_ids == instance_ids, current.batches) : nothing
@@ -6138,46 +6173,14 @@ function _mesh_resources!(
         # Geometry comes from the packet-scoped cache, shared by every view cache;
         # a camera changes instance membership, not mesh streams.
         geometry = _mesh_geometry!(state, packet, mesh_packet)
-        translations = Vec4f[
-            Vec4f(instance.transform.translation_xyz_m..., 0.0f0) for instance in batch_instances
-        ]
-        rotations = Vec4f[Vec4f(instance.transform.rotation_xyzw...) for instance in batch_instances]
-        scales = Vec4f[Vec4f(instance.transform.scale_xyz..., 0.0f0) for instance in batch_instances]
-        # N-7: each instance's tint multiplies the material's colour; an
-        # untinted instance multiplies by exactly 1.0 (byte-identical).
-        colors = Vec4f[
-            Vec4f(
-                material.base_color_rgba[1] * instance.tint_rgb[1],
-                material.base_color_rgba[2] * instance.tint_rgb[2],
-                material.base_color_rgba[3] * instance.tint_rgb[3],
-                material.base_color_rgba[4],
-            ) for instance in batch_instances
-        ]
-        material_parameters = Vec4f[
-            Vec4f(material.metallic, material.roughness, material.normal_scale, material.occlusion_strength) for _ in batch_instances
-        ]
-        surface_parameters = Vec4f[
-            Vec4f(
-                material.clearcoat,
-                material.clearcoat_roughness,
-                material.alpha_cutoff === nothing ? 0.0f0 : material.alpha_cutoff,
-                material.double_sided ? 1.0f0 : 0.0f0,
-            ) for _ in batch_instances
-        ]
-        emissive_parameters = Vec4f[
-            # w is a flag the shader reads: 2 = metallic from the roughness
-            # texture's BLUE channel (glTF packing), 1 = factor only.
-            Vec4f(material.emissive_factor_rgb..., material.metallic_from_texture ? 2.0f0 : 1.0f0) for _ in batch_instances
-        ]
         push!(batches, nothing)
         push!(pending, (
             slot=length(batches),
             mesh_id=mesh_id,
-            material_id=material.material_id,
+            material=material,
+            instances=batch_instances,
             instance_ids=instance_ids,
             geometry=geometry,
-            streams=(translations, rotations, scales, colors, material_parameters,
-                     surface_parameters, emissive_parameters),
             instance_count=length(batch_instances),
         ))
         total_vertices += geometry.vertex_count
@@ -6185,9 +6188,11 @@ function _mesh_resources!(
     if !isempty(pending)
         # One upload for every new batch, recorded into the open batch: `upload!` would
         # submit and host-wait on all GPU work in flight, inside the frame (audit L-02).
-        packed = Vec4f[]
-        for batch in pending, stream in batch.streams
-            append!(packed, stream)
+        # The streams are written straight into one buffer sized up front (audit L-05).
+        packed = Vector{Vec4f}(undef, sum(batch -> MESH_INSTANCE_STREAMS * batch.instance_count, pending))
+        cursor = 0
+        for batch in pending
+            cursor = _pack_instance_streams!(packed, cursor, batch.material, batch.instances)
         end
         gpu_packed = Lava.LavaArray{Vec4f,1}(undef, length(packed); bq=state.queue)
         Lava.upload_recorded!(gpu_packed, packed)
@@ -6195,16 +6200,16 @@ function _mesh_resources!(
         cursor = 0
         for batch in pending
             views = Lava.LavaArray{Vec4f,1}[]
-            for stream in batch.streams
-                push!(views, Lava.GPUArrays.derive(Vec4f, gpu_packed, (length(stream),), cursor))
-                cursor += length(stream)
+            for _ in 1:MESH_INSTANCE_STREAMS
+                push!(views, Lava.GPUArrays.derive(Vec4f, gpu_packed, (batch.instance_count,), cursor))
+                cursor += batch.instance_count
             end
             gpu_translations, gpu_rotations, gpu_scales, gpu_colors,
                 gpu_material_parameters, gpu_surface_parameters, gpu_emissive_parameters = views
             geometry = batch.geometry
             batches[batch.slot] = MeshBatchResources(
                 batch.mesh_id,
-                batch.material_id,
+                batch.material.material_id,
                 batch.instance_ids,
                 geometry.positions,
                 geometry.normals,
@@ -7750,6 +7755,48 @@ function _blit_color_image!(
     return nothing
 end
 
+"""
+Opt-in per-frame trace of presented frames, for tracing isolated long frames
+(audit L-05). When `LUXEL_FRAME_TRACE` names a file, each presented frame
+appends one JSON line to it: the frame's wall time and CPU stage times, the GPU
+pass times reported during that frame (they belong to an earlier timed frame),
+and what the frame did besides record: Julia GC time, pauses, mark, sweep and
+safepoint time, live heap, bytes allocated, Julia compile time, pipelines built and bytes uploaded. Diagnostic
+only; nothing reads it back.
+"""
+const FRAME_TRACE_ENV = "LUXEL_FRAME_TRACE"
+
+"""Counters at the start of a traced frame; see [`FRAME_TRACE_ENV`](@ref)."""
+function _frame_trace_start(state::LavaBackend)
+    Base.cumulative_compile_timing(true)
+    return (gc=Base.gc_num(), compile_ns=Base.cumulative_compile_time_ns()[1],
+            pipelines=state.pipeline_compilations, upload_bytes=state.upload_bytes)
+end
+
+function _append_frame_trace(path::String, state::LavaBackend, start, frame::Int, frame_us::Int,
+                             stages::Vector{Pair{String,Int}})
+    compile_ns = Base.cumulative_compile_time_ns()[1] - start.compile_ns
+    Base.cumulative_compile_timing(false)
+    gc_now = Base.gc_num()
+    gc = Base.GC_Diff(gc_now, start.gc)
+    gc_phase_us(field) = (getfield(gc_now, field) - getfield(start.gc, field)) ÷ 1000
+    line = IOBuffer()
+    print(line, "{\"frame\":", frame,
+          ",\"frame_us\":", frame_us,
+          ",\"gc_us\":", gc.total_time ÷ 1000, ",\"gc_pauses\":", gc.pause, ",\"gc_full\":", gc.full_sweep,
+          ",\"gc_mark_us\":", gc_phase_us(:total_mark_time),
+          ",\"gc_sweep_us\":", gc_phase_us(:total_sweep_time),
+          ",\"gc_safepoint_us\":", gc_phase_us(:total_time_to_safepoint),
+          ",\"live_mib\":", Base.gc_live_bytes() ÷ 2^20,
+          ",\"alloc_bytes\":", gc.allocd, ",\"compile_us\":", compile_ns ÷ 1000,
+          ",\"pipelines_built\":", Int(state.pipeline_compilations - start.pipelines),
+          ",\"upload_bytes\":", Int(state.upload_bytes - start.upload_bytes), ",\"stages_us\":{")
+    join(line, ("\"$name\":$us" for (name, us) in stages), ",")
+    println(line, "}}")
+    open(io -> write(io, take!(line)), path, "a")
+    return nothing
+end
+
 """Render `frame_count` presented frames of the packet scene through the open
 window session. `camera_override` re-aims the Rust-owned camera for every frame
 without changing packet identity. Camera-dependent mesh membership and overlay
@@ -7782,7 +7829,14 @@ function render_window_frames!(
     frame_times_us = Int[]
     # Per-stage wall time of each frame: diagnostic only, not evidence.
     stage_times_us = Dict{String,Vector{Int}}()
-    stage!(name, started_ns) = (push!(get!(stage_times_us, name, Int[]), Int(_elapsed_us(started_ns))); time_ns())
+    trace_path = get(ENV, FRAME_TRACE_ENV, "")
+    frame_stages = Pair{String,Int}[]
+    function stage!(name, started_ns)
+        us = Int(_elapsed_us(started_ns))
+        push!(get!(stage_times_us, name, Int[]), us)
+        isempty(trace_path) || push!(frame_stages, name => us)
+        return time_ns()
+    end
     input_samples = report_input ? Any[] : nothing
     presented = 0
     # GPU pass times are timestamp intervals; prepare and scene_raster totals
@@ -7806,12 +7860,16 @@ function render_window_frames!(
     function record_gpu_stage_times!(reports)
         reports === nothing && return nothing
         for (key, label) in gpu_stage_labels
-            push!(get!(stage_times_us, key, Int[]), something(_timing_report_us(reports, label), 0))
+            us = something(_timing_report_us(reports, label), 0)
+            push!(get!(stage_times_us, key, Int[]), us)
+            isempty(trace_path) || push!(frame_stages, key => us)
         end
         return nothing
     end
     for frame_index in 1:Int(frame_count)
         frame_started_ns = time_ns()
+        trace_start = isempty(trace_path) ? nothing : _frame_trace_start(state)
+        empty!(frame_stages)
         Lava.GLFW.PollEvents()
         report_input && push!(input_samples, _sample_window_input(session.window))
         # `Lava.checkopen` is a throwing assertion, not a predicate; the loop
@@ -7901,6 +7959,8 @@ function render_window_frames!(
                 session.presented_frames += UInt64(1)
                 presented += 1
                 push!(frame_times_us, Int(_elapsed_us(frame_started_ns)))
+                trace_start === nothing || _append_frame_trace(trace_path, state, trace_start,
+                    Int(session.presented_frames), frame_times_us[end], frame_stages)
                 continue
             end
 
@@ -7940,6 +8000,8 @@ function render_window_frames!(
             session.presented_frames += UInt64(1)
             presented += 1
             push!(frame_times_us, Int(_elapsed_us(frame_started_ns)))
+            trace_start === nothing || _append_frame_trace(trace_path, state, trace_start,
+                Int(session.presented_frames), frame_times_us[end], frame_stages)
         finally
             gpu_slot === nothing || Lava.enable_dispatch_timing!(false, state.context)
         end

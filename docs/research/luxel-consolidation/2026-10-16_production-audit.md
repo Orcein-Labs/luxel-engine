@@ -25,7 +25,8 @@ defect in this branch.
   now run under the layer, sync validation on, with an empty log. That run is
   the local GPU gate, `tools/gpu-gate.sh`.
 - The main production risks still open are:
-  - frame rate (11–23 fps against a 60 fps target; L-05, L-10).
+  - frame rate (15–23 fps against a 60 fps target; L-10). The half-second
+    GC hitches (L-05) are fixed.
 - No Blockers.
 
 ## 2. Ranked findings
@@ -41,7 +42,7 @@ defect in this branch.
 | L-16 | D | Important | Wet-terrain point-light pipeline exceeds the 128-component vertex output limit | Fixed, b7324b2 |
 | L-17 | D | Important | After a window resize, a render pass begins on a swapchain image still in `PRESENT_SRC_KHR` | Fixed, b382fb7 |
 | L-04 | D | Important | Bare `catch` in GPU timing permanently disables timestamps and misreports the capability | Fixed, 4099abb |
-| L-05 | D / C | Important | Isolated 478 ms and 560 ms frames, not traced | Open |
+| L-05 | D / C | Important | Isolated 478 ms and 560 ms frames, not traced | Fixed: traced to GC; GC threads plus allocation cuts (Lava patch 0006; presented-fps fix 6) |
 | L-06 | E | Important | Docs index and debt ledger out of date | Fixed, 842a808 |
 | L-14 | D | Advisory | `test_zone_compiler.py` errors 52 times without reference content | Fixed with the CPU gate |
 | L-07 | D | Advisory | `verify_identity.py` frozen references fail 0/18 by known drift | Open |
@@ -239,11 +240,36 @@ defect in this branch.
   frame of 478 ms (pan close) or 560 ms (still medium). The single fix 3 run
   peaked at 170 ms.
 - **Consequence:** a half-second hitch is a visible stall. In the runs above it
-  also sets the low end of batch fps. The cause could be Julia GC, JIT,
-  allocator growth, OS or driver. It is unknown.
-- **Remedy:** take per-frame samples with GC time (`Base.gc_num` deltas) and
-  per-stage timings, then attribute the spikes.
-- **Status:** open. Measurement work, scheduled with the roadmap.
+  also sets the low end of batch fps.
+- **Trace:** `LUXEL_FRAME_TRACE=<path>` now writes one JSON line per frame:
+  GC pause, mark and sweep time, allocation, compile time, pipeline creations,
+  upload bytes, CPU stage timings and GPU pass timings. The spikes were Julia
+  GC: one 491 ms (pan) or 541 ms (still) collection, on one GC thread. The
+  worker allocated 7–17 MiB a frame.
+- **Remedy** (presented-fps fix 6):
+  - the supervisor starts the worker with `--gcthreads=4,1` unless
+    `JULIA_NUM_GC_THREADS` is set;
+  - Lava patch 0006, `map_args`: Base `map` over a tuple of more than 31
+    arguments boxes every element, and the 47-argument mesh draw allocated
+    about 7 MiB a frame;
+  - `_mesh_resources!` packs the seven per-instance streams into one buffer
+    and groups instances by index, without copying them.
+- **Verification:**
+
+  | Trace | Worst GC (ms) | GC total (ms) | Worst frame (ms) | Alloc/frame (MiB) |
+  |---|---|---|---|---|
+  | still, 1 GC thread | 541 | 894 | 564 | 7.4 |
+  | still, after | 0 | 0 | 61 | 1.1 |
+  | pan, 1 GC thread | 491 | 742 | 521 | 17.4 |
+  | pan, after | 35 | 89 | 99 | 4.9 |
+
+  Steady-state frames, 84 per trace. The 18 digests are unchanged, 18/18, and
+  the GPU gate passes. Pan wide batch fps rose 10.8 → 14.8.
+- **Left:** the first frame of each process (about 200 ms of compile) and the
+  first frame of each new view (GPU time 200–235 ms, against 45–65 ms steady)
+  are still long. That is first-use warmup, not GC. It is a separate follow-up
+  (section 7).
+- **Status:** fixed.
 
 ### L-06 — Documentation drift
 
@@ -470,11 +496,13 @@ commits on `luxel-consolidation`. None is pushed.
 | f3b7681 | L-15 | Lava patch 0004 folds uniform Function-pointer phis |
 | b7324b2 | L-16 | Wet-terrain `wet_d` varying moved to location 14 |
 | b382fb7 | L-17 | CPU present fallback blits with `clear=true` |
-| (this commit) | L-03 | `tools/gpu-gate.sh`: the GPU suites under the validation layer |
+| 75bd226 | L-03 | `tools/gpu-gate.sh`: the GPU suites under the validation layer |
+| bc576f0 | L-02 | Lava patch 0005 records per-instance uploads into the open batch |
+| (this commit) | L-05 | Frame trace; GC threads; Lava patch 0006 and allocation cuts |
 
 Not attempted, and why:
-- L-02 and L-05 are feature and measurement work on the roadmap. L-02 was
-  done after the pass (Lava patch 0005).
+- L-02 and L-05 are feature and measurement work on the roadmap. Both were
+  done after the pass (Lava patches 0005 and 0006).
 - L-07 needs an owner decision (re-freeze or retire).
 - L-08 and L-09 are deferred by their own remedies.
 - L-10 belongs with the quality presets.
@@ -501,6 +529,7 @@ Not attempted, and why:
 | Rust non-test `unwrap`/`expect` | `native_graphics_contract`: 6, all invariant `expect`s with messages; `project_ledger`: 1; `luxel_control_plane` and `world_viewer`: 0 |
 | Vulkan validation layer, sync validation on | run 1: stopped at L-15 in every suite. Run 2 (L-15 filtered): no sync hazard in the sets reached; lava_adapter stopped at L-16; camera_continuity 88/88 clean; present_blit stopped at L-17 in the resize set. After the L-15–L-17 fixes, no filter: all six GPU suites exit 0 with an empty log, confirmed by a full `tools/gpu-gate.sh` run at b382fb7 |
 | Presented fps (CONVERGE-4, fix 4) | still 12.3–23.2, pan 10.8–12.7 batch fps (presented-fps note) |
+| Presented fps (CONVERGE-4, fix 6, after L-02 and L-05) | still 17.1–23.2, pan 14.8–17.2 batch fps; worst steady frame 61 ms still, 99 ms pan |
 
 Warnings in the GPU logs that are known and not findings:
 - Lava `replace_unreachable!` on `gpu_gc_pool_alloc`.
@@ -525,7 +554,7 @@ These are compiler-pass diagnostics, and the parity suites cover their output.
   - every pixel-changing change is visible;
   - the "top preset equals today's pixels" rule for quality presets builds on
     it directly.
-- Vendored Lava is the main supply risk. The repo now carries five local
+- Vendored Lava is the main supply risk. The repo now carries six local
   changes, all recorded as patches (L-01 fixed). Patch 0005, the L-02 sync
   work, deepens the fork. Keep the patch series exact, and consider offering the
   changes upstream.
@@ -546,7 +575,8 @@ Accepted risks, each with an owner (user) and a next step:
 2. L-15, L-16 and L-17 validation errors: fixed, and a clean validation run
    is now the local GPU gate (`tools/gpu-gate.sh`). Run it on every sync
    change in Part 2.
-3. L-05 untraced spikes: next is spike tracing.
+3. L-05 spikes: traced to GC and fixed (GC threads, Lava patch 0006).
+   First-use warmup frames remain (section 7).
 
 This is not a release of a production engine. The 60 fps target, 1080p, LOD,
 streaming and animation are roadmap work (`missing-inventory.md`).
@@ -557,7 +587,7 @@ In order:
 
 1. ~~L-15, L-16 and L-17, then a clean full validation run.~~ Done.
 2. ~~L-02 non-waiting uploads, validated under the layer.~~ Done.
-3. L-05 spike trace.
+3. ~~L-05 spike trace.~~ Done.
 4. L-10 frame budget, with the quality presets and half-resolution reflection.
 5. Mesh raster cost attribution: is it bound by vertex work, fragment work or
    draw count?
@@ -566,3 +596,6 @@ In order:
 8. L-04 telemetry fields, at the next telemetry schema revision.
 9. L-07 decision; L-11 plan approval; L-06 ledger re-baseline.
 10. L-08 and L-09 as their areas are touched.
+11. First-use warmup: the first frame of a process (about 200 ms of compile)
+    and of each new view (200–235 ms of GPU time). Prewarm pipelines and
+    compile at startup, or record a precompile workload.

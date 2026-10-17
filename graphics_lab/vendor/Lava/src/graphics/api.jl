@@ -153,7 +153,7 @@ end
 # ── Draw API ──
 
 """Convert args to device-side values (LavaArray → LavaDeviceArray, scalars pass through)."""
-convert_args(args::Tuple) = map(arg -> arg isa LavaArray ? LavaDeviceArray(arg) : arg, args)
+convert_args(args::Tuple) = map_args(arg -> arg isa LavaArray ? LavaDeviceArray(arg) : arg, args)
 convert_args(::Tuple{}) = ()
 
 """
@@ -276,7 +276,7 @@ function pack_gfx_args_bda(bq::BatchQueue, args, push_info::PushConstantInfo)
     (push_info.push_size == 0 || isempty(args)) && return UInt64(0)
     batch = ensure_active_batch!(bq)
     adaptor = LavaAdaptor(batch)
-    converted = map(a -> Adapt.adapt(adaptor, a), args)
+    converted = map_args(a -> Adapt.adapt(adaptor, a), args)
     byval_sizes = push_info.byval_llvm_sizes
     total_size = push_info.arg_buffer_size + compute_inline_extra_from_byval(byval_sizes)
     arg_buf = get_arg_buffer(bq, total_size)
@@ -295,7 +295,7 @@ function pack_gfx_args(bq::BatchQueue, args, push_info::PushConstantInfo)
     # wrapper structs / Broadcasted / NamedTuple, so any nested LavaArray
     # gets both its pointer strip and its pin in the same pass.
     adaptor = LavaAdaptor(batch)
-    converted = map(a -> Adapt.adapt(adaptor, a), args)
+    converted = map_args(a -> Adapt.adapt(adaptor, a), args)
 
     # Use the same arg buffer packing as compute: inline byval structs into
     # the arg buffer with self-referencing BDA pointers.

@@ -126,7 +126,7 @@ function trace_rays!(bq::BatchQueue, pipeline::RayTracingPipeline, tlas::LavaTLA
     pin_leaves!(batch, args)
     adaptor = LavaAdaptor(batch)
     converted_raygen = Adapt.adapt(adaptor, pipeline.raygen_func)
-    converted_args = map(a -> Adapt.adapt(adaptor, a), args)
+    converted_args = map_args(a -> Adapt.adapt(adaptor, a), args)
 
     all_args = (converted_raygen, converted_args...)
     inline_extra = compute_inline_extra_from_byval(byval_sizes)
@@ -187,7 +187,7 @@ function trace_rays_indirect!(bq::BatchQueue, pipeline::RayTracingPipeline,
     pin_leaves!(batch, args)
     adaptor = LavaAdaptor(batch)
     converted_raygen = Adapt.adapt(adaptor, pipeline.raygen_func)
-    converted_args = map(a -> Adapt.adapt(adaptor, a), args)
+    converted_args = map_args(a -> Adapt.adapt(adaptor, a), args)
 
     all_args = (converted_raygen, converted_args...)
     inline_extra = compute_inline_extra_from_byval(byval_sizes)
