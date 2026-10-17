@@ -25,7 +25,7 @@ defect in this branch.
   now run under the layer, sync validation on, with an empty log. That run is
   the local GPU gate, `tools/gpu-gate.sh`.
 - The main production risks still open are:
-  - frame rate (11–23 fps against a 60 fps target; L-02, L-05, L-10).
+  - frame rate (11–23 fps against a 60 fps target; L-05, L-10).
 - No Blockers.
 
 ## 2. Ranked findings
@@ -35,7 +35,7 @@ defect in this branch.
 | L-01 | E / A | Important | Vendored Lava edit in 985600e has no patch file | Fixed, d8e5c2c |
 | L-12 | D | Important | Three fixture digests stale since the rename; `cargo test --workspace` had 10 failures | Fixed, de63c14 |
 | L-13 | D | Important | Reachability test read ~10 GB of scratch and ran past an hour | Fixed, 444241c |
-| L-02 | C | Important | In-recording uploads wait on the whole previous frame; pan throughput is flat | Open, planned |
+| L-02 | C | Important | In-recording uploads wait on the whole previous frame; pan throughput is flat | Fixed, Lava patch 0005 (presented-fps fix 5) |
 | L-03 | D | Important | No CI, and no Vulkan validation-layer run, for the new frame-overlap sync | Fixed, 705f059 and the validation run; findings in L-15, L-16, L-17 |
 | L-15 | D | Important | Terrain shaders emit invalid SPIR-V (`OpConstantNull` of a Function-storage pointer) | Fixed, f3b7681 (Lava patch 0004) |
 | L-16 | D | Important | Wet-terrain point-light pipeline exceeds the 128-component vertex output limit | Fixed, b7324b2 |
@@ -131,19 +131,25 @@ defect in this branch.
   `gpu_scene_raster` is 144 ms at p95 against 42 ms at p50.
 - **Consequence:** a moving camera, the normal case in play, gets no benefit
   from frame overlap.
-- **Remedy:** non-waiting uploads into freshly allocated buffers. Record the
-  staging copy into the active batch, and free the staging buffer through
-  Lava's timeline-gated deferred free. Pixel-neutral. This is roadmap step 4,
-  Part 2.
-- **Verification:**
-  - the 18 digests are unchanged;
-  - pan batch fps rises;
-  - pan `scene_record` falls to the still-view level;
-  - validation layers are clean (see L-03).
-- **Change risk:** medium. This is Lava sync work and needs its own hazard
-  review.
-- **Status:** open, planned. Not attempted in the fix pass: it is a feature
-  change, not a fix.
+- **Remedy:** non-waiting uploads into freshly allocated buffers. Lava patch
+  0005 adds `upload_recorded!`: it records the staging copy into the open
+  batch, then a transfer-to-all-commands barrier. The staging buffer is
+  pinned to that batch and freed when the batch retires. `_mesh_resources!`
+  uses it. Pixel-neutral. This is roadmap step 4, Part 2.
+- **Verification** (`2026-10-16_presented-fps.md`, fix 5):
+  - the 18 digests are unchanged, 18/18;
+  - the GPU gate passes: 6 suites, sync validation on, empty validation log;
+  - pan p50 frame fell 16–17 ms on every view;
+  - pan `scene_record` fell from 64–82 ms to 23–41 ms;
+  - pan batch fps rose on close (12.9 → 16.3) and medium (11.8 → 15.3).
+    Wide stayed at 10.8 because of one 558 ms frame; that is L-05.
+- **Change risk:** medium. This is Lava sync work. Hazard review: the
+  destination is freshly allocated, so no GPU work reads or writes it; draws
+  pin their arrays, so an in-flight array is not freed and reused under the
+  copy; and the copy is recorded outside rendering scopes. Sync validation does
+  not track buffer-device-address loads, so the graphics-stage barrier is
+  reasoned, not tested.
+- **Status:** fixed.
 
 ### L-03 — No CI and no validation-layer evidence
 
@@ -467,7 +473,8 @@ commits on `luxel-consolidation`. None is pushed.
 | (this commit) | L-03 | `tools/gpu-gate.sh`: the GPU suites under the validation layer |
 
 Not attempted, and why:
-- L-02 and L-05 are feature and measurement work on the roadmap.
+- L-02 and L-05 are feature and measurement work on the roadmap. L-02 was
+  done after the pass (Lava patch 0005).
 - L-07 needs an owner decision (re-freeze or retire).
 - L-08 and L-09 are deferred by their own remedies.
 - L-10 belongs with the quality presets.
@@ -518,9 +525,9 @@ These are compiler-pass diagnostics, and the parity suites cover their output.
   - every pixel-changing change is visible;
   - the "top preset equals today's pixels" rule for quality presets builds on
     it directly.
-- Vendored Lava is the main supply risk. The repo now carries three local
-  changes, all recorded as patches (L-01 fixed), and the sync work in L-02
-  deepens the fork. Keep the patch series exact, and consider offering the
+- Vendored Lava is the main supply risk. The repo now carries five local
+  changes, all recorded as patches (L-01 fixed). Patch 0005, the L-02 sync
+  work, deepens the fork. Keep the patch series exact, and consider offering the
   changes upstream.
 - The Bevy `world_viewer` is an inspection instrument, not the renderer. Do not
   build production features on it.
@@ -535,7 +542,7 @@ The fixes the audit recommended before merge are in: L-01 (patch file) and L-12
 
 Accepted risks, each with an owner (user) and a next step:
 
-1. L-02 pan throughput: next is Part 2, non-waiting uploads.
+1. L-02 pan throughput: fixed by non-waiting uploads (Lava patch 0005).
 2. L-15, L-16 and L-17 validation errors: fixed, and a clean validation run
    is now the local GPU gate (`tools/gpu-gate.sh`). Run it on every sync
    change in Part 2.
@@ -549,7 +556,7 @@ streaming and animation are roadmap work (`missing-inventory.md`).
 In order:
 
 1. ~~L-15, L-16 and L-17, then a clean full validation run.~~ Done.
-2. L-02 non-waiting uploads, validated under the layer.
+2. ~~L-02 non-waiting uploads, validated under the layer.~~ Done.
 3. L-05 spike trace.
 4. L-10 frame budget, with the quality presets and half-resolution reflection.
 5. Mesh raster cost attribution: is it bound by vertex work, fragment work or

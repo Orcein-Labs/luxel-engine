@@ -4680,8 +4680,8 @@ function _record_scene_with_reflection!(
         return _record_scene_passes!(state, packet, camera_frame, lighting, environment_lighting, material,
                                      texture_enabled, scene_framebuffer, scene_target)
     end
-    # Build the view caches up front: every upload flushes and waits on the batch, so
-    # uploading after a pass is recorded would stall the CPU on that pass's GPU work.
+    # Build both view caches before recording either pass: uploads record transfer
+    # commands, which cannot sit inside a rendering scope.
     _mesh_resources!(state, packet, camera_frame; cache=:main)
     _mesh_resources!(state, packet, _mirrored_frame(camera_frame, water.surface_y_m); cache=:reflection)
     reflection_framebuffer = _framebuffer!(state, scene_framebuffer.width, scene_framebuffer.height, true, :reflection)
@@ -6183,13 +6183,14 @@ function _mesh_resources!(
         total_vertices += geometry.vertex_count
     end
     if !isempty(pending)
-        # One upload for every new batch: each LavaArray construction flushes and waits
-        # on all GPU work recorded so far, so per-array uploads stall the CPU repeatedly.
+        # One upload for every new batch, recorded into the open batch: `upload!` would
+        # submit and host-wait on all GPU work in flight, inside the frame (audit L-02).
         packed = Vec4f[]
         for batch in pending, stream in batch.streams
             append!(packed, stream)
         end
-        gpu_packed = Lava.LavaArray{Vec4f,1}(packed; bq=state.queue)
+        gpu_packed = Lava.LavaArray{Vec4f,1}(undef, length(packed); bq=state.queue)
+        Lava.upload_recorded!(gpu_packed, packed)
         state.upload_bytes += UInt64(sizeof(Vec4f) * length(packed))
         cursor = 0
         for batch in pending

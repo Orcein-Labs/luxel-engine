@@ -1,0 +1,72 @@
+diff -ruN a/src/array/lavaarray.jl b/src/array/lavaarray.jl
+--- a/src/array/lavaarray.jl
++++ b/src/array/lavaarray.jl
+@@ -221,6 +221,68 @@
+     GC.@preserve dst upload!(dst.buf[], bytes; offset=dst.offset)
+ end
+ 
++"""
++    upload_recorded!(dst::LavaArray{T}, data::AbstractVector{T}) -> dst
++
++Upload host data to `dst` by recording a copy into the active batch, without
++submitting the batch or waiting on the GPU.
++
++`upload!` submits and then waits for every batch in flight, which is right when
++the caller reads the result on the CPU next, and a stall when a frame is still
++being recorded. Here the data goes through a staging buffer of its own (the
++shared `get_staging` buffer would be overwritten by the next upload while this
++copy is still pending), and the copy runs when the batch runs. A barrier after
++it makes the write visible to every later command in the batch, graphics stages
++included.
++
++The caller guarantees that no recorded or in-flight work still uses `dst`; a
++freshly allocated array qualifies. Call it outside a rendering scope:
++`vkCmdCopyBuffer` is not allowed inside one.
++"""
++function upload_recorded!(dst::LavaArray{T}, data::AbstractVector{T}) where T
++    @assert length(data) == length(dst) "Size mismatch: $(length(data)) vs $(length(dst))"
++    nbytes = length(data) * sizeof(T)
++    nbytes == 0 && return dst
++    managed = dst.buf[]
++    # BAR memory is written by memcpy on `upload!`'s path; only device-local
++    # buffers need the copy.
++    if managed.mapped_ptr != Ptr{UInt8}(0)
++        upload!(dst, data)
++        return dst
++    end
++    bq = (managed.ctx::VkContext).default_bq
++    staging = host_buffer(bq, nbytes)
++    src = collect(data)
++    GC.@preserve src unsafe_copyto!(staging.mapped_ptr, Ptr{UInt8}(pointer(src)), nbytes)
++    cmd_copy_buffer!(bq, staging, managed, nbytes; dst_off=managed.pool_offset + dst.offset)
++    batch = bq.active_batch::CommandBatch
++    # `cmd_copy_buffer!`'s own barrier reaches compute and transfer only; a draw
++    # reading `dst` (vertex or fragment stage) needs this one.
++    barrier = Ref(VkMemoryBarrier(
++        VK_STRUCTURE_TYPE_MEMORY_BARRIER, C_NULL,
++        VkAccessFlags(VK_ACCESS_TRANSFER_WRITE_BIT),
++        VkAccessFlags(Vulkan.VkCore.VK_ACCESS_MEMORY_READ_BIT)))
++    barrier_fptr(bq) == C_NULL || GC.@preserve barrier begin
++        ccall(barrier_fptr(bq), Cvoid,
++              (Ptr{Nothing}, VkPipelineStageFlags, VkPipelineStageFlags, VkDependencyFlags,
++               UInt32, Ptr{VkMemoryBarrier}, UInt32, Ptr{Nothing}, UInt32, Ptr{Nothing}),
++              batch.cmd_buf.vks,
++              VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
++              VkPipelineStageFlags(Vulkan.VkCore.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT),
++              VkDependencyFlags(0),
++              UInt32(1), barrier,
++              UInt32(0), C_NULL,
++              UInt32(0), C_NULL)
++    end
++    # The staging buffer lives until this batch retires: submit runs
++    # `sync_access!` over `pinned_refs` (setting `last_write`), and
++    # `release_pinned_refs!` at reclaim unpins it and drops this ref, so
++    # `vk_free!` finds the write already signalled.
++    push!(batch.pinned_refs, GPUArrays.DataRef(vk_free!, staging))
++    pin_buffer!(staging)
++    return dst
++end
++
+ # `Lava.update!` is deleted — use `Base.resize!(arr, length(new)) + Base.copyto!(arr, new)`.
+ # `Base.resize!(::LavaArray)` is capacity-aware (see array/gpuarrays.jl); `copyto!` is
+ # the standard GPUArrays upload path.  That pair is the full "make dst match src"

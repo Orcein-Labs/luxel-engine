@@ -9,10 +9,11 @@ did it:
 2. Keeping the scene packet resident in the worker.
 3. Presenting with a GPU image blit instead of a CPU readback.
 
-Four later fixes, each pixel-neutral, brought the still close view to
-21–23 fps (from 13.6) and the moving camera to 10.8–12.7 fps (from 7.6). See
+Five later fixes, each pixel-neutral, brought the still close view to
+21–23 fps (from 13.6) and the moving camera to 15–16 fps on the close and
+medium views (from 7.6). See
 [Fix 1](#fix-1-share-mesh-geometry-across-view-caches) through
-[Fix 4](#fix-4-record-the-next-frame-while-the-gpu-runs-the-last-one).
+[Fix 5](#fix-5-uploads-that-do-not-wait).
 
 The scenes still look the same. Offscreen, the 18 parity frames render
 byte-identical with and without these changes. The frozen references
@@ -347,6 +348,50 @@ so it is the honest throughput number. Two fix 4 runs gave these ranges:
   single fix 3 run peaked at 170 ms. A frame that long drags down that view's
   batch fps, which explains the low end of the ranges above.
 
+## Fix 5: uploads that do not wait
+
+Audit finding L-02. Each new batch of instances is uploaded once, in
+`_mesh_resources!`. That upload used Lava's `upload!`, which submits the open
+batch and host-waits on all GPU work in flight. Since fix 4, that includes the
+whole previous frame, so a moving camera ran CPU and GPU in series.
+
+- **Lava patch 0005** adds `upload_recorded!`. It copies into a new host-mapped
+  staging buffer, records the copy into the open batch, and returns without
+  submitting. Two barriers follow the copy:
+  - Lava's own, to compute and transfer;
+  - one from transfer writes to all commands, for the graphics stages that
+    read the buffer.
+
+  The staging buffer is pinned to the batch and freed when that batch retires.
+  `upload!` is unchanged.
+- **Why it is safe:** the destination is a freshly allocated array, so nothing
+  on the GPU has read or written it yet. Draws pin every array they use, so an
+  old array still in flight cannot be freed and reused under the copy. The copy
+  cannot sit inside a rendering scope, so both view caches are built before
+  either pass is recorded (already the case).
+- **Pixels:** the 18 parity frames match HEAD, 18/18.
+- **Validation:** `tools/gpu-gate.sh`, all 6 GPU suites, with sync validation
+  on and an empty validation log.
+
+One run each, b382fb7 → fix 5, p50 in ms:
+
+| View | Pan frame | Pan `scene_record` | Pan `previous_frame_wait` | Pan batch fps |
+|---|---|---|---|---|
+| close | 64.7 → 48.6 | 63.6 → 27.2 | 0.1 → 20.0 | 12.9 → 16.3 |
+| medium | 79.6 → 62.3 | 77.7 → 22.6 | 0.2 → 38.5 | 11.8 → 15.3 |
+| wide | 83.7 → 67.2 | 82.2 → 41.2 | 0.2 → 23.8 | 10.8 → 10.8 |
+
+- **Pan:** the CPU now waits for the previous frame at the frame boundary
+  instead of inside recording, and the pan frame time tracks `gpu_frame`, as
+  the still frame does.
+- **Wide pan batch fps did not move.** Its p50 dropped 16 ms, but one 558 ms
+  frame and a 239 ms p95 cancel that out over 30 frames. This is the
+  untraced-spike problem (audit L-05), not a regression in the p50 path. One
+  candidate to check in that trace: each upload now allocates its own staging
+  buffer (at least 64 KiB).
+- **Still:** unchanged within noise (frame 44.6 → 44.1 close, 56.1 → 56.1
+  wide). Still views upload nothing new per frame.
+
 ## Where the time goes now
 
 The still frame is bound by the GPU alone. The close view takes 44 ms:
@@ -357,16 +402,12 @@ The still frame is bound by the GPU alone. The close view takes 44 ms:
   scene again at full resolution.
 - **Shadows:** about 7 ms panning. The shadow cascades are cached when the view
   is still.
-- **Pan uploads:** each Lava upload flushes and waits for the previous frame,
-  so a moving camera still runs CPU and GPU in series.
+- **Pan recording:** 23–41 ms of `scene_record`, now overlapped with the
+  previous frame's GPU work (fix 5).
 
 Next steps, in order:
 
-1. **Uploads that do not wait.** A freshly allocated buffer has no GPU readers
-   or writers, so its upload needs neither a flush nor a wait. Record the
-   staging copy into the active batch and free the staging buffer through
-   Lava's timeline-gated deferred free. This is Lava sync work, so it needs
-   its own hazard review. Pixel-neutral.
+1. ~~**Uploads that do not wait.**~~ Done, fix 5.
 2. **Trace the isolated long frames** with per-frame samples.
 3. **Reduce reflection cost** behind the graphics quality setting, for example
    a half-resolution reflection. The top preset keeps today's pixels.

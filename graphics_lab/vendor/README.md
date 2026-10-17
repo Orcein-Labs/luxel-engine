@@ -13,14 +13,16 @@
 | `lava-0002-multisample.patch` | Multisampled offscreen targets (`LavaFramebuffer(samples=)`, drawn into an MSAA image and resolved by average into the readable one), `GraphicsPipeline(alpha_to_coverage=)`, and `alphaToOne` enabled at device creation when supported | Alpha-to-coverage foliage (CONVERGE-3 L-2a). Upstream renders single-sample only. Single-sample pipelines, framebuffers and cache keys are exactly upstream's. |
 | `lava-0003-draw-resolve.patch` | `draw!(...; resolve=false)` on an offscreen target skips the multisample resolve for that draw | One resolve per scene pass instead of one per draw (985600e). The default `resolve=true` is upstream's behaviour. |
 | `lava-0004-fold-uniform-function-ptr-phis.patch` | `fold_uniform_function_ptr_phis!`, run in `run_llvm_passes!`: a pointer phi whose incoming values all name one Function-storage address (or are undef) becomes that address | StructurizeCFG left `phi ptr` chains over a partially written sret box, which emit as a Function-pointer `OpPhi` (VUID-VkShaderModuleCreateInfo-pCode-08737) plus an illegal pointer `OpBitcast`. 14 terrain and point-light fragment shaders were invalid SPIR-V (audit L-15). |
+| `lava-0005-recorded-upload.patch` | `upload_recorded!(dst, data)`: records a host→device copy into the active batch through a staging buffer of its own, plus a transfer→all-commands barrier, and never submits or waits | Per-instance uploads in `_mesh_resources!` used `upload!`, whose `flush!` host-waits on all GPU work in flight, inside every panning frame (audit L-02). |
 
-Patches 0001–0003 only add code. A shader that does not call `discard()`
-compiles to the same SPIR-V as upstream, a single-sample target creates the
-same pipelines and images as upstream, and `draw!` without `resolve=` resolves
-as upstream does. Patch 0004 does change the SPIR-V of the shaders it fixes
-(and only those: a module with no Function-pointer phi is untouched); their
-pixels are unchanged: all 18 parity frames from `tools/verify_identity.py`
-render byte-identical to a render of the commit before the patch. (Compare
+Patches 0001–0003 and 0005 only add code. A shader that does not call
+`discard()` compiles to the same SPIR-V as upstream, a single-sample target
+creates the same pipelines and images as upstream, `draw!` without `resolve=`
+resolves as upstream does, and `upload!` is untouched. Patch 0004 does change
+the SPIR-V of the shaders it fixes (and only those: a module with no
+Function-pointer phi is untouched); their pixels are unchanged: all 18 parity
+frames from `tools/verify_identity.py` render byte-identical to a render of the
+commit before the patch. (Compare
 against such a render; the frozen references fail by known drift, audit L-07.)
 `LAVA_REVISION` stays the base commit.
 
