@@ -1181,15 +1181,17 @@ fn capture_certified_world(
                 return;
             }
         };
-        let world: luxel_reference_runtime::WorldArtifact = match serde_json::from_slice(&world_bytes)
-        {
-            Ok(world) => world,
-            Err(error) => {
-                capture.requested = false;
-                eprintln!("native capture provenance failed: native world is malformed: {error}");
-                return;
-            }
-        };
+        let world: luxel_reference_runtime::WorldArtifact =
+            match serde_json::from_slice(&world_bytes) {
+                Ok(world) => world,
+                Err(error) => {
+                    capture.requested = false;
+                    eprintln!(
+                        "native capture provenance failed: native world is malformed: {error}"
+                    );
+                    return;
+                }
+            };
         if let Err(error) = luxel_reference_runtime::validate_world_artifact(&world) {
             capture.requested = false;
             eprintln!("native capture provenance failed: native world changed: {error}");

@@ -8,13 +8,13 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use serde_json::Value;
 use luxel_semantic_kernel::{
     ErosionSupervisorOptions, KernelFailure, RunOptions, Worker, accept_receipt, bind_evidence,
     canonical_json, certify_source, check_solver_image, create_store, current_generation, load_ir,
     normalize_semantic_ir, registry_digest, reject_author_effect, run_erosion_supervisor,
     run_specimen, script_digest, solver_image, verify_current,
 };
+use serde_json::Value;
 
 fn main() -> ExitCode {
     match dispatch() {

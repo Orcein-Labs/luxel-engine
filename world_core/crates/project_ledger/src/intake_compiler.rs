@@ -3,9 +3,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use luxel_intake_repair_contract as intake;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use luxel_intake_repair_contract as intake;
 
 use crate::{
     ArtifactNode, AssetBinding, BriefSpec, ClaimEvidence, ClaimKind, DesignConstraint,

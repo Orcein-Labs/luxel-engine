@@ -3,8 +3,8 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::process::ExitCode;
 
-use serde::Deserialize;
 use luxel_gameplay_contract::{FailureCode, GameFailure, GameSnapshot, ReplayTrace, run_replay};
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -3,8 +3,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use serde::Serialize;
-use sha2::{Digest, Sha256};
 use luxel_gameplay_contract::{FailureCode, GameOutcome, InputEvent, run_replay};
 use luxel_reference_runtime::{
     AuthoredLayout, BevyRendererIdentity, GameplayWorldBinding, REFERENCE_TICK_RATE_HZ,
@@ -13,6 +11,8 @@ use luxel_reference_runtime::{
     validate_bevy_capture_provenance, validate_gameplay_world_binding, validate_layout,
     validate_traversal_evidence, validate_visual_evidence, validate_world_artifact,
 };
+use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -401,13 +401,15 @@ fn actual_world_gameplay_path_rejects_early_objective_and_resealed_telemetry_fau
 #[test]
 fn full_width_blocked_region_is_a_known_bad_traversal_control() {
     let mut layout = example_layout();
-    layout.regions.push(luxel_reference_runtime::SemanticRegion {
-        region_id: "cross_map_scree_barrier".into(),
-        code: 2,
-        priority: 1,
-        blocks_traversal: true,
-        polygon_xz_m: vec![[-48.0, -1.0], [48.0, -1.0], [48.0, 1.0], [-48.0, 1.0]],
-    });
+    layout
+        .regions
+        .push(luxel_reference_runtime::SemanticRegion {
+            region_id: "cross_map_scree_barrier".into(),
+            code: 2,
+            priority: 1,
+            blocks_traversal: true,
+            polygon_xz_m: vec![[-48.0, -1.0], [48.0, -1.0], [48.0, 1.0], [-48.0, 1.0]],
+        });
     let error = match build_layout(&layout, "blocked-traversal") {
         Ok(_) => panic!("a world-spanning blocked band must prevent traversal"),
         Err(error) => error,

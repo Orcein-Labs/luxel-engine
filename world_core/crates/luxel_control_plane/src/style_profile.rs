@@ -6,8 +6,8 @@
 
 use std::collections::BTreeSet;
 
-use serde::{Deserialize, Serialize};
 use luxel_certification_authority::{canonical_json, sha256_prefixed};
+use serde::{Deserialize, Serialize};
 
 use crate::capability_registry::{CapabilityCatalog, CapabilityStatus};
 

@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use serde_json::Value;
 use luxel_gameplay_contract::GameplayReceipt;
+use serde_json::Value;
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 

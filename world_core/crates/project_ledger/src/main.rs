@@ -1,12 +1,12 @@
 use std::env;
 use std::process::ExitCode;
 
-use serde_json::json;
 use luxel_project_ledger::{
     EvidenceBundle, ProjectSnapshot, ProjectSpec, ProjectTemplate, build_unity_import_manifest,
     canonical_json, commit_snapshot, compile_project_spec, load_json, spec_digest,
     validate_snapshot, validate_spec, validate_world_bundle, write_json,
 };
+use serde_json::json;
 
 fn main() -> ExitCode {
     match dispatch() {
