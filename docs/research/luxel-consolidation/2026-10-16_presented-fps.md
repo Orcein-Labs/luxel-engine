@@ -213,7 +213,7 @@ The still close run of fix 1 also had one spike: p95 268 ms in
 `main_raster_record`. The earlier still run did not have it (p95 76 ms), and it
 has not been traced.
 
-## MSAA resolves once per draw
+## Fix 2: resolve MSAA once per scene pass
 
 CONVERGE-4 renders the scene into an RGBA32F target. The target is 2×
 supersampled with 4× MSAA, so the close view is 1536×1024.
@@ -224,27 +224,96 @@ issues one draw for the sky, one for the terrain and one per mesh batch,
 dozens in all. That means dozens of full resolves of about 100 MB read and
 25 MB written each. Only the last resolve is ever read.
 
-Resolving once, on the last draw, should keep pixels identical and is the
-next fix.
+The fix resolves on the last draw only:
+
+- Lava's offscreen `draw!` takes `resolve=false` to skip the resolve.
+- The scene pass resolves only on its final draw: the last mesh batch, or the
+  terrain when no batches are visible.
+- `gpu_scene_raster` now has three nested intervals: `gpu_scene_sky`,
+  `gpu_scene_terrain` and `gpu_scene_meshes`.
+- **Pixels:** the 18 parity frames match the fix 1 digests, 18/18.
+
+p50 in ms, fix 1 → fix 2:
+
+| View | Still frame | Still `gpu_scene_raster` | Pan frame |
+|---|---|---|---|
+| close | 71.5 → 64.1 | 53.8 → 43.7 | 113 → 115 |
+| medium | 90.6 → 70.8 | 71.6 → 53.4 | 140 → 122 |
+| wide | 93.0 → 74.5 | 74.6 → 57.9 | 144 → 126 |
+
+On the close view, the sky takes 0.3 ms, the terrain 1.8 ms and the meshes
+41.6 ms. Mesh draws are now 95% of the scene raster. The close pan frame did
+not move because the CPU bounds it: `scene_record` takes 86 ms.
+
+**Lesson: an open timing slot hangs the worker.** A first draft of this fix
+began the sky interval and never ended it. The timestamp readback waits for
+every query with `QUERY_RESULT_WAIT_BIT`, so the worker spun at 100% CPU for
+hours while holding the GPU lock. Every GPU test run is now wrapped in
+`timeout`.
+
+The adapter now guards against this. It records every pass interval it begins,
+and removes it when the interval ends. If any are still open when the frame's
+timestamps are read, the read raises `gpu_timing` and names the open labels.
+It no longer waits on the driver forever. `present_blit_gpu.jl` tests this
+with a deliberately open interval.
+
+## Fix 3: cut the moving-camera CPU cost
+
+The fix 1 profile pointed at two pan costs. This fix removes both.
+
+- **Instance bounds:** each instance's world bound sphere is now computed once
+  per packet and shared by every visibility test.
+- **One upload per view:** Lava flushes the batch and waits on it after every
+  upload. A view that gained several batches used to upload seven arrays per
+  batch, and each upload waited on all GPU work recorded so far. Now all the
+  new batches' per-instance arrays go up in one upload, and each batch reads
+  its arrays as views into that one buffer.
+- **Upload before recording:** the main and reflection view caches are built
+  before any pass is recorded. The uploads then no longer wait on the
+  reflection pass.
+- **Pixels:** the 18 parity frames match the fix 2 digests, 18/18.
+- **Tests:** the camera continuity test builds a view with two new batches. It
+  checks that every per-instance array shares one buffer, and it downloads the
+  first and the last batch to confirm each view reads its own data.
+
+p50 in ms, fix 2 → fix 3:
+
+| View | Still frame | Pan frame | Pan `scene_record` | Pan `gpu_reflection` |
+|---|---|---|---|---|
+| close | 64.1 → 54.5 | 115 → 81 | 86 → 40 | 45 → 25 |
+| medium | 70.8 → 64.8 | 122 → 85 | 84 → 36 | 46 → 25 |
+| wide | 74.5 → 67.3 | 126 → 88 | 87 → 38 | 48 → 26 |
+
+On the close pan:
+
+- `main_prepare` went from 29 ms to 0.4 ms.
+- `gpu_prepare` went from 46 ms to 7.1 ms, which is now just the shadow pass
+  (`gpu_shadow` is also 7.1 ms).
+
+On the close still view, `main_prepare` went from 3.3 ms to 0.4 ms, and
+`scene_record` from 27 ms to 15 ms.
 
 ## Where the time goes now
 
-Close view:
+The close pan frame takes 81 ms, and 73 ms of it is GPU (`gpu_frame`). The
+GPU is now the bottleneck, panning or still:
 
-| Cost | Still | Pan |
-|---|---|---|
-| GPU, mostly the scene raster | about 53 ms | about 50 ms |
-| CPU recording, `scene_record` (runs before the GPU work, not alongside it) | about 22 ms | about 77 ms |
+- **Mesh draws:** about 41 ms of the scene raster on the close view. This is
+  the largest single cost.
+- **Reflection:** 25 ms panning, against 14 ms still. The reflection renders the
+  scene again at full resolution.
+- **Shadows:** about 7 ms panning. The shadow cascades are cached when the view
+  is still.
+- **CPU recording:** `scene_record` takes 15 ms still and 40 ms panning. It runs
+  before the GPU work, not alongside it.
 
 Next steps, in order:
 
-1. **Resolve MSAA once** per scene pass, and split `gpu_scene_raster` into sky,
-   terrain and meshes. Pixel-neutral.
-2. **Cut pan CPU cost:**
-   - keep per-instance GPU buffers and update them in place instead of
-     allocating new ones;
-   - cache each instance's world bound per packet. Pixel-neutral.
-3. **Overlap recording with GPU work** across frames. This needs safe reuse of
-   per-frame resources.
-4. **Reduce reflection cost.** The reflection renders at full resolution. Any
-   reduction changes pixels and needs a decision first.
+1. **Overlap recording with GPU work** across frames, so the CPU records frame
+   N+1 while the GPU runs frame N. This needs safe reuse of per-frame
+   resources. Pixel-neutral.
+2. **Reduce reflection cost**, for example a half-resolution reflection or
+   culling to the water's view. This changes pixels and needs a decision
+   first.
+3. **Cut mesh raster cost.** The next step is to find out whether the mesh draws
+   are bound by vertex work, fragment work or draw count.
