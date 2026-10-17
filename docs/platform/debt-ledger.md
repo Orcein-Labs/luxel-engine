@@ -109,6 +109,13 @@ the project on 2026-07-31; Bevy is the reference renderer.
 so it is what a new reader (or a model given the repo) will believe. It is
 confidently wrong rather than merely stale.
 
+### D4 update 2026-10-17: RESOLVED
+
+`CODEWEALD_PIPELINE_ARCHITECTURE.md` is not in this repository; it stayed with
+Codeweald when the engine was split out. The current architecture documents are
+[active-architecture.md](active-architecture.md) and
+[native-graphics-architecture.md](native-graphics-architecture.md).
+
 ---
 
 ## D5. The reference renderer is thinly tested for its size
@@ -204,6 +211,15 @@ report.
 viewer still uses `project.godot` as its renderer-root sentinel. That rename is
 mechanical but touches ~50 references and a live tree under **no version
 control**, so it wants a `git init` first rather than being done blind.
+
+### D8 update 2026-10-17: no longer a Luxel directory
+
+The engine split moved the pipeline to `pipeline/` in this repository. There is
+no `godot_renderer/` here; the name survives only as Codeweald's content tree,
+reached through `LUXEL_REFERENCE_CONTENT` (`tests/reference_content.py`). The
+world viewer README now uses those paths. The remaining mentions are history
+(archive, this ledger), the repository fence list, and the Codeweald default
+content path.
 
 ---
 

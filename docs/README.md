@@ -32,6 +32,22 @@ Code still lives where it was. It moves into per-layer homes when that layer
 becomes the active campaign, so a move never lands in the middle of
 someone else's sprint; this table is the map until then.
 
+## Platform
+
+- [Active architecture](platform/active-architecture.md) · [native graphics architecture](platform/native-graphics-architecture.md) · [repository topology](platform/repository-topology.md)
+- [Native graphics capability matrix](platform/native-capability-matrix.md) · [capability registry design](platform/capability-registry-design.md)
+- [Render-asset conditioning contract](platform/render-asset-contract.md) · [SceneObject and SceneArtifact contract](platform/scene-object-contract.md)
+- [Window and present boundary](platform/window-present-design.md)
+- [Debt ledger](platform/debt-ledger.md) · [friction ledger](platform/friction-ledger.md) · [open decisions](platform/open-decisions.md) · [tooling upgrade plan](platform/tooling-upgrades.md)
+
+## World: contracts, audits and plans
+
+- CONVERGE contracts: [1](world/converge/converge1-contracts.md) · [2](world/converge/converge2-contracts.md) · [3](world/converge/converge3-contracts.md) · [4](world/converge/converge4-contracts.md)
+- [Style profile contract](world/style-profile-contract.md) · [native visual-quality authority](world/visual-authority-design.md) · [visual quality evidence](world/visual-quality-design.md)
+- [Systems roadmap](world/systems-roadmap.md) — the algorithmic layer.
+- [Native graphics benchmark](world/native-graphics-benchmark.md) · [native quality gaps](world/native-quality-gaps.md)
+- [Graphical parity audit](world/graphical-parity-audit.md) · [graphics convergence audit](world/graphics-convergence-audit.md) · [landscape parity plan](world/landscape-parity-plan.md) · [rasterizer audit](world/rasterizer-audit.md)
+
 ## World: materials and lighting
 
 - [Native graphics strict lint cleanup](platform/2026-10-12-native-graphics-lints.md) — bounded Clippy repair and retained formatting backlog.
@@ -58,8 +74,26 @@ findable.
 - [Original Ornith proof](characters/original-ornith-proof-contract-20261009.md) · [receipt](characters/original-ornith-proof-receipt-20261010.md)
 - [Ornith parked checkpoint](characters/ornith-parked-checkpoint-20261010.md)
 - [Cyan art and Live2D audit](characters/cyan-live2d-audit-20261010.md)
+- [Character workbench MVP contract](characters/character-workbench-mvp-contract.md)
+- [Authoring spiral contract](characters/authoring-spiral-contract-20261009.md) · [dispositions](characters/authoring-spiral-20261009.md)
+- [CPU character foundation](characters/cpu-character-foundation-contract.md) · [CPU movement foundation](characters/cpu-movement-foundation-contract.md) · [implementation](characters/cpu-foundation-implementation-20261009.md) · [capability audit](characters/cpu-capability-audit-20261009.md)
+- [Static extraction at the render import boundary](characters/static-extraction-import-decision.md)
+- [Live2D avatar quality contract](characters/avatar/live2d-avatar-quality-contract.md); the `avatar/*.prompt.txt` files are its source-art prompts.
 
 ## Gameplay
 
 - [C3.2 drive loop](gameplay/c3-2-drive-loop-contract.md) — Campaign B Star 1: worker samples to fixed ticks with replay.
 - [C3.2 playable session](gameplay/c3-2-playable-session-contract.md) — Campaign B Stars 2–5: actor-transform override, camera profiles, action map, presented live-evidence. Wallpaper host stays later.
+- [Gameplay kit architecture](gameplay/gameplay-kit-architecture.md) · [GCS foundation](gameplay/gcs-foundation-design.md)
+- Campaign 1: [incremental gameplay state](gameplay/incremental-gameplay-design.md) · [reference runtime](gameplay/live-runtime-design.md) · [live evidence](gameplay/live-loop-design.md) · [physics seam](gameplay/physics-decision.md)
+
+## Content SDK
+
+- [Semantic facade contract](content-sdk/semantic-facade-contract.md) · [ConstructionPlan contract](content-sdk/construction-plan-contract.md) · [generality bridge](content-sdk/generality-bridge.md)
+- [Semantic kernel handoff](content-sdk/semantic-kernel-handoff.md) — proven contracts after Goal 003.
+
+## Deformation, integrations and add-ons
+
+- [TetCageRT seam design](deformation/tetcage-seam-design.md)
+- [The Gaea programme](integrations/gaea-programme.md) — landform by Gaea, playability by Luxel.
+- [Grindstone](add-ons/grindstone-spec.md) · [Reforge](add-ons/reforge-spec.md)

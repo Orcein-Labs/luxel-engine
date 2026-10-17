@@ -38,10 +38,15 @@ change atomically replaces the displayed world; an invalid intermediate write
 leaves the prior world visible and reports the error. Bevy separately hot
 reloads referenced scenes, meshes, and textures.
 
+The concept batches are Codeweald's content, not the engine's. Set
+`LUXEL_REFERENCE_CONTENT` to Codeweald's `godot_renderer/` tree (the tests
+default to `../Game Projects/Codeweald/godot_renderer` beside this repo, see
+`tests/reference_content.py`).
+
 ```bash
 cd world_core
 cargo run -p codeweald-world-viewer -- \
-  --batch ../godot_renderer/concept_batches/codeweald_alpine_arena_v1
+  --batch "$LUXEL_REFERENCE_CONTENT"/concept_batches/codeweald_alpine_arena_v1
 ```
 
 Controls:
@@ -66,14 +71,14 @@ Deterministic visual-audit capture:
 
 ```bash
 cargo run -p codeweald-world-viewer -- \
-  --batch ../godot_renderer/concept_batches/codeweald_alpine_arena_v1 \
+  --batch "$LUXEL_REFERENCE_CONTENT"/concept_batches/codeweald_alpine_arena_v1 \
   --capture /tmp/codeweald-overview.png \
   --view overview
 
-python ../godot_renderer/pipeline/bevy_visual_acceptance.py \
-  ../godot_renderer/concept_batches/codeweald_alpine_arena_v1/zone_spec.json \
+python ../pipeline/bevy_visual_acceptance.py \
+  "$LUXEL_REFERENCE_CONTENT"/concept_batches/codeweald_alpine_arena_v1/zone_spec.json \
   /tmp/codeweald-overview.png \
-  --output ../godot_renderer/concept_batches/codeweald_alpine_arena_v1/bevy_visual_acceptance_report.json
+  --output "$LUXEL_REFERENCE_CONTENT"/concept_batches/codeweald_alpine_arena_v1/bevy_visual_acceptance_report.json
 ```
 
 Capture mode frames the certified world, waits for asynchronous glTF and
@@ -88,10 +93,10 @@ certified world and use deterministic camera contracts.
 The model-facing one-command form runs both steps:
 
 ```bash
-python ../godot_renderer/pipeline/capture_bevy.py \
-  ../godot_renderer/concept_batches/codeweald_alpine_arena_v1
+python ../pipeline/capture_bevy.py \
+  "$LUXEL_REFERENCE_CONTENT"/concept_batches/codeweald_alpine_arena_v1
 
 # Canonical visual audit: overview, west/east walls, and player-height view.
-python ../godot_renderer/pipeline/capture_bevy.py \
-  ../godot_renderer/concept_batches/codeweald_alpine_arena_v1 --suite
+python ../pipeline/capture_bevy.py \
+  "$LUXEL_REFERENCE_CONTENT"/concept_batches/codeweald_alpine_arena_v1 --suite
 ```
