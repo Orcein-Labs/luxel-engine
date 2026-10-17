@@ -8,7 +8,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde::{Deserialize, Serialize};
 use luxel_gameplay_contract::general::{
     AbilityId, CostPayer, EffectOperation, EffectRecipient, EffectSpec, EntityControl, EntityId,
     GENERAL_SNAPSHOT_SCHEMA, GENERAL_TRACE_SCHEMA, GameplayTag, GeneralAbilitySpec,
@@ -17,6 +16,7 @@ use luxel_gameplay_contract::general::{
     ResourceStateSpec, StackingPolicy, TargetingRule, run_general_replay,
     validate_general_snapshot, verify_general_receipt,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::fields::prefixed_sha256;
 use crate::{ReferenceRuntimeError, WorldArtifact};

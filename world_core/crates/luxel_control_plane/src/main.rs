@@ -4,13 +4,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
 use luxel_control_plane::{
     ProjectStore, WorkOrderResult, capability_registry, construction_plan, profile_gates,
     semantic_facade, style_profile,
 };
 use luxel_project_ledger::WorkOrder;
+use serde::de::DeserializeOwned;
+use serde_json::{Value, json};
 
 fn main() -> ExitCode {
     match dispatch() {

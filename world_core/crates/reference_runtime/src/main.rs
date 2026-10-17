@@ -3,12 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use serde::Serialize;
 use luxel_reference_runtime::{
     GameplayWorldBinding, TraversalEvidence, VisualEvidence, WorldArtifact, build_from_layout_path,
     validate_gameplay_kit, validate_gameplay_world_binding, validate_traversal_evidence,
     validate_visual_evidence, validate_world_artifact,
 };
+use serde::Serialize;
 
 #[derive(Serialize)]
 struct CandidateReport<'a> {

@@ -9,8 +9,8 @@ use general::{
     StackingPolicy, TargetingRule, run_general_replay, validate_general_snapshot,
     verify_general_receipt, verify_general_replay,
 };
-use sha2::Digest;
 use luxel_gameplay_contract::general;
+use sha2::Digest;
 
 fn set(values: &[&str]) -> BTreeSet<GameplayTag> {
     values

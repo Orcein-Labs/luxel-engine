@@ -1,11 +1,11 @@
 use std::collections::BTreeSet;
 
-use serde::Deserialize;
 use luxel_gameplay_contract::{
     AbilityId, FailureCode, GAMEPLAY_TRACE_SCHEMA, GameOutcome, GameSnapshot, GameplayEffect,
     GameplayTag, InputEvent, MAX_REPLAY_EVENTS, NpcAction, NpcDecision, ObjectiveState,
     ReplayTrace, TargetingRule, run_replay, validate_snapshot, verify_replay,
 };
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct Fixture {

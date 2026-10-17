@@ -1,4 +1,3 @@
-use serde_json::json;
 use luxel_asset_contract::{
     AssetIdentity, AssetPreparationReceipt, AssetProvenance, AssetUse, Axis, CollisionMetadata,
     CollisionShape, LodMetadata, PreparationStatus, ProducerIdentity, RENDER_ASSET_PACKAGE_SCHEMA,
@@ -14,6 +13,7 @@ use luxel_project_ledger::{
     project_scene_for_graphics, seal_scene, seal_scene_with_render_assets,
     validate_scene_against_asset_receipts, validate_scene_against_asset_receipts_and_render_assets,
 };
+use serde_json::json;
 
 fn ready_asset_receipt() -> AssetPreparationReceipt {
     let source_identity = AssetIdentity {

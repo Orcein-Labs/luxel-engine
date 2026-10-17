@@ -1,8 +1,8 @@
-use serde::Deserialize;
 use luxel_gameplay_contract::{
     AbilityId, FailureCode, GameOutcome, GameSnapshot, GameplaySession, InputEvent, NpcAction,
     ObjectiveState, ReplayTrace, Transition, run_replay,
 };
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct Fixture {

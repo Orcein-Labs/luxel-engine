@@ -17,8 +17,6 @@ use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use luxel_certification_authority::{
     ArtifactBytes, CandidateContext, CertificationStatus, GateRequirement, ReceiptEnvelope,
     ValidationReport, ValidationRequest, ValidatorRegistry, candidate_identity,
@@ -30,6 +28,8 @@ use luxel_project_ledger::{
     ProjectSpec, WorkOrder, semantic_spec_digest, spec_digest, validate_spec,
     validate_work_order_binding,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 pub const STORE_SCHEMA: &str = "luxel.project-transaction/v1";
 pub const POINTER_SCHEMA: &str = "luxel.current-pointer/v1";

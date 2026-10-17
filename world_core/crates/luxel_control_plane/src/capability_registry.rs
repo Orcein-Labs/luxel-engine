@@ -7,9 +7,9 @@
 
 use std::collections::BTreeSet;
 
+use luxel_certification_authority::{canonical_json, sha256_prefixed};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use luxel_certification_authority::{canonical_json, sha256_prefixed};
 
 pub const CAPABILITY_REGISTRY_SCHEMA: &str = "luxel.capability-registry/v1";
 pub const NATIVE_CAPABILITY_REGISTRY_ID: &str = "luxel.capability-registry.native/v1";

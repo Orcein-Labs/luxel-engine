@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde::{Deserialize, Serialize};
 use luxel_gameplay_contract::{
     AbilityId, AbilitySpec, Control, EntityAttributes, EntityId, EntitySpec,
     GAMEPLAY_SNAPSHOT_SCHEMA, GAMEPLAY_TRACE_SCHEMA, GameOutcome, GameSnapshot, GameplayEffect,
@@ -8,6 +7,7 @@ use luxel_gameplay_contract::{
     NpcAction, NpcBehavior, ObjectivePrerequisite, ObjectiveSpec, ObjectiveState, ReplayTrace,
     ResolvedKit, TargetingRule, Transition, run_replay, verify_replay,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::fields::prefixed_sha256;
 use crate::world::validate_world_artifact;

@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
 use luxel_intake_repair_contract::{
     ContractError, EvidenceReference, FailedLayer, GateId, IntakeDraft, MetricId,
     MetricObservation, NativeFinding, NativeValidatorRegistry, ProviderInterpretation,
@@ -13,6 +12,7 @@ use luxel_intake_repair_contract::{
     validate_proposal_evidence, validate_repair_delta, validate_repair_proposal,
     validate_source_bundle,
 };
+use serde::{Deserialize, Serialize};
 
 const TEST_VALIDATOR: &str = "test.native.navigation";
 const TEST_RECEIPT_SCHEMA: &str = "test.navigation-receipt/v1";
