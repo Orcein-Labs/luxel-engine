@@ -296,6 +296,9 @@ mutable struct LavaBackend{MCVP,C,Q,PP,SP,SVP,TP,TLP,TWP,OP,MP,MCP,TXP,DP,TSP,MS
     readback_bytes::UInt64
     pipeline_compilations::UInt64
     gpu_timestamp_supported::Bool
+    # Pass timing slots begun but not yet ended this frame, by label. Reading the
+    # timestamps waits on every slot, so one left open would hang the readback.
+    open_gpu_timing_slots::Dict{Int,String}
     probe_compiled::Bool
     terrain_compiled::Bool
     terrain_layered_compiled::Bool
@@ -3616,6 +3619,7 @@ function backend()::LavaBackend
             UInt64(0),
             UInt64(0),
             _gpu_timestamp_capable(context),
+            Dict{Int,String}(),
             false,
             false,
             false,
@@ -5035,6 +5039,7 @@ const GPU_PASS_TIMING_LABELS = (
 
 function _begin_gpu_frame_timing(state::LavaBackend)::Union{Nothing,Int}
     state.gpu_timestamp_supported || return nothing
+    empty!(state.open_gpu_timing_slots)
     try
         Lava.reset_dispatch_timing!(state.context)
         Lava.enable_dispatch_timing!(true, state.context)
@@ -5071,6 +5076,7 @@ function _begin_gpu_pass_timing(
             stage=Vulkan.PIPELINE_STAGE_TOP_OF_PIPE_BIT,
         )
         slot < 0 && return nothing
+        state.open_gpu_timing_slots[slot] = String(label)
         return slot
     catch
         state.gpu_timestamp_supported = false
@@ -5104,6 +5110,7 @@ function _end_gpu_pass_timing!(state::LavaBackend, ::Nothing)
 end
 
 function _end_gpu_pass_timing!(state::LavaBackend, start_slot::Int)
+    delete!(state.open_gpu_timing_slots, start_slot)
     try
         batch = Lava.ensure_active_batch!(state.queue)
         Lava.maybe_write_dispatch_end_timestamp!(
@@ -5125,6 +5132,11 @@ function _read_gpu_timing_reports(state::LavaBackend, ::Nothing)::Nothing
 end
 
 function _read_gpu_timing_reports(state::LavaBackend, ::Int)::Union{Nothing,Vector}
+    if !isempty(state.open_gpu_timing_slots)
+        labels = join(sort!(collect(values(state.open_gpu_timing_slots))), ", ")
+        empty!(state.open_gpu_timing_slots)
+        throw(AdapterError("gpu_timing", "GPU pass timing left open (would hang the readback): $labels"))
+    end
     try
         return Lava.dispatch_timing_report(state.context; flush_first=false)
     catch
