@@ -14,8 +14,10 @@
 | `lava-0003-draw-resolve.patch` | `draw!(...; resolve=false)` on an offscreen target skips the multisample resolve for that draw | One resolve per scene pass instead of one per draw (985600e). The default `resolve=true` is upstream's behaviour. |
 | `lava-0004-fold-uniform-function-ptr-phis.patch` | `fold_uniform_function_ptr_phis!`, run in `run_llvm_passes!`: a pointer phi whose incoming values all name one Function-storage address (or are undef) becomes that address | StructurizeCFG left `phi ptr` chains over a partially written sret box, which emit as a Function-pointer `OpPhi` (VUID-VkShaderModuleCreateInfo-pCode-08737) plus an illegal pointer `OpBitcast`. 14 terrain and point-light fragment shaders were invalid SPIR-V (audit L-15). |
 | `lava-0005-recorded-upload.patch` | `upload_recorded!(dst, data)`: records a host→device copy into the active batch through a staging buffer of its own, plus a transfer→all-commands barrier, and never submits or waits | Per-instance uploads in `_mesh_resources!` used `upload!`, whose `flush!` host-waits on all GPU work in flight, inside every panning frame (audit L-02). |
+| `lava-0006-type-stable-arg-map.patch` | `map_args(f, args)`: a `@generated`, type-stable tuple map, used for draw, compute launch and ray-tracing argument conversion | Base `map` over a tuple of more than 31 elements boxes every element. The 47-argument mesh draw allocated about 7 MiB a frame (audit L-05). |
 
-Patches 0001–0003 and 0005 only add code. A shader that does not call
+Patches 0001–0003 and 0005 only add code. Patch 0006 changes how host-side
+arguments are converted, not what they convert to, and no generated code. A shader that does not call
 `discard()` compiles to the same SPIR-V as upstream, a single-sample target
 creates the same pipelines and images as upstream, `draw!` without `resolve=`
 resolves as upstream does, and `upload!` is untouched. Patch 0004 does change

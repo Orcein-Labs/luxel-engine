@@ -589,7 +589,7 @@ function (obj::KA.Kernel{LavaBackend})(args...; ndrange=nothing, workgroupsize=n
         pin_leaves!(batch, obj.f)
         pin_leaves!(batch, args)
         adaptor = LavaAdaptor(batch)
-        converted_args = map(a -> Adapt.adapt(adaptor, a), args)
+        converted_args = map_args(a -> Adapt.adapt(adaptor, a), args)
         ka_launch_indirect!(obj, converted_args, ndrange, workgroupsize, args, adaptor, bq, tlas)
         return nothing
     end
@@ -624,7 +624,7 @@ function (obj::KA.Kernel{LavaBackend})(args...; ndrange=nothing, workgroupsize=n
     end
     adaptor = LavaAdaptor(batch)
     converted_f = Adapt.adapt(adaptor, obj.f)
-    converted_args = map(a -> Adapt.adapt(adaptor, a), args)
+    converted_args = map_args(a -> Adapt.adapt(adaptor, a), args)
     all_args = (converted_f, ka_ctx, converted_args...)
 
     ka_launch!(bq, converted_f, all_args, block_dims, ws_3d, tlas)

@@ -2,6 +2,16 @@
 #
 # Handles: compile → pipeline cache → arg packing → dispatch → sync.
 
+# ── Argument conversion ──
+
+# `map` over a tuple of more than 31 elements falls back to a `Vector{Any}`
+# and a splat: every element is boxed and the result type is not inferred, so
+# the pack and draw calls after it dispatch at run time. A 47-argument draw
+# allocated about 7 MiB per frame that way. This unrolls for any length.
+@generated function map_args(f, args::Tuple)
+    Expr(:tuple, (:(f(args[$i])) for i in 1:fieldcount(args))...)
+end
+
 # ── GPU kernel cache ──
 #
 # Lookup is delegated to `GPUCompiler.cached_compilation`, which is the same
@@ -136,7 +146,7 @@ function lava_launch!(bq::BatchQueue, @nospecialize(f), args...;
     pin_leaves!(batch, args)
     adaptor = LavaAdaptor(batch)
     converted_f = Adapt.adapt(adaptor, f)
-    converted_args = map(a -> Adapt.adapt(adaptor, a), args)
+    converted_args = map_args(a -> Adapt.adapt(adaptor, a), args)
 
     # Kernel ABI: kernel signature types are POST-adapt (LavaDeviceArray, not Ptr{T}).
     tt = Tuple{map(arg_sigtype, converted_args)...}
