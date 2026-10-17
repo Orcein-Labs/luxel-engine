@@ -295,7 +295,13 @@ mutable struct LavaBackend{MCVP,C,Q,PP,SP,SVP,TP,TLP,TWP,OP,MP,MCP,TXP,DP,TSP,MS
     draw_calls::UInt64
     readback_bytes::UInt64
     pipeline_compilations::UInt64
+    # Device fact, set once from the device limits; timing failures never change it.
     gpu_timestamp_supported::Bool
+    # GPU timing failures this session and the last one's message. A failure drops
+    # only the current frame's GPU times (see `_gpu_timing_failed!`).
+    gpu_timing_failures::UInt64
+    gpu_timing_last_error::String
+    gpu_timing_frame_failed::Bool
     # Pass timing slots begun but not yet ended this frame, by label. Reading the
     # timestamps waits on every slot, so one left open would hang the readback.
     open_gpu_timing_slots::Dict{Int,String}
@@ -3619,6 +3625,9 @@ function backend()::LavaBackend
             UInt64(0),
             UInt64(0),
             _gpu_timestamp_capable(context),
+            UInt64(0),
+            "",
+            false,
             Dict{Int,String}(),
             false,
             false,
@@ -4675,7 +4684,7 @@ function _record_scene_with_reflection!(
                           environment_lighting, material, texture_enabled, reflection_framebuffer,
                           OffscreenTarget(reflection_framebuffer); reflection_pass=true,
                           shadow_camera_frame=camera_frame)
-    _end_gpu_pass_timing!(state, reflection_gpu_timing_slot)
+    _end_gpu_timing!(state, reflection_gpu_timing_slot)
     reflection =_framebuffer_texture(reflection_framebuffer, state)
     return _record_scene_passes!(state, packet, camera_frame, lighting, environment_lighting, material,
                                  texture_enabled, scene_framebuffer, scene_target; reflection_texture=reflection)
@@ -5040,9 +5049,26 @@ const GPU_PASS_TIMING_LABELS = (
     present_blit="luxel.graphics.pass.present-blit",
 )
 
+"""Record a GPU timing failure and drop this frame's GPU times.
+
+The failure is counted and its message kept, and the capability flag is left
+alone: it is a device fact, and one failed timestamp write is not evidence
+against it. The frame's readback is skipped, because a start timestamp whose
+end was never written would make the query wait forever. The next frame begins
+timing afresh."""
+function _gpu_timing_failed!(state::LavaBackend, err)
+    err isa InterruptException && rethrow()
+    state.gpu_timing_failures += 1
+    state.gpu_timing_last_error = sprint(showerror, err)
+    state.gpu_timing_frame_failed = true
+    @warn "GPU timing failed; this frame reports no GPU times" exception = err maxlog = 1
+    return nothing
+end
+
 function _begin_gpu_frame_timing(state::LavaBackend)::Union{Nothing,Int}
     state.gpu_timestamp_supported || return nothing
     empty!(state.open_gpu_timing_slots)
+    state.gpu_timing_frame_failed = false
     try
         Lava.reset_dispatch_timing!(state.context)
         Lava.enable_dispatch_timing!(true, state.context)
@@ -5058,8 +5084,8 @@ function _begin_gpu_frame_timing(state::LavaBackend)::Union{Nothing,Int}
             return nothing
         end
         return slot
-    catch
-        state.gpu_timestamp_supported = false
+    catch err
+        _gpu_timing_failed!(state, err)
         Lava.enable_dispatch_timing!(false, state.context)
         return nothing
     end
@@ -5081,38 +5107,18 @@ function _begin_gpu_pass_timing(
         slot < 0 && return nothing
         state.open_gpu_timing_slots[slot] = String(label)
         return slot
-    catch
-        state.gpu_timestamp_supported = false
+    catch err
+        _gpu_timing_failed!(state, err)
         return nothing
     end
 end
 
-function _end_gpu_frame_timing!(state::LavaBackend, ::Nothing)
+"""Close a frame or pass timing interval begun with `_begin_gpu_*_timing`."""
+function _end_gpu_timing!(state::LavaBackend, ::Nothing)
     return nothing
 end
 
-function _end_gpu_frame_timing!(state::LavaBackend, start_slot::Int)
-    try
-        batch = Lava.ensure_active_batch!(state.queue)
-        Lava.maybe_write_dispatch_end_timestamp!(
-            state.context,
-            batch.cmd_buf,
-            start_slot,
-            C_NULL;
-            stage=Vulkan.PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-            stage_mask=UInt32(Vulkan.PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT),
-        )
-    catch
-        state.gpu_timestamp_supported = false
-    end
-    return nothing
-end
-
-function _end_gpu_pass_timing!(state::LavaBackend, ::Nothing)
-    return nothing
-end
-
-function _end_gpu_pass_timing!(state::LavaBackend, start_slot::Int)
+function _end_gpu_timing!(state::LavaBackend, start_slot::Int)
     delete!(state.open_gpu_timing_slots, start_slot)
     try
         batch = Lava.ensure_active_batch!(state.queue)
@@ -5124,8 +5130,8 @@ function _end_gpu_pass_timing!(state::LavaBackend, start_slot::Int)
             stage=Vulkan.PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
             stage_mask=UInt32(Vulkan.PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT),
         )
-    catch
-        state.gpu_timestamp_supported = false
+    catch err
+        _gpu_timing_failed!(state, err)
     end
     return nothing
 end
@@ -5135,6 +5141,10 @@ function _read_gpu_timing_reports(state::LavaBackend, ::Nothing)::Nothing
 end
 
 function _read_gpu_timing_reports(state::LavaBackend, ::Int)::Union{Nothing,Vector}
+    if state.gpu_timing_frame_failed
+        empty!(state.open_gpu_timing_slots)
+        return nothing
+    end
     if !isempty(state.open_gpu_timing_slots)
         labels = join(sort!(collect(values(state.open_gpu_timing_slots))), ", ")
         empty!(state.open_gpu_timing_slots)
@@ -5142,8 +5152,8 @@ function _read_gpu_timing_reports(state::LavaBackend, ::Int)::Union{Nothing,Vect
     end
     try
         return Lava.dispatch_timing_report(state.context; flush_first=false)
-    catch
-        state.gpu_timestamp_supported = false
+    catch err
+        _gpu_timing_failed!(state, err)
         return nothing
     end
 end
@@ -6332,7 +6342,7 @@ function _render_shadow_map_to!(
             end
         end
     end
-    _end_gpu_pass_timing!(state, shadow_gpu_timing_slot)
+    _end_gpu_timing!(state, shadow_gpu_timing_slot)
     _transition_color_to_sampled!(state, framebuffer)
     return nothing
 end
@@ -6820,7 +6830,7 @@ function _record_scene_passes!(
     )
     visibility = _mesh_visibility(packet, camera_frame)
     mesh_resources = _mesh_resources!(state, packet, camera_frame, visibility; cache=reflection_pass ? :reflection : :main)
-    _end_gpu_pass_timing!(state, prepare_gpu_timing_slot)
+    _end_gpu_timing!(state, prepare_gpu_timing_slot)
     prepare_time_us = _elapsed_us(prepare_started_ns)
     terrain_vertices = 6 * (packet.terrain.resolution - 1)^2
 
@@ -6867,7 +6877,7 @@ function _record_scene_passes!(
             state.pipeline_compilations += 1
         end
     end
-    _end_gpu_pass_timing!(state, scene_sky_gpu_timing_slot)
+    _end_gpu_timing!(state, scene_sky_gpu_timing_slot)
     terrain_arguments = (
             resources.heights,
             resources.slopes,
@@ -7008,7 +7018,7 @@ function _record_scene_passes!(
         end
         state.draw_calls += 1
     end
-    _end_gpu_pass_timing!(state, scene_terrain_gpu_timing_slot)
+    _end_gpu_timing!(state, scene_terrain_gpu_timing_slot)
     scene_meshes_gpu_timing_slot = _begin_gpu_pass_timing(state, GPU_PASS_TIMING_LABELS.scene_meshes)
     if mesh_resources !== nothing
         for (batch_index, batch) in enumerate(mesh_resources.batches)
@@ -7108,9 +7118,9 @@ function _record_scene_passes!(
             end
         end
     end
-    _end_gpu_pass_timing!(state, scene_meshes_gpu_timing_slot)
+    _end_gpu_timing!(state, scene_meshes_gpu_timing_slot)
     _transition_color_to_sampled!(state, scene_framebuffer)
-    _end_gpu_pass_timing!(state, scene_raster_gpu_timing_slot)
+    _end_gpu_timing!(state, scene_raster_gpu_timing_slot)
     scene_raster_time_us = _elapsed_us(scene_raster_started_ns)
     return (
         terrain_vertices=terrain_vertices,
@@ -7282,7 +7292,7 @@ function _composite_capture!(
         state.resolve_compiled = true
         state.pipeline_compilations += 1
     end
-    _end_gpu_pass_timing!(state, resolve_gpu_timing_slot)
+    _end_gpu_timing!(state, resolve_gpu_timing_slot)
     resolve_time_us = _elapsed_us(resolve_started_ns)
 
     overlay_started_ns = time_ns()
@@ -7303,7 +7313,7 @@ function _composite_capture!(
             state.pipeline_compilations += 1
         end
     end
-    _end_gpu_pass_timing!(state, overlay_gpu_timing_slot)
+    _end_gpu_timing!(state, overlay_gpu_timing_slot)
     overlay_time_us = _elapsed_us(overlay_started_ns)
 
     return (
@@ -7366,7 +7376,7 @@ function _render_scene(
     overlay_time_us = composite.overlay_time_us
 
     flush_readback_started_ns = time_ns()
-    _end_gpu_frame_timing!(state, gpu_timing_slot)
+    _end_gpu_timing!(state, gpu_timing_slot)
     pixels = readback_framebuffer(capture_framebuffer)
     gpu_timing_reports = _read_gpu_timing_reports(state, gpu_timing_slot)
     gpu_frame_time_us = _timing_report_us(gpu_timing_reports, GPU_FRAME_TIMING_LABEL)
@@ -7871,8 +7881,8 @@ function render_window_frames!(
                 _blit_color_image!(batch.cmd_buf, capture, session.window.images[session.window.current_image_idx+1],
                     window_width, window_height;
                     filter=_present_blit_filter(state, capture, window_width, window_height))
-                _end_gpu_pass_timing!(state, present_blit_slot)
-                _end_gpu_frame_timing!(state, gpu_slot)
+                _end_gpu_timing!(state, present_blit_slot)
+                _end_gpu_timing!(state, gpu_slot)
                 Lava.pin!(batch, capture)
                 signal = batch.signal_value
                 state.draw_calls += 1
@@ -7900,7 +7910,7 @@ function render_window_frames!(
             Lava.acquire_next_image!(session.window)
             window_width, window_height = size(session.window)
             stage_ns = stage!("acquire", stage_ns)
-            _end_gpu_frame_timing!(state, gpu_slot)
+            _end_gpu_timing!(state, gpu_slot)
             pixels = readback_framebuffer(capture)
             record_gpu_stage_times!(_read_gpu_timing_reports(state, gpu_slot))
             stage_ns = stage!("gpu_wait_readback", stage_ns)

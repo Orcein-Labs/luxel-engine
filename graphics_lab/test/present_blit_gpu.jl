@@ -184,7 +184,7 @@ end
     else
         pass_slot = LavaAdapter._begin_gpu_pass_timing(state, "luxel.test.open-pass")
         @test pass_slot isa Int
-        LavaAdapter._end_gpu_frame_timing!(state, frame_slot)
+        LavaAdapter._end_gpu_timing!(state, frame_slot)
         error = try
             LavaAdapter._read_gpu_timing_reports(state, frame_slot)
             nothing
@@ -194,15 +194,49 @@ end
         @test error isa LavaAdapter.AdapterError
         @test occursin("luxel.test.open-pass", error.detail)
         # Closing the slot first reads normally, and the next frame starts clean.
-        LavaAdapter._end_gpu_pass_timing!(state, pass_slot)
+        LavaAdapter._end_gpu_timing!(state, pass_slot)
         Lava.flush!(state.queue, state.context.device)
         @test LavaAdapter._read_gpu_timing_reports(state, frame_slot) isa Vector
         frame_slot = LavaAdapter._begin_gpu_frame_timing(state)
         pass_slot = LavaAdapter._begin_gpu_pass_timing(state, "luxel.test.closed-pass")
-        LavaAdapter._end_gpu_pass_timing!(state, pass_slot)
-        LavaAdapter._end_gpu_frame_timing!(state, frame_slot)
+        LavaAdapter._end_gpu_timing!(state, pass_slot)
+        LavaAdapter._end_gpu_timing!(state, frame_slot)
         Lava.flush!(state.queue, state.context.device)
         @test isempty(state.open_gpu_timing_slots)
         @test LavaAdapter._read_gpu_timing_reports(state, frame_slot) isa Vector
+    end
+end
+
+# A label that cannot become a String: Lava writes the start timestamp, then
+# fails recording the label, so the pass is begun on the GPU but never ended.
+struct UnconvertibleTimingLabel <: AbstractString end
+Base.iterate(::UnconvertibleTimingLabel, state...) = error("injected GPU timing failure")
+
+@testset "a GPU timing failure drops one frame's times and keeps the capability" begin
+    state = LavaAdapter.backend()
+    frame_slot = LavaAdapter._begin_gpu_frame_timing(state)
+    if frame_slot === nothing
+        @test_skip "GPU timestamps unsupported"
+    else
+        failures = state.gpu_timing_failures
+        @test LavaAdapter._begin_gpu_pass_timing(state, UnconvertibleTimingLabel()) === nothing
+        @test state.gpu_timing_failures == failures + 1
+        @test occursin("injected GPU timing failure", state.gpu_timing_last_error)
+        @test state.gpu_timestamp_supported
+        @test LavaAdapter.backend_ready(state).features.gpu_timestamps
+        # The readback is skipped instead of waiting on the unended pass.
+        LavaAdapter._end_gpu_timing!(state, frame_slot)
+        Lava.flush!(state.queue, state.context.device)
+        @test LavaAdapter._read_gpu_timing_reports(state, frame_slot) === nothing
+        # The next frame times normally.
+        frame_slot = LavaAdapter._begin_gpu_frame_timing(state)
+        @test frame_slot isa Int
+        pass_slot = LavaAdapter._begin_gpu_pass_timing(state, "luxel.test.after-failure")
+        LavaAdapter._end_gpu_timing!(state, pass_slot)
+        LavaAdapter._end_gpu_timing!(state, frame_slot)
+        Lava.flush!(state.queue, state.context.device)
+        reports = LavaAdapter._read_gpu_timing_reports(state, frame_slot)
+        @test reports isa Vector
+        @test LavaAdapter._timing_report_us(reports, "luxel.test.after-failure") isa Int
     end
 end
