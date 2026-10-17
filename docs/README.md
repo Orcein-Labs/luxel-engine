@@ -26,7 +26,7 @@ a `SUMMARY.md`.
 | [adr/](adr/) | decision records | |
 | [archive/](archive/) | superseded and closed docs | |
 | [media/](media/) | screenshots used by the top-level README | |
-| [research/](research/) | isolated research campaigns (not production) | [presented frame rate on CONVERGE-4](research/luxel-consolidation/2026-10-16_presented-fps.md) |
+| [research/](research/) | isolated research campaigns (not production) | [presented frame rate on CONVERGE-4](research/luxel-consolidation/2026-10-16_presented-fps.md), [production engineering audit](research/luxel-consolidation/2026-10-16_production-audit.md) |
 
 Code still lives where it was. It moves into per-layer homes when that layer
 becomes the active campaign, so a move never lands in the middle of
