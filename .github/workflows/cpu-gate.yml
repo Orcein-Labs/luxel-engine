@@ -1,0 +1,33 @@
+name: cpu-gate
+
+# Rust and Python checks that need no Julia, GPU or reference content.
+# The GPU suites (graphics_lab, the Julia-backed Rust and Python targets) stay
+# in the local gate; see tools/cpu-gate.sh for the exclusion list.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: world_core
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: System libraries for the Bevy inspection viewer
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: python3 -m pip install -r requirements.txt
+      - run: tools/cpu-gate.sh
