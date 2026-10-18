@@ -26,7 +26,10 @@ venv/
 # PJ-0 (performant Julia side quest) stays local; its outcome was "write better Julia".
 /docs/research/pj-0/
 
-# Generated reports, bundles, caches, and local orchestration state
+# Generated reports, bundles, caches, and local orchestration state.
+# One file under artifacts/ is force-tracked (git add -f) as a test fixture:
+# campaign2/adapter-v6-baseline-replay-2026-09-29/run-a/graphics_scene_packet.json,
+# the baseline packet the native-graphics-contract tests read on CI.
 artifacts/
 asset_intake_reports/
 
