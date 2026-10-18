@@ -98,7 +98,7 @@ fn material_manifest_pins_every_file() {
 fn rigs_are_valid_distinct_policies() {
     let reference: GraphicsScenePacket = serde_json::from_str(
         &std::fs::read_to_string(
-            repo().join("artifacts/campaign2/adapter-v6-baseline-replay-2026-09-29/run-a/graphics_scene_packet.json"),
+            repo().join("world_core/crates/native_graphics_contract/tests/fixtures/2026-09-29_campaign2-baseline-graphics-scene-packet.json"),
         )
         .unwrap(),
     )

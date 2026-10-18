@@ -19,7 +19,7 @@ const SOURCE_SHA: &str = "0123456789abcdef0123456789abcdef0123456789abcdef012345
 
 fn body() -> GraphicsScenePacketBody {
     let path = repo_root()
-        .join("artifacts/campaign2/adapter-v6-baseline-replay-2026-09-29/run-a/graphics_scene_packet.json");
+        .join("world_core/crates/native_graphics_contract/tests/fixtures/2026-09-29_campaign2-baseline-graphics-scene-packet.json");
     let raw = std::fs::read_to_string(&path).unwrap_or_else(|error| {
         panic!(
             "committed baseline packet must be present for render-policy byte-identity at {}: {error}",
@@ -48,7 +48,7 @@ fn repo_root() -> std::path::PathBuf {
 #[test]
 fn committed_packet_reseals_identically_with_render_policy_module_present() {
     let path = repo_root()
-        .join("artifacts/campaign2/adapter-v6-baseline-replay-2026-09-29/run-a/graphics_scene_packet.json");
+        .join("world_core/crates/native_graphics_contract/tests/fixtures/2026-09-29_campaign2-baseline-graphics-scene-packet.json");
     // NO SKIP. An earlier draft of this file returned early when the artifact
     // was missing, and the suite reported 4 passed / 6 failed while the
     // byte-identity gate had in fact gated nothing — FR-0016's exact shape

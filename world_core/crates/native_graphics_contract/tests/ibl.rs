@@ -15,7 +15,7 @@ use luxel_native_graphics_contract::{
 
 fn reference_body() -> GraphicsScenePacketBody {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../artifacts/campaign2/adapter-v6-baseline-replay-2026-09-29/run-a/graphics_scene_packet.json");
+        .join("../../../world_core/crates/native_graphics_contract/tests/fixtures/2026-09-29_campaign2-baseline-graphics-scene-packet.json");
     let packet: GraphicsScenePacket =
         serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     packet.body
