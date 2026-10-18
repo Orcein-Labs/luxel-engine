@@ -15,17 +15,17 @@ permissions:
 
 jobs:
   cpu-gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - uses: actions/checkout@v5
+      # Installs the toolchain pinned in world_core/rust-toolchain.toml.
+      - run: rustup toolchain install
+        working-directory: world_core
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: world_core
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
       - name: System libraries for the Bevy inspection viewer

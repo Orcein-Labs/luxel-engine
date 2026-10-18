@@ -1,0 +1,5 @@
+# The toolchain every gate (local GPU gate and CI) is verified on. Bump it on
+# purpose: newer clippy releases add lints that -D warnings turns into errors.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
