@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 fn body() -> luxel_native_graphics_contract::GraphicsScenePacketBody {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let path = root.join("artifacts/campaign2/adapter-v6-baseline-replay-2026-09-29/run-a/graphics_scene_packet.json");
+    let path = root.join("world_core/crates/native_graphics_contract/tests/fixtures/2026-09-29_campaign2-baseline-graphics-scene-packet.json");
     serde_json::from_slice::<GraphicsScenePacket>(&std::fs::read(path).unwrap())
         .unwrap()
         .body

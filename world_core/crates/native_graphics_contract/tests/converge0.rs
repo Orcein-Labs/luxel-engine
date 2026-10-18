@@ -25,7 +25,7 @@ const VIEWS: [Campaign2View; 3] = [
 fn reference() -> GraphicsScenePacket {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
-        .join("artifacts/campaign2/adapter-v6-baseline-replay-2026-09-29/run-a/graphics_scene_packet.json");
+        .join("world_core/crates/native_graphics_contract/tests/fixtures/2026-09-29_campaign2-baseline-graphics-scene-packet.json");
     let text = std::fs::read_to_string(&path).expect("committed reference packet");
     serde_json::from_str(&text).expect("reference packet parses")
 }

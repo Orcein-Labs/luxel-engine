@@ -670,7 +670,7 @@ fn repo_root() -> std::path::PathBuf {
 
 fn reference_packet() -> GraphicsScenePacket {
     let path = repo_root().join(
-        "artifacts/campaign2/adapter-v6-baseline-replay-2026-09-29/run-a/graphics_scene_packet.json",
+        "world_core/crates/native_graphics_contract/tests/fixtures/2026-09-29_campaign2-baseline-graphics-scene-packet.json",
     );
     serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|error| {
         panic!(

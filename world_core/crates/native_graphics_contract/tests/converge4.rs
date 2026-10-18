@@ -34,7 +34,7 @@ fn repo_root() -> PathBuf {
 
 fn reference() -> GraphicsScenePacket {
     let path =
-        repo_root().join("artifacts/campaign2/adapter-v6-baseline-replay-2026-09-29/run-a/graphics_scene_packet.json");
+        repo_root().join("world_core/crates/native_graphics_contract/tests/fixtures/2026-09-29_campaign2-baseline-graphics-scene-packet.json");
     serde_json::from_str(&std::fs::read_to_string(path).expect("reference packet")).expect("parses")
 }
 

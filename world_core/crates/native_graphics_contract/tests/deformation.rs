@@ -256,7 +256,7 @@ fn repo_root() -> PathBuf {
 #[test]
 fn committed_v6_packet_reseals_to_its_committed_digest() {
     let artifact = repo_root()
-        .join("artifacts/campaign2/adapter-v6-baseline-replay-2026-09-29/run-a/graphics_scene_packet.json");
+        .join("world_core/crates/native_graphics_contract/tests/fixtures/2026-09-29_campaign2-baseline-graphics-scene-packet.json");
     if !artifact.exists() {
         eprintln!(
             "skipping: committed v6 artifact not present at {}",

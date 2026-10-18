@@ -13,7 +13,7 @@ fn body() -> GraphicsScenePacketBody {
         .ancestors()
         .nth(3)
         .expect("crate is inside the workspace")
-        .join("artifacts/campaign2/adapter-v6-baseline-replay-2026-09-29/run-a/graphics_scene_packet.json");
+        .join("world_core/crates/native_graphics_contract/tests/fixtures/2026-09-29_campaign2-baseline-graphics-scene-packet.json");
     let raw = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("committed packet missing at {}: {error}", path.display()));
     let value: serde_json::Value = serde_json::from_str(&raw).expect("committed packet parses");
