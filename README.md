@@ -26,7 +26,7 @@ Luxel is in active development and is not ready for production games. The
 renderer handles the Riverwatch scene end to end. Cascaded sun shadows, local
 light shadows, image-based lighting and the camera-relative shadow fix are
 all in. The current work is the materials and lighting campaign, followed by
-the first playable prototypes. See [docs/roadmap.md](docs/roadmap.md).
+the first playable prototypes.
 
 ## Architecture
 
@@ -41,8 +41,6 @@ the first playable prototypes. See [docs/roadmap.md](docs/roadmap.md).
 The Rust side lowers a world layout into a graphics scene packet. A Julia
 worker process renders the packet and returns the frame, and Rust verifies
 the result. Nothing in the renderer decides gameplay or asset validity.
-
-More detail is in [docs/platform/native-graphics-architecture.md](docs/platform/native-graphics-architecture.md).
 
 ## Requirements
 
@@ -115,8 +113,8 @@ julia --project=graphics_lab graphics_lab/test/runtests.jl           # renderer 
 python3 -m unittest discover -s tests                                # Python tooling
 ```
 
-The GPU renderer suites in `graphics_lab/test/` run one at a time; see
-[docs/world/native-graphics-benchmark.md](docs/world/native-graphics-benchmark.md).
+The GPU renderer suites in `graphics_lab/test/` run one at a time, since
+they share the GPU.
 Several tests use a large external GLB as a negative control. It is not in
 the repository, so those tests skip unless `LUXEL_NEGATIVE_CONTROL_GLB`
 points to it.
@@ -133,10 +131,10 @@ character_lab/     Character authoring workbench
 assets/            Committed source art
 engine_adapters/   Legacy Unity and Unreal export adapters
 tests/             Python test suite
-docs/              Design docs, contracts, decisions and the roadmap
+docs/              User docs: the Luxel language spec and README images
 ```
 
-The documentation index is [docs/README.md](docs/README.md).
+The docs index is [docs/README.md](docs/README.md).
 
 ## License
 

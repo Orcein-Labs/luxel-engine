@@ -180,7 +180,7 @@ struct ViewerConfig {
     /// An optional landform preview the certified world is seated inside, and
     /// where to put it. Two overlapping surfaces, not a merged heightfield: the
     /// compiled terrain occludes everything below it and the landform rises
-    /// around it. See docs/integrations/gaea-programme.md 5.9.
+    /// around it.
     surround: Option<(PathBuf, Vec3)>,
     /// Where the picker looks for other worlds. Defaults to the batch's own
     /// parent, so the common case -- flying the batches next to this one --
@@ -2460,8 +2460,7 @@ fn load_compiled_world(config: &ViewerConfig, signature: u64) -> Result<Compiled
 
     // A landform surround *is* the horizon, so the apron -- which exists only
     // because compiled terrain stops dead at the data edge -- is not merely
-    // redundant beside it but actively wrong. docs/integrations/gaea-programme.md 5.7 calls the
-    // apron the fourth instance of the abandoned defect; this is the first
+    // redundant beside it but actively wrong. This is the first
     // configuration that can simply not draw it.
     let apron = if surround_source.is_some() {
         None

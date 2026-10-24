@@ -80,7 +80,7 @@ impl SemanticFacadeCatalog {
                     "conflicting_constraint",
                     "missing_provenance",
                 ],
-                "docs/content-sdk/generality-bridge.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "project.plan",
@@ -96,7 +96,7 @@ impl SemanticFacadeCatalog {
                     "stale_style_plan",
                     "runtime_provider_leak",
                 ],
-                "docs/content-sdk/construction-plan-contract.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "capability.list",
@@ -108,7 +108,7 @@ impl SemanticFacadeCatalog {
                 &[],
                 &["capability.explain/v1", "capability.plan/v1"],
                 &["unknown_class", "unknown_status", "registry_tamper"],
-                "docs/platform/capability-registry-design.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "capability.explain",
@@ -120,7 +120,7 @@ impl SemanticFacadeCatalog {
                 &[],
                 &["capability.plan/v1"],
                 &["unknown_capability", "registry_tamper"],
-                "docs/platform/capability-registry-design.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "capability.plan",
@@ -136,7 +136,7 @@ impl SemanticFacadeCatalog {
                     "missing_validator",
                     "unsupported_requirement",
                 ],
-                "docs/platform/capability-registry-design.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "style.compile",
@@ -148,7 +148,7 @@ impl SemanticFacadeCatalog {
                 &["style.profile.compile/v1"],
                 &["project.plan/v1", "quality.inspect/v1"],
                 &["unsupported_axis", "unresolved_conflict", "budget_exceeded"],
-                "docs/world/style-profile-contract.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "world.construct",
@@ -164,7 +164,7 @@ impl SemanticFacadeCatalog {
                     "invalid_spawn",
                     "disconnected_route",
                 ],
-                "docs/archive/2026-09_native-graphics-checkpoints/native-convergence-report.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "scene.compose",
@@ -180,7 +180,7 @@ impl SemanticFacadeCatalog {
                     "identity_mismatch",
                     "collision_policy_missing",
                 ],
-                "docs/archive/2026-09_roadmaps-and-audits/demo-ready-mega-sprint.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "asset.prepare",
@@ -196,7 +196,7 @@ impl SemanticFacadeCatalog {
                     "unsupported_extension",
                     "missing_collision",
                 ],
-                "docs/platform/native-capability-matrix.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "character.prepare",
@@ -208,7 +208,7 @@ impl SemanticFacadeCatalog {
                 &["provider.character.blender-boundary/v1"],
                 &["scene.compose/v1", "runtime.launch/v1"],
                 &["missing_skinning", "bad_joint_index", "provider_timeout"],
-                "docs/archive/2026-09_roadmaps-and-audits/demo-ready-mega-sprint.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "gameplay.compose",
@@ -220,7 +220,7 @@ impl SemanticFacadeCatalog {
                 &["gameplay.kit.compose/v1"],
                 &["runtime.launch/v1", "project.verify/v1"],
                 &["unknown_ability", "dependency_cycle", "silent_effect"],
-                "docs/gameplay/gameplay-kit-architecture.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "runtime.launch",
@@ -236,7 +236,7 @@ impl SemanticFacadeCatalog {
                     "input_unavailable",
                     "frame_budget_exceeded",
                 ],
-                "docs/archive/2026-09_roadmaps-and-audits/demo-ready-mega-sprint.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "quality.inspect",
@@ -251,7 +251,7 @@ impl SemanticFacadeCatalog {
                 ],
                 &["repair.propose/v1", "project.verify/v1"],
                 &["indeterminate_axis", "stale_capture", "artifact_rate"],
-                "docs/world/native-quality-gaps.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "repair.propose",
@@ -263,7 +263,7 @@ impl SemanticFacadeCatalog {
                 &["repair.evidence-bounded/v1"],
                 &["repair.apply/v1", "project.verify/v1"],
                 &["stale_receipt", "unauthorized_edit", "unchanged_candidate"],
-                "docs/archive/2026-09_roadmaps-and-audits/authority-reclamation-001.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "repair.apply",
@@ -275,7 +275,7 @@ impl SemanticFacadeCatalog {
                 &["repair.evidence-bounded/v1"],
                 &["quality.inspect/v1", "project.verify/v1"],
                 &["scope_violation", "failed_remeasure", "stale_candidate"],
-                "docs/archive/2026-09_roadmaps-and-audits/authority-reclamation-001.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "project.verify",
@@ -287,7 +287,7 @@ impl SemanticFacadeCatalog {
                 &[],
                 &["project.package/v1", "repair.propose/v1"],
                 &["failed_gate", "stale_evidence", "status_only_evidence"],
-                "docs/archive/2026-09_native-graphics-checkpoints/native-convergence-report.md",
+                "luxel_control_plane::semantic_facade",
             ),
             operation(
                 "project.package",
@@ -303,7 +303,7 @@ impl SemanticFacadeCatalog {
                     "runtime_dependency_leak",
                     "missing_provenance",
                 ],
-                "docs/archive/2026-09_roadmaps-and-audits/demo-ready-mega-sprint.md",
+                "luxel_control_plane::semantic_facade",
             ),
         ];
         let mut catalog = Self {

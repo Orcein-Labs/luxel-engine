@@ -14,12 +14,6 @@ Its native export imports into this workbench with playback disabled: concealed
 surfaces, independent lower-jaw artwork and animation have not been authored.
 Earlier generated pilots below remain diagnostic controls, not the new source.
 
-Matt accepted this original-art rest appearance on 2026-10-10 and parked further
-Ornith work. The [checkpoint](../docs/characters/ornith-parked-checkpoint-20261010.md)
-preserves its exact resume point. The active next direction is the
-[Cyan art and Live2D audit](../docs/characters/cyan-live2d-audit-20261010.md),
-starting with faithful layered source and concealed material before deformation.
-
 `reference-author.py` converts the original WebP to pixel-identical PNG and
 proposes vector boundaries from source analysis and authored polygons. Running
 it replaces the bundled proposal/assets, not exported user recipes. Rebuild
@@ -29,8 +23,7 @@ with `python3 character_lab/build.py`; check with
 `artifacts/original-ornith-proof-20261010/`. The v2 native part field
 `maskSampling` explicitly chooses `pixel` (crisp mask coverage) or `coverage`;
 absence retains coverage sampling. This does not change texture filtering or
-any preparation receipt schema. See the original-Ornith contract and receipt
-under `docs/characters/` for the fixed boundary policy and remaining art work.
+any preparation receipt schema.
 
 The default choices are Cyan's VTuber art pilot and Ornith's chibi art pilot.
 The original vector Cyan and hacker bird remain diagnostic controls.
@@ -120,13 +113,6 @@ review. Its pupils share an aligned source and move inside authored eye windows;
 the lower beak remains visible at rest. Paws follow the laptop's prop node, but
 arm/wing-to-paw continuity still needs authored geometry. Cyan has an explicit
 painted neck bridge; it closes the measured gap but leaves a visible skin seam.
-See `docs/characters/visual-qa-1-receipt-20261009.md` for the current rejection
-findings and before/after evidence.
-
-See `docs/characters/character-workbench-mvp-contract.md` and the accompanying
-MVP receipt for the first implementation. The subsequent textured pilot has
-its own contract and receipt under `docs/characters/`.
-
 ## Assembly desk
 
 Open `assembly.html` for the reference, original and fitted compositions side by
@@ -170,7 +156,6 @@ rendering, downloads and imports; evidence is retained under
 selective snapshot in its exposed stack workspace at
 `tools/luxel-assembly/`. That snapshot records file hashes and must be explicitly
 refreshed after Luxel changes; no Palette core or model backend changes are needed.
-See `docs/characters/assembly-fit-1-receipt-20261009.md` for validation and limits.
 
 The subsequent FIT-2 repair gives every mounted renderer independent SVG
 definition IDs. This prevents one comparison pane's iris masks from clipping
@@ -179,8 +164,7 @@ proposed Cyan proportions are retained following Matt's feedback. Run
 `node character_lab/browser-smoke.mjs --assembly --fit-repair` for the repaired
 assembly checks, or substitute `--assembly-regression` for the main workbench.
 Evidence and deliberate bug reversals are retained separately under
-`artifacts/assembly-fit-2-20261009/`. See its matching repair receipt in
-`docs/characters/`.
+`artifacts/assembly-fit-2-20261009/`.
 
 FIT-3 seats Ornith's full head another twenty canvas pixels into the hood,
 retaining the foreground hood and concealed pivot. Cyan keeps the proposed
@@ -221,5 +205,3 @@ the same render gate. No GPU is used.
 
 The current painted source still differs from the reference. Partitioning cannot
 create connected sleeve/hand artwork, concealed material or textured deformation.
-See `docs/characters/character-maker-rpdo-20261009.md` for the revised authoring
-sequence and `character-topology-1-receipt-20261009.md` for bounded validation.

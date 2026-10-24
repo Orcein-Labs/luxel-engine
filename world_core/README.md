@@ -6,10 +6,6 @@ identity, receipts, validation, promotion, deterministic runtime behavior, and
 native control-plane transactions. It is not a Godot, Unity, or Unreal export
 layer.
 
-Read the repository-level [docs/platform/active-architecture.md](../docs/platform/active-architecture.md)
-and [docs/platform/repository-topology.md](../docs/platform/repository-topology.md) before choosing
-a crate. The mega-sprint and current goal define campaign scope.
-
 ## Active crates
 
 The workspace manifest is the source of truth. The principal native crates are:

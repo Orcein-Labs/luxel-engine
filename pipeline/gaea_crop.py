@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Cut mountains out of a Gaea heightfield and export them as placeable meshes.
 
-**Why this exists.** The border stopped being generated (docs/integrations/gaea-programme.md
-5.7a). `_border_rampart` is a swept profile -- every cross-section identical by
+**Why this exists.** The border stopped being generated. `_border_rampart` is a swept profile -- every cross-section identical by
 construction -- so it can never produce a peak where ridgelines *converge*, and
 convergence is what separates a mountain from an extruded triangle. That is
 topology, not tuning, which is why three attempts at generating the border all

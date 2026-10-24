@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turn a Gaea build into the km-scale backdrop (CONVERGE-4 N-3).
 
-Landscape parity plan P2/P4 (`docs/world/landscape-parity-plan.md`).
+Landscape parity plan P2/P4.
 
 Input: a committed spec (`tools/backdrop/<set>.json`) naming a Gaea graph, its
 build settings and how the field is seated around the world. The Gaea outputs
@@ -15,8 +15,8 @@ its own baked albedo, and `backdrop.build.json`. The GLB digest and the Gaea
 pixel digests are pinned in the committed `tools/backdrop/<set>.lock.json`; a
 build that differs from the lock is refused unless run with `--pin`.
 
-THE FIELD IS GENERATED WITHOUT REFERENCE TO THE PLAY SPACE (docs/integrations/gaea-programme.md
-section 1), THEN THE PLAY SPACE IS SEATED IN IT. The seat is a point of the
+THE FIELD IS GENERATED WITHOUT REFERENCE TO THE PLAY SPACE,
+THEN THE PLAY SPACE IS SEATED IN IT. The seat is a point of the
 field, chosen in the spec; it becomes the mesh origin, at the field's own
 ground height there. Around the seat the field is capped at `clear_depth_m`
 below the seat floor inside `clear_radius_m`, easing back to natural height by
@@ -132,8 +132,8 @@ def to_odd_grid(field: np.ndarray) -> np.ndarray:
     """Bilinear resample a 2**k field to 2**k + 1, so it splits into tiles.
 
     Gaea builds at powers of two, and a 2**k-pixel field has 2**k - 1 cells,
-    which no power-of-two tiling divides (the same trap docs/integrations/gaea-programme.md 3.1
-    records for the viewer's stride). A one-row bilinear resample is cheap and
+    which no power-of-two tiling divides (the same trap the
+    viewer hits with its stride). A one-row bilinear resample is cheap and
     auditable; asking Gaea for 2**k + 1 is not supported.
     """
     n = field.shape[0]
@@ -167,7 +167,7 @@ def seated_heights(spec: dict, height01: np.ndarray) -> tuple[np.ndarray, np.nda
     field-frame x/z of every cell; and facts.
 
     Mapping is full scale (`raw / 65535 * relief_m`), the same rule as
-    `import_heightfield.py` (docs/integrations/gaea-programme.md 3.2): the denominator is the
+    `import_heightfield.py`: the denominator is the
     encoding's, so a graph edit that lowers the mountains lowers them here.
     """
     n = height01.shape[0]

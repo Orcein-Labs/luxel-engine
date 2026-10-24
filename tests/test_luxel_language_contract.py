@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "tests" / "dsl_conformance" / "closure_v06.json"
 MIGRATION_PATH = ROOT / "tests" / "dsl_conformance" / "migration_worldbuilder_v1.json"
-SPEC_PATH = ROOT / "docs" / "DSL docs" / "LUXEL_LANGUAGE_SPEC.md"
+SPEC_PATH = ROOT / "docs" / "luxel-language-spec.md"
 PROTOTYPE_TEST_PATH = ROOT / "tests" / "test_worldbuilder_dsl.py"
 
 REQUIRED_FIXTURE_IDS = {

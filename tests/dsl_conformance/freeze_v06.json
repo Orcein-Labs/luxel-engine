@@ -18,17 +18,23 @@
     "independent_verdict": "freeze_yes"
   },
   "sha256": {
-    "docs/DSL docs/LUXEL_LANGUAGE_SPEC.md": "aae8b33d9d3dd89b2df1d15b3e68796eadc8f066507beb1a866fac1739d3fd82",
-    "docs/DSL docs/LANGUAGE_SPEC_FREEZE_VERIFICATION_01.md": "2e5d69e9e5673d969e4f8f5b084cdb1cb0755fe6a9f48d1482a25b34165fff03",
+    "docs/luxel-language-spec.md": "aae8b33d9d3dd89b2df1d15b3e68796eadc8f066507beb1a866fac1739d3fd82",
     "tests/dsl_conformance/closure_v06.json": "e0588e8fb45135f17a6db691d38e0d2393d6c72e5cd45366b69fc8f9d92f7475",
     "tests/dsl_conformance/migration_worldbuilder_v1.json": "e4d73bd4bc743a112b5f1061dc3c7810cf3094ec5134d4137f09b6b473e6f992",
-    "tests/test_luxel_language_contract.py": "b393809039dc14ae64be80799978f961fadda3f7876c7f322beabaa6324f0ead",
+    "tests/test_luxel_language_contract.py": "1b1c9f92cf0cd52bb459bed892a464894dc163625112968bb701bcc7117c7a63",
     "tests/test_worldbuilder_dsl.py": "d6f04735c58affa9ac8580167bb6a8597288f57f2095f095800c285afb6b4cd6",
     "pipeline/worldbuilder_dsl.py": "3bb12cd97623433c6be772983133088a66951c5f40bb52b24661c0e89ceeec68"
   },
-  "refrozen": {
-    "at": "2026-10-06",
-    "reason": "engine renamed WGE -> Luxel: namespace, extension, schema ids and file names only; no semantic change",
-    "verification": "python3 -m unittest tests.test_luxel_language_contract tests.test_worldbuilder_dsl -> 38 tests OK"
-  }
+  "refrozen": [
+    {
+      "at": "2026-10-06",
+      "reason": "engine renamed WGE -> Luxel: namespace, extension, schema ids and file names only; no semantic change",
+      "verification": "python3 -m unittest tests.test_luxel_language_contract tests.test_worldbuilder_dsl -> 38 tests OK"
+    },
+    {
+      "at": "2026-10-24",
+      "reason": "spec moved to docs/luxel-language-spec.md (content unchanged); internal verification notes left the repo; test path updated",
+      "verification": "python3 -m unittest tests.test_luxel_language_contract tests.test_worldbuilder_dsl"
+    }
+  ]
 }

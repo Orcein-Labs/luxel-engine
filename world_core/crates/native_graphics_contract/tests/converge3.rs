@@ -1,4 +1,4 @@
-//! CONVERGE-3 gates (`docs/world/converge/converge3-contracts.md`).
+//! CONVERGE-3 gates.
 //!
 //! W-1 still water, R-1 ruin damage. Tests that lower `converge3` need the
 //! built kits, like the N-5 ones: `python3 tools/build_kit.py --set kit1` and

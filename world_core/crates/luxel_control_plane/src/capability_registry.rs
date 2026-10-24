@@ -196,7 +196,7 @@ impl CapabilityCatalog {
                 &["stale_source_digest", "non_finite_field", "uphill_flow"],
                 &["luxel.validator.world-traversal/v1"],
                 &["world.terrain.remeasure"],
-                "docs/archive/2026-09_native-graphics-checkpoints/native-convergence-report.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "world.navigation.traversal",
@@ -214,7 +214,7 @@ impl CapabilityCatalog {
                 &["disconnected_route", "slope_violation", "stale_world"],
                 &["luxel.validator.world-traversal/v1"],
                 &["world.navigation.repair_route"],
-                "docs/archive/2026-09_roadmaps-and-audits/authority-reclamation-001.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "world.layout.lowering",
@@ -235,7 +235,7 @@ impl CapabilityCatalog {
                     "luxel.validator.world-traversal/v1",
                 ],
                 &["world.layout.repair"],
-                "docs/platform/repository-topology.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "asset.intake.validate",
@@ -261,7 +261,7 @@ impl CapabilityCatalog {
                 ],
                 &["luxel.validator.asset-preparation/v1"],
                 &["asset.reimport_from_source"],
-                "docs/platform/native-capability-matrix.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "asset.negative-control.reject",
@@ -279,7 +279,7 @@ impl CapabilityCatalog {
                 &["bad_control_accepted", "control_digest_changed"],
                 &["luxel.validator.asset-preparation/v1"],
                 &["asset.restore_known_bad_control"],
-                "docs/archive/2026-09_roadmaps-and-audits/authority-reclamation-001.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "gameplay.kit.compose",
@@ -301,7 +301,7 @@ impl CapabilityCatalog {
                 &["unknown_ability", "dependency_cycle", "silent_effect"],
                 &["luxel.validator.gameplay-replay/v1"],
                 &["gameplay.kit.repair"],
-                "docs/gameplay/gameplay-kit-architecture.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "graphics.scene.packet",
@@ -334,7 +334,7 @@ impl CapabilityCatalog {
                     "graphics.scene.reduce_budget",
                     "graphics.scene.rebuild_packet",
                 ],
-                "docs/platform/native-graphics-architecture.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "graphics.authored-frame.campaign2",
@@ -352,7 +352,7 @@ impl CapabilityCatalog {
                 &["flat_surface", "camera_out_of_bounds", "budget_exceeded"],
                 &["luxel.validator.visual-quality/v1"],
                 &["graphics.authored-frame.recompose"],
-                "docs/archive/2026-10_graphics-sprint-reports/graphics-campaign-2-report.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "graphics.capture.reference",
@@ -370,7 +370,7 @@ impl CapabilityCatalog {
                 &["truncated_capture", "stale_packet", "camera_mismatch"],
                 &["luxel.validator.visual-reference/v1"],
                 &["graphics.capture.rebind_camera"],
-                "docs/world/native-graphics-benchmark.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "graphics.visual-quality.evidence",
@@ -404,7 +404,7 @@ impl CapabilityCatalog {
                 ],
                 &["luxel.validator.visual-quality/v1"],
                 &["graphics.visual-quality.diagnose"],
-                "docs/world/native-quality-gaps.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "runtime.reference.deterministic",
@@ -429,7 +429,7 @@ impl CapabilityCatalog {
                     "luxel.validator.world-traversal/v1",
                 ],
                 &["runtime.replay_from_checkpoint"],
-                "docs/archive/2026-09_native-graphics-checkpoints/native-convergence-report.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "repair.evidence-bounded",
@@ -450,7 +450,7 @@ impl CapabilityCatalog {
                 &["unauthorized_edit", "unchanged_candidate", "stale_receipt"],
                 &["luxel.validator.evidence-repair/v1"],
                 &["repair.propose_bounded_delta"],
-                "docs/archive/2026-09_roadmaps-and-audits/authority-reclamation-001.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "style.profile.compile",
@@ -472,7 +472,7 @@ impl CapabilityCatalog {
                 &["unsupported_axis", "unresolved_conflict", "budget_exceeded"],
                 &["luxel.validator.semantic-spec/v1"],
                 &["style.profile.resolve_conflict"],
-                "docs/world/style-profile-contract.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "project.construction-plan",
@@ -507,7 +507,7 @@ impl CapabilityCatalog {
                 ],
                 &["luxel.validator.semantic-spec/v1"],
                 &["project.plan.reconcile"],
-                "docs/content-sdk/construction-plan-contract.md",
+                "luxel_control_plane::capability_registry",
             ),
             descriptor(
                 "provider.character.blender-boundary",
@@ -525,7 +525,7 @@ impl CapabilityCatalog {
                 &["provider_timeout", "missing_skinning", "bad_joint_index"],
                 &["luxel.validator.asset-preparation/v1"],
                 &["provider.character.reimport"],
-                "docs/archive/2026-09_roadmaps-and-audits/demo-ready-mega-sprint.md",
+                "luxel_control_plane::capability_registry",
             ),
         ];
         Self::new(NATIVE_CAPABILITY_REGISTRY_ID, capabilities)
