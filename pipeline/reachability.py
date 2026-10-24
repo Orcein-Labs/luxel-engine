@@ -1,6 +1,6 @@
 """Reachability manifest: does every advertised parameter reach its artifact?
 
-Luxel tooling item 2 (see Luxel/docs/platform/tooling-upgrades.md). Three no-op defects
+Luxel tooling item 2. Three no-op defects
 landed in a single day -- composition scalars the rasterizer never read,
 material textures the shader admitted only on steep faces, a generator with
 zero callers -- and every other signal stayed green through all of them: the
@@ -307,8 +307,8 @@ _SKIPPED_DIRS = frozenset({
     "target", "__pycache__", ".git", ".pytest_cache", "node_modules",
 })
 
-# The hygiene standard's scratch homes, skipped only at the walk root so the
-# committed `docs/research/` stays scanned. ~10 GB of raw capture JSON in
+# The hygiene standard's scratch homes, skipped only at the walk root so nested
+# directories with those names stay scanned. ~10 GB of raw capture JSON in
 # `research/` hung the same test again (found 2026-10-17).
 _SKIPPED_ROOT_DIRS = frozenset({"research", ".local"})
 

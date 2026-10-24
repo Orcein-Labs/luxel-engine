@@ -1,4 +1,4 @@
-//! CALIBRATION-1 gates (docs/world/converge/converge1-contracts.md §3).
+//! CALIBRATION-1 gates.
 //!
 //! Offline: the material manifest is complete, and each enumerated rig is a
 //! valid, distinct policy. With the fetched GLB (`#[ignore]`, run explicitly

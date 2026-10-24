@@ -5,8 +5,6 @@ This folder runs the same work on AMD GPUs (ROCm, through AMDGPU.jl), on NVIDIA
 and on the CPU, from one source. The `gpu/` scripts stay untouched as the
 recorded evidence; these files are held to it.
 
-Findings and evidence: [`../tetcage-amd-portability.md`](../tetcage-amd-portability.md).
-
 ## What is here
 
 | File | Role |

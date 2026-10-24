@@ -1,7 +1,0 @@
-Use case: precise-object-edit
-Asset type: original illustrated source-art reference for a future Live2D avatar; not a completed rig or Luxel render.
-Input image: reference and edit target, the provisional Cyan portrait.
-Primary request: Revise this adult operator avatar into an unmistakably adult woman with an elegant feminine face and a naturally feminine silhouette, while preserving the original high-end clean anime illustration style, blue-black hair with subtle cyan accents, turquoise eyes, teal tailored jacket and white high-neck shirt, frontal neutral pose, and professional composed expression. Tasteful fully clothed design. Keep the face and eyes easy to read at small display size and retain crisp high-contrast outlines.
-Composition: head through waist, complete hair and shoulders inside portrait canvas, arms beside the torso, generous margin above hair, neutral relaxed eyebrows and softly closed mouth. Keep hair clear of both eyes and mouth; move the central lock away from the nose. Keep existing outfit design and palette.
-Background: genuinely transparent outside the character, clean silhouette with no surrounding glow, smoke or color aura. Character interior fully opaque, transparency only outside and at antialiased contour edges.
-Constraints: one original adult woman only; no caption, text, watermark, logo, scenery, alternate views or floating parts. This is a single flattened art reference; do not draw rigging controls or pretend to provide layers.

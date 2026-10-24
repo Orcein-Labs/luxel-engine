@@ -2,7 +2,7 @@
 
 This directory contains hand-authored, host-neutral contract vectors for the
 model-native Luxel language. They are normative test inputs referenced by
-`docs/DSL docs/LUXEL_LANGUAGE_SPEC.md`; a production compiler may add
+`docs/luxel-language-spec.md`; a production compiler may add
 backend-specific fixtures but must not regenerate these expected values from
 the implementation under test.
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """MCP server that lets an agent drive Gaea through Luxel's own driver.
 
-Landscape parity plan P1 (`docs/world/landscape-parity-plan.md`).
+Landscape parity plan P1.
 Community Gaea MCP servers exist; this one is used instead because it routes
 through `gaea_terrain.py` and `gaea_build.py`, which carry the Proton invocation
 traps and the pixel-digest receipts that a generic server does not.
