@@ -1,4 +1,4 @@
-# Luxel Engine
+# Luxel Engine (still in development)
 
 Luxel is an open-world game engine with a Vulkan renderer. Its target is the
 look of current large open-world games: scanned materials, physically based
